@@ -1,0 +1,35 @@
+# pyproject.toml for the mhd_surrogate_core package
+
+[build-system]
+requires = ["setuptools>=59.6.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mhd_surrogate_core"
+version = "0.1.0"
+authors = [
+  { name="Michael Skowronek", email="michael.skowronek.91@gmail.com" },
+]
+description = "Core utilities, data loading, and plotting for MHD surrogate modeling."
+readme = "README.md"
+requires-python = ">=3.10"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Intended Audience :: Science/Research",
+    "Topic :: Scientific/Engineering",
+]
+
+# Define the package dependencies here
+dependencies = [
+]
+
+# Optional dependencies for development (e.g., testing, formatting)
+[project.optional-dependencies]
+dev = [
+]
+
+
+[project.urls]
+"Homepage" = "https://github.com/MichaelSkowronek/mhd_surogate_modelling"
