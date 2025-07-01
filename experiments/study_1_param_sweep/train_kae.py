@@ -7,15 +7,14 @@ from pathlib import Path
 
 import torch
 import torch.nn as nn
-from torch.utils.data import DataLoader
 from torch.optim import Adam
+from torch.utils.data import DataLoader
 
 # To run this script, you need to have your packages installed in editable mode.
 # From the experiment directory, you would run:
-# pip install -e ../../packages/mhd_surrogate_core
-# pip install -e ../../packages/mhd_canonical_kae
-from mhd_surrogate_core.data import MHDDataset
+# pip install -r requirements.txt
 from mhd_canonical_kae.model import KoopmanAutoencoder
+from mhd_surrogate_core.data import MHDDataset
 
 # Configure basic logging
 logging.basicConfig(
@@ -119,8 +118,6 @@ def main():
     logging.info(f"Using device: {device}")
 
     # --- Data Loading ---
-    # For now, we assume a single data file. This can be extended to handle
-    # training/validation splits later.
     dataset = MHDDataset(file_path=args.data_path)
     dataloader = DataLoader(
         dataset=dataset,
@@ -129,17 +126,11 @@ def main():
     )
 
     # --- Model Definition ---
-    # The number of input channels must match the data.
-    # We get this from the first sample in the dataset.
+    # Dynamically determine the number of input channels from the dataset.
+    # The dataset returns (D, H, W, C), so channels are the last dimension.
     sample_x, _ = dataset[0]
-    in_channels = sample_x.shape[0] 
-    # Note: Assumes data is in (C, D, H, W) format after the Dataset.
-    # Let's adjust the model and data handling to be consistent.
-    # PyTorch CNNs expect (B, C, D, H, W). Our data is (D, H, W, C).
-    # We need to permute the dimensions. Let's assume this is done in the Dataset for now.
-    # For simplicity, let's hardcode for now.
-    # TODO: Make this dynamic based on data.
-    in_channels = 20 # As per your data description
+    in_channels = sample_x.shape[-1]
+    logging.info(f"Detected {in_channels} input channels from the data.")
 
     model = KoopmanAutoencoder(
         in_channels=in_channels,
@@ -186,7 +177,7 @@ def main():
                     f"Batch [{batch_idx}/{len(dataloader)}] | "
                     f"Loss: {loss.item():.4f}"
                 )
-        
+
         avg_epoch_loss = total_epoch_loss / len(dataloader)
         logging.info(
             f"====> Epoch {epoch+1} completed. Average Loss: {avg_epoch_loss:.4f} ===="
