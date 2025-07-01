@@ -23,7 +23,7 @@ DEST_BASE="/raid/skowronek"
 # An array of the final dataset filenames to be copied for each Ha.
 # Add or remove filenames here as needed for your jobs.
 FILES_TO_COPY=(
-    "vxyz_jxyz_p_f_du_dv_dw_dev.npz"
+    "vxyz_jxyz_p_f_du_dv_dw_uncompressed.npz"
 )
 
 # --- Script Configuration ---
