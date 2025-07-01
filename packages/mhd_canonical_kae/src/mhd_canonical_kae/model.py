@@ -33,7 +33,8 @@ class Encoder(nn.Module):
             nn.BatchNorm3d(128),
             nn.Conv3d(128, 256, kernel_size=3, stride=2, padding=1),
             nn.GELU(),
-            nn.BatchNorm3d(256),
+            # THE FIX IS HERE: Removed the final BatchNorm3d layer that caused the error
+            # nn.BatchNorm3d(256),
         )
 
         # Perform a dummy forward pass to calculate the flattened size
