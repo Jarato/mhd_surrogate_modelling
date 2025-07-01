@@ -126,15 +126,18 @@ def main():
     )
 
     # --- Model Definition ---
-    # Dynamically determine the number of input channels from the dataset.
-    # The dataset returns (D, H, W, C), so channels are the last dimension.
+    # Dynamically determine the input shape from the dataset.
     sample_x, _ = dataset[0]
+    # Dataset returns (D, H, W, C)
     in_channels = sample_x.shape[-1]
+    input_spatial_dims = sample_x.shape[:-1]
     logging.info(f"Detected {in_channels} input channels from the data.")
+    logging.info(f"Detected spatial dimensions: {input_spatial_dims}")
 
     model = KoopmanAutoencoder(
         in_channels=in_channels,
         latent_dim=args.latent_dim,
+        input_spatial_dims=input_spatial_dims,
     ).to(device)
 
     # --- Optimizer and Loss ---
