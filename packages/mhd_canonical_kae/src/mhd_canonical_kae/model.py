@@ -32,14 +32,13 @@ class Encoder(nn.Module):
             nn.BatchNorm3d(128),
             nn.Conv3d(128, 256, kernel_size=3, stride=2, padding=1),
             nn.GELU(),
+            nn.BatchNorm3d(256),
         )
         
-        # This attribute will be populated by the KoopmanAutoencoder
-        self._flattened_size = None
-
+        # This will be populated by the main KoopmanAutoencoder class
         self.fc_network = nn.Sequential(
             nn.Flatten(),
-            # The Linear layer will be added dynamically later
+            # The Linear layer will be added dynamically.
         )
 
     def forward(
@@ -47,9 +46,7 @@ class Encoder(nn.Module):
         x: torch.Tensor,
     ) -> torch.Tensor:
         x = self.conv_network(x)
-        # If the fc_network has the linear layer, apply it
-        if len(self.fc_network) > 1:
-            x = self.fc_network(x)
+        x = self.fc_network(x)
         return x
 
 
@@ -118,15 +115,14 @@ class KoopmanAutoencoder(nn.Module):
         super().__init__()
         self.encoder = Encoder(in_channels, latent_dim)
         
-        # --- THE FIX IS HERE ---
         # Perform a dummy forward pass to dynamically configure the model
         with torch.no_grad():
             dummy_input = torch.zeros(1, in_channels, *input_spatial_dims)
-            conv_output = self.encoder(dummy_input)
+            # Pass through the convolutional part of the encoder
+            conv_output = self.encoder.conv_network(dummy_input)
             
             # Dynamically create the final linear layer for the encoder
             flattened_size = conv_output.flatten(1).shape[1]
-            self.encoder._flattened_size = flattened_size
             self.encoder.fc_network.add_module(
                 "1", nn.Linear(flattened_size, latent_dim)
             )
@@ -173,19 +169,12 @@ class KoopmanAutoencoder(nn.Module):
         x_t_reconstructed = self.decode(z_t)
         x_t_plus_1_predicted = self.decode(z_t_plus_1_predicted)
 
-        # Ensure output size matches input size
+        # Crop the output to match the input size if necessary.
+        # This handles any minor size mismatches from strided convolutions.
         if x_t_reconstructed.shape != x_t.shape:
-            # This can happen due to odd/even dimension issues with strided convolutions.
-            # We can crop the output to match the input size.
-            crop_d = x_t_reconstructed.shape[2] - x_t.shape[2]
-            crop_h = x_t_reconstructed.shape[3] - x_t.shape[3]
-            crop_w = x_t_reconstructed.shape[4] - x_t.shape[4]
-            x_t_reconstructed = x_t_reconstructed[
-                :, :, :x_t.shape[2], :x_t.shape[3], :x_t.shape[4]
-            ]
-            x_t_plus_1_predicted = x_t_plus_1_predicted[
-                :, :, :x_t_plus_1.shape[2], :x_t_plus_1.shape[3], :x_t_plus_1.shape[4]
-            ]
+            s_d, s_h, s_w = x_t.shape[2:]
+            x_t_reconstructed = x_t_reconstructed[:, :, :s_d, :s_h, :s_w]
+            x_t_plus_1_predicted = x_t_plus_1_predicted[:, :, :s_d, :s_h, :s_w]
 
 
         return OrderedDict(

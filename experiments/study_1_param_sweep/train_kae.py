@@ -130,14 +130,14 @@ def main():
     sample_x, _ = dataset[0]
     # Dataset returns (D, H, W, C)
     in_channels = sample_x.shape[-1]
-    input_spatial_dims = sample_x.shape[:-1]
+    input_spatial_dims = sample_x.shape[:-1] # Get the (D, H, W) part
     logging.info(f"Detected {in_channels} input channels from the data.")
     logging.info(f"Detected spatial dimensions: {input_spatial_dims}")
 
     model = KoopmanAutoencoder(
         in_channels=in_channels,
         latent_dim=args.latent_dim,
-        input_spatial_dims=input_spatial_dims,
+        input_spatial_dims=input_spatial_dims, # Pass the spatial dimensions
     ).to(device)
 
     # --- Optimizer and Loss ---
