@@ -27,7 +27,7 @@ classifiers = [
 dependencies = [
     # We declare that this model package depends on our core package.
     # Pip will find it because we will install both in editable mode.
-    "mhd_surrogate_core", 
+    "mhd_surrogate_core",
 ]
 
 

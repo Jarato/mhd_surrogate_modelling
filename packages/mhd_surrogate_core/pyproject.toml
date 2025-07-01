@@ -21,13 +21,22 @@ classifiers = [
     "Topic :: Scientific/Engineering",
 ]
 
-# Define the package dependencies here
-dependencies = [
-]
+# This list is now empty, as we assume all third-party
+# dependencies are provided by the environment.
+dependencies = []
 
-# Optional dependencies for development (e.g., testing, formatting)
+# Optional dependencies document what is needed without forcing installation.
+# To install these on a local machine, use: pip install -e ".[core,dev]"
 [project.optional-dependencies]
+core = [
+    "numpy",
+    "scipy",
+    "h5py",
+    "matplotlib",
+]
 dev = [
+    "pytest",
+    "black",
 ]
 
 
