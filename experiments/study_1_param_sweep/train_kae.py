@@ -42,7 +42,13 @@ def parse_args():
         "--epochs",
         type=int,
         default=50,
-        help="Number of training epochs.",
+        help="Maximum number of training epochs.",
+    )
+    parser.add_argument(
+        "--patience",
+        type=int,
+        default=8,
+        help="Number of epochs to wait for validation loss improvement before stopping.",
     )
     parser.add_argument(
         "--batch-size",
@@ -181,6 +187,11 @@ def main():
     optimizer = Adam(model.parameters(), lr=args.lr)
     loss_weights = {"recon": 1.0, "pred": 1.0, "lin": 1.0}
     best_val_loss = float("inf")
+    patience_counter = 0
+    
+    # Lists to store loss history for plotting
+    train_loss_history = []
+    val_loss_history = []
 
     # --- Training Loop ---
     logging.info("Starting training...")
@@ -203,6 +214,10 @@ def main():
 
         avg_train_loss = total_train_loss / len(train_dataloader)
         avg_val_loss = validate_epoch(model, val_dataloader, loss_weights, device)
+        
+        # Log the history
+        train_loss_history.append(avg_train_loss)
+        val_loss_history.append(avg_val_loss)
 
         logging.info(
             f"Epoch [{epoch+1}/{args.epochs}] | "
@@ -210,17 +225,28 @@ def main():
             f"Val Loss: {avg_val_loss:.4f}"
         )
 
+        # --- Early Stopping and Model Checkpointing ---
         if avg_val_loss < best_val_loss:
             best_val_loss = avg_val_loss
+            patience_counter = 0
             model_path = output_dir / "best_model.pth"
             
-            # Save a dictionary containing the model's config and state
+            # Save the loss history along with the model
             checkpoint = {
                 'config': model_config,
                 'model_state_dict': model.state_dict(),
+                'train_loss_history': train_loss_history,
+                'val_loss_history': val_loss_history,
             }
             torch.save(checkpoint, model_path)
             logging.info(f"New best model saved to {model_path} (Val Loss: {best_val_loss:.4f})")
+        else:
+            patience_counter += 1
+            logging.info(f"Validation loss did not improve. Patience: {patience_counter}/{args.patience}")
+        
+        if patience_counter >= args.patience:
+            logging.info("Early stopping triggered. Training finished.")
+            break
 
     logging.info("Training finished.")
 
