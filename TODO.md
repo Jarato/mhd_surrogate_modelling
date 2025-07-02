@@ -5,8 +5,6 @@ This document tracks the development tasks for the MHD Surrogate Modeling projec
 
     - Suggested further improvements (from Gemini):
 
-        - Experiment Tracking (e.g., with TensorBoard)
-
         - Learning Rate Scheduling
 
         - Gradient Clipping

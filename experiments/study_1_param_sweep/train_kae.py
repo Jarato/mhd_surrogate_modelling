@@ -11,6 +11,7 @@ import torch.nn as nn
 from torch.optim import Adam
 from torch.utils.data import DataLoader
 from torch.utils.data import Subset
+from torch.utils.tensorboard import SummaryWriter
 
 from mhd_canonical_kae.model import KoopmanAutoencoder
 from mhd_surrogate_core.data import MHDDataset
@@ -23,41 +24,18 @@ logging.basicConfig(
 def parse_args():
     """Parse command-line arguments."""
     parser = argparse.ArgumentParser(description="Train a Koopman Autoencoder.")
-    parser.add_argument(
-        "--data-path",
-        type=str,
-        required=True,
-        help="Path to the pre-split train_val_set.npz.",
-    )
-    parser.add_argument(
-        "--norm-stats-path",
-        type=str,
-        required=True,
-        help="Path to the normalization_stats.npz file.",
-    )
-    parser.add_argument(
-        "--output-dir",
-        type=str,
-        default="output",
-        help="Directory to save the best model.",
-    )
-    parser.add_argument(
-        "--resume-from-checkpoint",
-        type=str,
-        default=None,
-        help="Path to a checkpoint to resume training.",
-    )
-    parser.add_argument(
-        "--epochs", type=int, default=50, help="Maximum number of training epochs."
-    )
-    parser.add_argument(
-        "--patience", type=int, default=10, help="Patience for early stopping."
-    )
+    parser.add_argument("--data-path",type=str,required=True,help="Path to the pre-split train_val_set.npz.",)
+    parser.add_argument("--norm-stats-path",type=str,required=True,help="Path to the normalization_stats.npz file.",)
+    parser.add_argument("--output-dir",type=str,default="output",help="Directory to save the best model and logs.",)
+    parser.add_argument("--resume-from-checkpoint",type=str,default=None,help="Path to a 'latest_checkpoint.pth' to resume training.",)
+    parser.add_argument("--epochs", type=int, default=50, help="Maximum number of training epochs.")
+    parser.add_argument("--patience", type=int, default=10, help="Patience for early stopping.")
     parser.add_argument("--batch-size", type=int, default=16, help="Batch size.")
     parser.add_argument("--lr", type=float, default=1e-3, help="Learning rate.")
-    parser.add_argument(
-        "--latent-dim", type=int, default=128, help="Dimension of the latent space."
-    )
+    parser.add_argument("--latent-dim", type=int, default=128, help="Dimension of the latent space.")
+    parser.add_argument("--w-recon", type=float, default=1.0, help="Weight for the reconstruction loss.")
+    parser.add_argument("--w-pred", type=float, default=1.0, help="Weight for the prediction loss.")
+    parser.add_argument("--w-lin", type=float, default=1.0, help="Weight for the latent linearity loss.")
     return parser.parse_args()
 
 
@@ -81,17 +59,20 @@ def compute_loss(batch_x_t, batch_x_t_plus_1, outputs, loss_weights):
 
 def validate_epoch(model, dataloader, loss_weights, device):
     model.eval()
-    total_val_loss = 0.0
+    total_losses = {"total": 0.0, "recon": 0.0, "pred": 0.0, "lin": 0.0}
     with torch.no_grad():
         for batch_x_t, batch_x_t_plus_1 in dataloader:
             batch_x_t = batch_x_t.permute(0, 4, 1, 2, 3).to(device)
             batch_x_t_plus_1 = batch_x_t_plus_1.permute(0, 4, 1, 2, 3).to(device)
             outputs = model(batch_x_t, batch_x_t_plus_1)
-            loss, _ = compute_loss(
+            _, loss_dict = compute_loss(
                 batch_x_t, batch_x_t_plus_1, outputs, loss_weights
             )
-            total_val_loss += loss.item()
-    return total_val_loss / len(dataloader)
+            for key in total_losses:
+                total_losses[key] += loss_dict[key].item()
+
+    avg_losses = {key: val / len(dataloader) for key, val in total_losses.items()}
+    return avg_losses
 
 
 def main():
@@ -101,8 +82,8 @@ def main():
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    # --- Data Loading and Splitting ---
-    # Load the full dataset with normalization stats
+    writer = SummaryWriter(log_dir=output_dir / "logs")
+
     full_dataset = MHDDataset(
         file_path=args.data_path,
         norm_stats_path=args.norm_stats_path,
@@ -110,8 +91,7 @@ def main():
 
     start_epoch = 0
     best_val_loss = float("inf")
-    train_loss_history = []
-    val_loss_history = []
+    patience_counter = 0
 
     if args.resume_from_checkpoint:
         checkpoint = torch.load(args.resume_from_checkpoint, map_location=device)
@@ -126,10 +106,8 @@ def main():
         optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
         start_epoch = checkpoint["epoch"] + 1
         best_val_loss = checkpoint["best_val_loss"]
-        train_loss_history = checkpoint.get("train_loss_history", [])
-        val_loss_history = checkpoint.get("val_loss_history", [])
+        patience_counter = checkpoint["patience_counter"]
     else:
-        # Load indices from the stats file for a new run
         stats = np.load(args.norm_stats_path)
         train_indices = stats["train_indices"]
         val_indices = stats["val_indices"]
@@ -153,54 +131,55 @@ def main():
     )
     logging.info(f"Data split: {len(train_dataset)} train, {len(val_dataset)} val.")
 
-    loss_weights = {"recon": 1.0, "pred": 1.0, "lin": 1.0}
-    patience_counter = 0
+    loss_weights = {"recon": args.w_recon, "pred": args.w_pred, "lin": args.w_lin}
+    logging.info(f"Using loss weights: {loss_weights}")
 
     logging.info(f"Starting training from epoch {start_epoch+1}...")
     for epoch in range(start_epoch, args.epochs):
         model.train()
-        total_train_loss = 0.0
+        epoch_train_losses = {"total": 0.0, "recon": 0.0, "pred": 0.0, "lin": 0.0}
         for batch_x_t, batch_x_t_plus_1 in train_dataloader:
             batch_x_t = batch_x_t.permute(0, 4, 1, 2, 3).to(device)
             batch_x_t_plus_1 = batch_x_t_plus_1.permute(0, 4, 1, 2, 3).to(device)
             outputs = model(batch_x_t, batch_x_t_plus_1)
-            loss, _ = compute_loss(
+            loss, loss_dict = compute_loss(
                 batch_x_t, batch_x_t_plus_1, outputs, loss_weights
             )
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
-            total_train_loss += loss.item()
+            for key in epoch_train_losses:
+                epoch_train_losses[key] += loss_dict[key].item()
 
-        avg_train_loss = total_train_loss / len(train_dataloader)
-        avg_val_loss = validate_epoch(model, val_dataloader, loss_weights, device)
-        train_loss_history.append(avg_train_loss)
-        val_loss_history.append(avg_val_loss)
+        avg_train_losses = {key: val / len(train_dataloader) for key, val in epoch_train_losses.items()}
+        avg_val_losses = validate_epoch(model, val_dataloader, loss_weights, device)
 
         logging.info(
             f"Epoch [{epoch+1}/{args.epochs}] | "
-            f"Train Loss: {avg_train_loss:.4f} | "
-            f"Val Loss: {avg_val_loss:.4f}"
+            f"Train Loss: {avg_train_losses['total']:.4f} | "
+            f"Val Loss: {avg_val_losses['total']:.4f}"
         )
 
-        if avg_val_loss < best_val_loss:
-            best_val_loss = avg_val_loss
+        writer.add_scalar("Loss/Train", avg_train_losses["total"], epoch)
+        writer.add_scalar("Loss/Validation", avg_val_losses["total"], epoch)
+        for key in ["recon", "pred", "lin"]:
+            writer.add_scalars(f"Loss_Components/{key}", {
+                'train': avg_train_losses[key],
+                'val': avg_val_losses[key],
+            }, epoch)
+        writer.add_scalar("Learning_Rate", optimizer.param_groups[0]['lr'], epoch)
+
+        if avg_val_losses["total"] < best_val_loss:
+            best_val_loss = avg_val_losses["total"]
             patience_counter = 0
-            model_path = output_dir / "best_model.pth"
-            checkpoint = {
-                "epoch": epoch,
-                "config": model_config,
-                "model_state_dict": model.state_dict(),
-                "optimizer_state_dict": optimizer.state_dict(),
-                "best_val_loss": best_val_loss,
-                "train_loss_history": train_loss_history,
-                "val_loss_history": val_loss_history,
-                "train_indices": train_dataset.indices,
-                "val_indices": val_dataset.indices,
+            best_model_path = output_dir / "best_model.pth"
+            best_checkpoint = {
+                'config': model_config,
+                'model_state_dict': model.state_dict(),
             }
-            torch.save(checkpoint, model_path)
+            torch.save(best_checkpoint, best_model_path)
             logging.info(
-                f"New best model saved to {model_path} (Val Loss: {best_val_loss:.4f})"
+                f"New best model saved to {best_model_path} (Val Loss: {best_val_loss:.4f})"
             )
         else:
             patience_counter += 1
@@ -208,9 +187,37 @@ def main():
                 f"Validation loss did not improve. Patience: {patience_counter}/{args.patience}"
             )
 
+        # Save latest checkpoint at the end of every epoch
+        latest_checkpoint_path = output_dir / "latest_checkpoint.pth"
+        checkpoint = {
+            "epoch": epoch,
+            "config": model_config,
+            "model_state_dict": model.state_dict(),
+            "optimizer_state_dict": optimizer.state_dict(),
+            "best_val_loss": best_val_loss,
+            "patience_counter": patience_counter,
+            "train_indices": train_dataset.indices,
+            "val_indices": val_dataset.indices,
+        }
+        torch.save(checkpoint, latest_checkpoint_path)
+
         if patience_counter >= args.patience:
             logging.info("Early stopping triggered.")
             break
+
+    hparams = {
+        'lr': args.lr,
+        'latent_dim': args.latent_dim,
+        'batch_size': args.batch_size,
+        'w_recon': args.w_recon,
+        'w_pred': args.w_pred,
+        'w_lin': args.w_lin,
+    }
+    final_metrics = {
+        'hparam/best_val_loss': best_val_loss,
+    }
+    writer.add_hparams(hparams, final_metrics)
+    writer.close()
 
     logging.info("Training finished.")
 
