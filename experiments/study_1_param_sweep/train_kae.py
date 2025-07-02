@@ -8,7 +8,7 @@ from pathlib import Path
 import torch
 import torch.nn as nn
 from torch.optim import Adam
-from torch.utils.data import DataLoader, random_split
+from torch.utils.data import DataLoader, random_split, Subset
 
 # To run this script, you need to have your packages installed in editable mode.
 # From the experiment directory, you would run:
@@ -39,6 +39,12 @@ def parse_args():
         help="Directory to save the best model.",
     )
     parser.add_argument(
+        "--resume-from-checkpoint",
+        type=str,
+        default=None,
+        help="Path to a model checkpoint to resume training from.",
+    )
+    parser.add_argument(
         "--epochs",
         type=int,
         default=50,
@@ -47,7 +53,7 @@ def parse_args():
     parser.add_argument(
         "--patience",
         type=int,
-        default=8,
+        default=10,
         help="Number of epochs to wait for validation loss improvement before stopping.",
     )
     parser.add_argument(
@@ -148,18 +154,64 @@ def main():
 
     # --- Data Loading and Splitting ---
     train_val_dataset = MHDDataset(file_path=args.data_path)
-
-    val_size = int(len(train_val_dataset) * args.val_split)
-    train_size = len(train_val_dataset) - val_size
     
-    if train_size < 1 or val_size < 1:
-        raise ValueError(
-            "The train_val_set is too small to create a non-empty train and val split."
+    # --- Model and Optimizer Initialization ---
+    model = None
+    optimizer = None
+    start_epoch = 0
+    best_val_loss = float("inf")
+    train_loss_history = []
+    val_loss_history = []
+    train_dataset = None
+    val_dataset = None
+    
+    if args.resume_from_checkpoint:
+        logging.info(f"Resuming training from checkpoint: {args.resume_from_checkpoint}")
+        checkpoint = torch.load(args.resume_from_checkpoint, map_location=device)
+        model_config = checkpoint['config']
+        
+        # Recreate the exact same datasets using saved indices
+        train_indices = checkpoint['train_indices']
+        val_indices = checkpoint['val_indices']
+        train_dataset = Subset(train_val_dataset, train_indices)
+        val_dataset = Subset(train_val_dataset, val_indices)
+        
+        model = KoopmanAutoencoder(**model_config).to(device)
+        model.load_state_dict(checkpoint['model_state_dict'])
+        
+        optimizer = Adam(model.parameters(), lr=args.lr)
+        optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+        
+        start_epoch = checkpoint['epoch'] + 1
+        best_val_loss = checkpoint['best_val_loss']
+        train_loss_history = checkpoint.get('train_loss_history', [])
+        val_loss_history = checkpoint.get('val_loss_history', [])
+        
+        logging.info(f"Resuming from epoch {start_epoch}. Best val loss so far: {best_val_loss:.4f}")
+    else:
+        # This is a fresh run, so we create a new random split
+        val_size = int(len(train_val_dataset) * args.val_split)
+        train_size = len(train_val_dataset) - val_size
+        
+        if train_size < 1 or val_size < 1:
+            raise ValueError(
+                "The train_val_set is too small to create a non-empty train and val split."
+            )
+
+        train_dataset, val_dataset = random_split(
+            train_val_dataset, [train_size, val_size], generator=generator
         )
 
-    train_dataset, val_dataset = random_split(
-        train_val_dataset, [train_size, val_size], generator=generator
-    )
+        # Initialize model and optimizer from scratch
+        sample_x, _ = train_val_dataset[0]
+        model_config = {
+            'in_channels': sample_x.shape[-1],
+            'latent_dim': args.latent_dim,
+            'input_spatial_dims': sample_x.shape[:-1],
+        }
+        logging.info(f"Initializing new model with config: {model_config}")
+        model = KoopmanAutoencoder(**model_config).to(device)
+        optimizer = Adam(model.parameters(), lr=args.lr)
 
     train_dataloader = DataLoader(
         dataset=train_dataset, batch_size=args.batch_size, shuffle=True
@@ -169,33 +221,12 @@ def main():
     )
     logging.info(f"Data split: {len(train_dataset)} train, {len(val_dataset)} val.")
 
-    # --- Model Definition ---
-    sample_x, _ = train_val_dataset[0]
-    in_channels = sample_x.shape[-1]
-    input_spatial_dims = sample_x.shape[:-1]
-    
-    model_config = {
-        'in_channels': in_channels,
-        'latent_dim': args.latent_dim,
-        'input_spatial_dims': input_spatial_dims,
-    }
-    logging.info(f"Initializing model with config: {model_config}")
-
-    model = KoopmanAutoencoder(**model_config).to(device)
-
-    # --- Optimizer and Loss ---
-    optimizer = Adam(model.parameters(), lr=args.lr)
     loss_weights = {"recon": 1.0, "pred": 1.0, "lin": 1.0}
-    best_val_loss = float("inf")
     patience_counter = 0
-    
-    # Lists to store loss history for plotting
-    train_loss_history = []
-    val_loss_history = []
 
     # --- Training Loop ---
-    logging.info("Starting training...")
-    for epoch in range(args.epochs):
+    logging.info(f"Starting training from epoch {start_epoch+1}...")
+    for epoch in range(start_epoch, args.epochs):
         model.train()
         total_train_loss = 0.0
         for batch_idx, (batch_x_t, batch_x_t_plus_1) in enumerate(train_dataloader):
@@ -215,7 +246,6 @@ def main():
         avg_train_loss = total_train_loss / len(train_dataloader)
         avg_val_loss = validate_epoch(model, val_dataloader, loss_weights, device)
         
-        # Log the history
         train_loss_history.append(avg_train_loss)
         val_loss_history.append(avg_val_loss)
 
@@ -225,18 +255,22 @@ def main():
             f"Val Loss: {avg_val_loss:.4f}"
         )
 
-        # --- Early Stopping and Model Checkpointing ---
         if avg_val_loss < best_val_loss:
             best_val_loss = avg_val_loss
             patience_counter = 0
             model_path = output_dir / "best_model.pth"
             
-            # Save the loss history along with the model
+            # Save the dataset indices along with everything else
             checkpoint = {
+                'epoch': epoch,
                 'config': model_config,
                 'model_state_dict': model.state_dict(),
+                'optimizer_state_dict': optimizer.state_dict(),
+                'best_val_loss': best_val_loss,
                 'train_loss_history': train_loss_history,
                 'val_loss_history': val_loss_history,
+                'train_indices': train_dataset.indices,
+                'val_indices': val_dataset.indices,
             }
             torch.save(checkpoint, model_path)
             logging.info(f"New best model saved to {model_path} (Val Loss: {best_val_loss:.4f})")
