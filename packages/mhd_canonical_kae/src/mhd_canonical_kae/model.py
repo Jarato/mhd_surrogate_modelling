@@ -90,6 +90,8 @@ class Decoder(nn.Module):
             nn.ConvTranspose3d(
                 32, self.out_channels, kernel_size=3, stride=2, padding=1, output_padding=1
             ),
+            # Add a Tanh activation to ensure output is in [-1, 1]
+            nn.Tanh(),
         )
 
     def forward(

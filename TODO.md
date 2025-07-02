@@ -3,7 +3,19 @@ This document tracks the development tasks for the MHD Surrogate Modeling projec
 
 - train.py (see Gemini webapp)
 
-    - keep working on train.py
+    - Suggested further improvements (from Gemini):
+
+        - Experiment Tracking (e.g., with TensorBoard)
+
+        - Learning Rate Scheduling
+
+        - Gradient Clipping
+
+    - Final model training (with normalization param determination) on whole train-val.
+
+    - CV for fine-grained selection between top models.
+
+    - Try standardization instead of normalization to allow predictions outside of the seen realm.
 
 ### Stage 1: Baseline Implementation and HPC Pipeline
 
