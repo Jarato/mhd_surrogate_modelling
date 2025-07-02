@@ -3,7 +3,7 @@ This document tracks the development tasks for the MHD Surrogate Modeling projec
 
 - train.py (see Gemini webapp)
 
-    - Add output Batchnorm of encoder after testing on dummy data
+    - keep working on train.py
 
 ### Stage 1: Baseline Implementation and HPC Pipeline
 
