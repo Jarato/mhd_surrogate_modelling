@@ -65,7 +65,7 @@ def parse_args():
     parser.add_argument(
         "--val-split",
         type=float,
-        default=0.2, # e.g., use 20% of the train_val_set for validation
+        default=0.2,
         help="Fraction of the train+val data to use for validation.",
     )
     parser.add_argument(
@@ -141,7 +141,6 @@ def main():
     generator = torch.Generator().manual_seed(args.seed)
 
     # --- Data Loading and Splitting ---
-    # Load the pre-split training and validation data
     train_val_dataset = MHDDataset(file_path=args.data_path)
 
     val_size = int(len(train_val_dataset) * args.val_split)
@@ -149,8 +148,7 @@ def main():
     
     if train_size < 1 or val_size < 1:
         raise ValueError(
-            "The train_val_set is too small to create a non-empty train and val split. "
-            "Please use a larger dataset or adjust the split ratio."
+            "The train_val_set is too small to create a non-empty train and val split."
         )
 
     train_dataset, val_dataset = random_split(
@@ -169,13 +167,15 @@ def main():
     sample_x, _ = train_val_dataset[0]
     in_channels = sample_x.shape[-1]
     input_spatial_dims = sample_x.shape[:-1]
-    logging.info(f"Detected {in_channels} input channels and spatial dims {input_spatial_dims}.")
+    
+    model_config = {
+        'in_channels': in_channels,
+        'latent_dim': args.latent_dim,
+        'input_spatial_dims': input_spatial_dims,
+    }
+    logging.info(f"Initializing model with config: {model_config}")
 
-    model = KoopmanAutoencoder(
-        in_channels=in_channels,
-        latent_dim=args.latent_dim,
-        input_spatial_dims=input_spatial_dims,
-    ).to(device)
+    model = KoopmanAutoencoder(**model_config).to(device)
 
     # --- Optimizer and Loss ---
     optimizer = Adam(model.parameters(), lr=args.lr)
@@ -213,7 +213,13 @@ def main():
         if avg_val_loss < best_val_loss:
             best_val_loss = avg_val_loss
             model_path = output_dir / "best_model.pth"
-            torch.save(model.state_dict(), model_path)
+            
+            # Save a dictionary containing the model's config and state
+            checkpoint = {
+                'config': model_config,
+                'model_state_dict': model.state_dict(),
+            }
+            torch.save(checkpoint, model_path)
             logging.info(f"New best model saved to {model_path} (Val Loss: {best_val_loss:.4f})")
 
     logging.info("Training finished.")

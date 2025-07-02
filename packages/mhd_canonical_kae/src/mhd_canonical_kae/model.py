@@ -35,7 +35,6 @@ class Encoder(nn.Module):
             nn.BatchNorm3d(256),
         )
         
-        # This will be populated by the main KoopmanAutoencoder class
         self.fc_network = nn.Sequential(
             nn.Flatten(),
             # The Linear layer will be added dynamically.
@@ -52,7 +51,7 @@ class Encoder(nn.Module):
 
 class Decoder(nn.Module):
     """
-    A 3D CNN Decoder that dynamically adapts to the encoder's output.
+    A 3D CNN Decoder that dynamically adapts and crops its output.
     """
 
     def __init__(
@@ -61,12 +60,14 @@ class Decoder(nn.Module):
         out_channels: int,
         encoder_flattened_size: int,
         conv_output_shape: tuple[int, ...],
+        target_spatial_dims: tuple[int, int, int],
     ):
         super().__init__()
         self.latent_dim = latent_dim
         self.out_channels = out_channels
         self.encoder_flattened_size = encoder_flattened_size
         self.conv_output_shape = conv_output_shape
+        self.target_spatial_dims = target_spatial_dims
 
         self.fc_network = nn.Linear(self.latent_dim, self.encoder_flattened_size)
 
@@ -97,13 +98,18 @@ class Decoder(nn.Module):
     ) -> torch.Tensor:
         x = self.fc_network(z)
         x = x.view(-1, *self.conv_output_shape)
-        return self.conv_transpose_network(x)
+        x = self.conv_transpose_network(x)
+        
+        # Crop the output to the target size internally.
+        s_d, s_h, s_w = self.target_spatial_dims
+        x = x[:, :, :s_d, :s_h, :s_w]
+        
+        return x
 
 
 class KoopmanAutoencoder(nn.Module):
     """
     The main Koopman Autoencoder model.
-    This version is robust to varying input sizes.
     """
 
     def __init__(
@@ -115,27 +121,22 @@ class KoopmanAutoencoder(nn.Module):
         super().__init__()
         self.encoder = Encoder(in_channels, latent_dim)
         
-        # Perform a dummy forward pass to dynamically configure the model
         with torch.no_grad():
             dummy_input = torch.zeros(1, in_channels, *input_spatial_dims)
-            # Pass through the convolutional part of the encoder
             conv_output = self.encoder.conv_network(dummy_input)
             
-            # Dynamically create the final linear layer for the encoder
             flattened_size = conv_output.flatten(1).shape[1]
             self.encoder.fc_network.add_module(
                 "1", nn.Linear(flattened_size, latent_dim)
             )
-
-            # Get the shape of the convolutional output for the decoder
             conv_output_shape = conv_output.shape[1:]
 
-        # Now, create the decoder with the dynamically determined shapes
         self.decoder = Decoder(
             latent_dim=latent_dim,
             out_channels=in_channels,
             encoder_flattened_size=flattened_size,
             conv_output_shape=conv_output_shape,
+            target_spatial_dims=input_spatial_dims,
         )
 
         self.koopman_operator = nn.Linear(latent_dim, latent_dim, bias=False)
@@ -168,14 +169,6 @@ class KoopmanAutoencoder(nn.Module):
         z_t_plus_1_predicted = self.koopman_step(z_t)
         x_t_reconstructed = self.decode(z_t)
         x_t_plus_1_predicted = self.decode(z_t_plus_1_predicted)
-
-        # Crop the output to match the input size if necessary.
-        # This handles any minor size mismatches from strided convolutions.
-        if x_t_reconstructed.shape != x_t.shape:
-            s_d, s_h, s_w = x_t.shape[2:]
-            x_t_reconstructed = x_t_reconstructed[:, :, :s_d, :s_h, :s_w]
-            x_t_plus_1_predicted = x_t_plus_1_predicted[:, :, :s_d, :s_h, :s_w]
-
 
         return OrderedDict(
             [
