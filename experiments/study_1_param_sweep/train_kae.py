@@ -8,7 +8,7 @@ from pathlib import Path
 import torch
 import torch.nn as nn
 from torch.optim import Adam
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, random_split
 
 # To run this script, you need to have your packages installed in editable mode.
 # From the experiment directory, you would run:
@@ -30,7 +30,13 @@ def parse_args():
         "--data-path",
         type=str,
         required=True,
-        help="Path to the .npz data file.",
+        help="Path to the pre-split train_val_set.npz data file.",
+    )
+    parser.add_argument(
+        "--output-dir",
+        type=str,
+        default="output",
+        help="Directory to save the best model.",
     )
     parser.add_argument(
         "--epochs",
@@ -56,7 +62,18 @@ def parse_args():
         default=128,
         help="Dimension of the latent space.",
     )
-    # Add other hyperparameters as needed
+    parser.add_argument(
+        "--val-split",
+        type=float,
+        default=0.2, # e.g., use 20% of the train_val_set for validation
+        help="Fraction of the train+val data to use for validation.",
+    )
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=42,
+        help="Random seed for the train/val split to ensure reproducibility.",
+    )
     return parser.parse_args()
 
 
@@ -68,31 +85,12 @@ def compute_loss(
 ) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
     """
     Computes the composite loss for the Koopman Autoencoder.
-
-    Args:
-        batch_x_t: The input tensor at time t.
-        batch_x_t_plus_1: The input tensor at time t+1.
-        outputs: The dictionary of outputs from the model's forward pass.
-        loss_weights: A dictionary with weights for each loss component.
-
-    Returns:
-        A tuple containing:
-        - The total weighted loss as a scalar tensor.
-        - A dictionary containing the individual, unweighted loss values.
     """
     loss_fn = nn.MSELoss()
-
-    # Reconstruction Loss: How well does the model reconstruct the input?
     loss_recon = loss_fn(outputs["x_t_reconstructed"], batch_x_t)
-
-    # Prediction Loss: How well does the model predict the next state?
     loss_pred = loss_fn(outputs["x_t_plus_1_predicted"], batch_x_t_plus_1)
-
-    # Linearity Loss: How well does the Koopman operator approximate the dynamics
-    # in the latent space?
     loss_lin = loss_fn(outputs["z_t_plus_1_predicted"], outputs["z_t_plus_1_encoded"])
 
-    # Total weighted loss
     total_loss = (
         loss_weights["recon"] * loss_recon
         + loss_weights["pred"] * loss_pred
@@ -105,8 +103,30 @@ def compute_loss(
         "pred": loss_pred.detach(),
         "lin": loss_lin.detach(),
     }
-
     return total_loss, loss_dict
+
+
+def validate_epoch(
+    model: nn.Module,
+    dataloader: DataLoader,
+    loss_weights: dict[str, float],
+    device: str,
+) -> float:
+    """Runs a validation loop for one epoch."""
+    model.eval()
+    total_val_loss = 0.0
+    with torch.no_grad():
+        for batch_x_t, batch_x_t_plus_1 in dataloader:
+            batch_x_t = batch_x_t.permute(0, 4, 1, 2, 3).to(device)
+            batch_x_t_plus_1 = batch_x_t_plus_1.permute(0, 4, 1, 2, 3).to(device)
+
+            outputs = model(batch_x_t, batch_x_t_plus_1)
+            loss, _ = compute_loss(
+                batch_x_t, batch_x_t_plus_1, outputs, loss_weights
+            )
+            total_val_loss += loss.item()
+
+    return total_val_loss / len(dataloader)
 
 
 def main():
@@ -116,78 +136,87 @@ def main():
     # --- Setup ---
     device = "cuda" if torch.cuda.is_available() else "cpu"
     logging.info(f"Using device: {device}")
+    output_dir = Path(args.output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    generator = torch.Generator().manual_seed(args.seed)
 
-    # --- Data Loading ---
-    dataset = MHDDataset(file_path=args.data_path)
-    dataloader = DataLoader(
-        dataset=dataset,
-        batch_size=args.batch_size,
-        shuffle=True,
+    # --- Data Loading and Splitting ---
+    # Load the pre-split training and validation data
+    train_val_dataset = MHDDataset(file_path=args.data_path)
+
+    val_size = int(len(train_val_dataset) * args.val_split)
+    train_size = len(train_val_dataset) - val_size
+    
+    if train_size < 1 or val_size < 1:
+        raise ValueError(
+            "The train_val_set is too small to create a non-empty train and val split. "
+            "Please use a larger dataset or adjust the split ratio."
+        )
+
+    train_dataset, val_dataset = random_split(
+        train_val_dataset, [train_size, val_size], generator=generator
     )
 
+    train_dataloader = DataLoader(
+        dataset=train_dataset, batch_size=args.batch_size, shuffle=True
+    )
+    val_dataloader = DataLoader(
+        dataset=val_dataset, batch_size=args.batch_size, shuffle=False
+    )
+    logging.info(f"Data split: {len(train_dataset)} train, {len(val_dataset)} val.")
+
     # --- Model Definition ---
-    # Dynamically determine the input shape from the dataset.
-    sample_x, _ = dataset[0]
-    # Dataset returns (D, H, W, C)
+    sample_x, _ = train_val_dataset[0]
     in_channels = sample_x.shape[-1]
-    input_spatial_dims = sample_x.shape[:-1] # Get the (D, H, W) part
-    logging.info(f"Detected {in_channels} input channels from the data.")
-    logging.info(f"Detected spatial dimensions: {input_spatial_dims}")
+    input_spatial_dims = sample_x.shape[:-1]
+    logging.info(f"Detected {in_channels} input channels and spatial dims {input_spatial_dims}.")
 
     model = KoopmanAutoencoder(
         in_channels=in_channels,
         latent_dim=args.latent_dim,
-        input_spatial_dims=input_spatial_dims, # Pass the spatial dimensions
+        input_spatial_dims=input_spatial_dims,
     ).to(device)
 
     # --- Optimizer and Loss ---
     optimizer = Adam(model.parameters(), lr=args.lr)
     loss_weights = {"recon": 1.0, "pred": 1.0, "lin": 1.0}
+    best_val_loss = float("inf")
 
     # --- Training Loop ---
     logging.info("Starting training...")
     for epoch in range(args.epochs):
-        model.train()  # Set the model to training mode
-        total_epoch_loss = 0.0
-
-        for batch_idx, (batch_x_t, batch_x_t_plus_1) in enumerate(dataloader):
-            # Move data to the selected device
-            # IMPORTANT: Data must be permuted to (B, C, D, H, W) for 3D CNNs
+        model.train()
+        total_train_loss = 0.0
+        for batch_idx, (batch_x_t, batch_x_t_plus_1) in enumerate(train_dataloader):
             batch_x_t = batch_x_t.permute(0, 4, 1, 2, 3).to(device)
             batch_x_t_plus_1 = batch_x_t_plus_1.permute(0, 4, 1, 2, 3).to(device)
 
-            # --- Forward Pass ---
             outputs = model(batch_x_t, batch_x_t_plus_1)
-
-            # --- Compute Loss ---
-            loss, loss_dict = compute_loss(
-                batch_x_t,
-                batch_x_t_plus_1,
-                outputs,
-                loss_weights,
+            loss, _ = compute_loss(
+                batch_x_t, batch_x_t_plus_1, outputs, loss_weights
             )
 
-            # --- Backward Pass and Optimization ---
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
+            total_train_loss += loss.item()
 
-            total_epoch_loss += loss.item()
+        avg_train_loss = total_train_loss / len(train_dataloader)
+        avg_val_loss = validate_epoch(model, val_dataloader, loss_weights, device)
 
-            if batch_idx % 20 == 0:
-                logging.info(
-                    f"Epoch [{epoch+1}/{args.epochs}] | "
-                    f"Batch [{batch_idx}/{len(dataloader)}] | "
-                    f"Loss: {loss.item():.4f}"
-                )
-
-        avg_epoch_loss = total_epoch_loss / len(dataloader)
         logging.info(
-            f"====> Epoch {epoch+1} completed. Average Loss: {avg_epoch_loss:.4f} ===="
+            f"Epoch [{epoch+1}/{args.epochs}] | "
+            f"Train Loss: {avg_train_loss:.4f} | "
+            f"Val Loss: {avg_val_loss:.4f}"
         )
 
+        if avg_val_loss < best_val_loss:
+            best_val_loss = avg_val_loss
+            model_path = output_dir / "best_model.pth"
+            torch.save(model.state_dict(), model_path)
+            logging.info(f"New best model saved to {model_path} (Val Loss: {best_val_loss:.4f})")
+
     logging.info("Training finished.")
-    # TODO: Add model saving logic here
 
 
 if __name__ == "__main__":
