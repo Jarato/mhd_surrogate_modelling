@@ -220,6 +220,23 @@ def main():
             logging.info(
                 f"New best model saved to {best_model_path} (Val Loss: {best_val_loss:.4f})"
             )
+            
+            # Log the hyperparameters and the best metrics every time the model improves
+            hparams = {
+                'lr': args.lr,
+                'latent_dim': args.latent_dim,
+                'batch_size': args.batch_size,
+                'w_recon': args.w_recon,
+                'w_pred': args.w_pred,
+                'w_lin': args.w_lin,
+                'w_eig': args.w_eig,
+            }
+            final_metrics = {
+                'hparam/best_val_loss': best_val_loss,
+                'hparam/best_epoch': epoch + 1,
+            }
+            writer.add_hparams(hparams, final_metrics)
+
         else:
             patience_counter += 1
             logging.info(
@@ -244,21 +261,7 @@ def main():
             logging.info("Early stopping triggered.")
             break
 
-    hparams = {
-        'lr': args.lr,
-        'latent_dim': args.latent_dim,
-        'batch_size': args.batch_size,
-        'w_recon': args.w_recon,
-        'w_pred': args.w_pred,
-        'w_lin': args.w_lin,
-        'w_eig': args.w_eig,
-    }
-    final_metrics = {
-        'hparam/best_val_loss': best_val_loss,
-    }
-    writer.add_hparams(hparams, final_metrics)
     writer.close()
-
     logging.info("Training finished.")
 
 
