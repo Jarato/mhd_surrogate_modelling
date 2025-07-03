@@ -40,7 +40,7 @@ def parse_args():
     parser.add_argument("--patience", type=int, default=16, help="Patience for early stopping.")
     parser.add_argument("--lr-patience", type=int, default=4, help="Patience for learning rate scheduler.")
     parser.add_argument("--lr-factor", type=float, default=0.1, help="Factor by which to reduce learning rate.")
-    parser.add_argument("--clip-grad-value", type=float, default=None, help="Value to clip gradients to (e.g., 1.0). Default is no clipping.")
+    parser.add_argument("--clip-grad-value", type=float, default=25, help="Value to clip gradients to (e.g., 1.0). Default is no clipping.")
 
     # --- Model and Loss Arguments ---
     parser.add_argument("--latent-dim", type=int, default=128, help="Dimension of the latent space.")
