@@ -26,13 +26,13 @@ def parse_args():
     """Parse command-line arguments."""
     parser = argparse.ArgumentParser(description="Train a Koopman Autoencoder.")
     # --- Data and I/O Arguments ---
-    parser.add_argument("--data-path",type=str,default="/raid/skowronek/ha1000/train_val_set.npz",help="Path to the pre-split train_val_set.npz.",)
-    parser.add_argument("--norm-stats-path",type=str,default="output/all_data_test/normalization_stats.npz",help="Path to the normalization_stats.npz file.",)
-    parser.add_argument("--output-dir",type=str,default="output/all_data_test",help="Directory to save the best model and logs.",)
+    parser.add_argument("--data-path",type=str,default="/raid/skowronek/ha1000/train_val_set_dev_8.npz",help="Path to the pre-split train_val_set.npz.",)
+    parser.add_argument("--norm-stats-path",type=str,default="output/normalization_stats.npz",help="Path to the normalization_stats.npz file.",)
+    parser.add_argument("--output-dir",type=str,default="output",help="Directory to save the best model and logs.",)
     parser.add_argument("--resume-from-checkpoint",type=str,default=None,help="Path to a 'latest_checkpoint.pth' to resume training.",)
     
     # --- Training Arguments ---
-    parser.add_argument("--epochs", type=int, default=8, help="Maximum number of training epochs.")
+    parser.add_argument("--epochs", type=int, default=256, help="Maximum number of training epochs.")
     parser.add_argument("--batch-size", type=int, default=8, help="Batch size.")
     
     # --- Optimizer and Scheduler Arguments ---
@@ -56,10 +56,8 @@ def compute_loss(model, batch_x_t, batch_x_t_plus_1, outputs, loss_weights):
     loss_recon = loss_fn(outputs["x_t_reconstructed"], batch_x_t)
     loss_pred = loss_fn(outputs["x_t_plus_1_predicted"], batch_x_t_plus_1)
     loss_lin = loss_fn(outputs["z_t_plus_1_predicted"], outputs["z_t_plus_1_encoded"])
-
     K = model.koopman_operator.weight
     eigenvalues = torch.linalg.eigvals(K)
-    # Penalize eigenvalues with magnitude > 1
     eig_loss = torch.mean(torch.relu(torch.abs(eigenvalues) - 1.0))
 
     total_loss = (
@@ -198,8 +196,10 @@ def main():
             f"Val Loss: {avg_val_losses['total']:.4f}"
         )
 
-        writer.add_scalar("Loss/Train", avg_train_losses["total"], epoch)
-        writer.add_scalar("Loss/Validation", avg_val_losses["total"], epoch)
+        writer.add_scalars("Loss/Total", {
+            'train': avg_train_losses['total'],
+            'val': avg_val_losses['total'],
+        }, epoch)
         writer.add_scalar("Gradient/Norm", total_norm, epoch)
         for key in ["recon", "pred", "lin", "eig"]:
             writer.add_scalars(f"Loss_Components/{key}", {
