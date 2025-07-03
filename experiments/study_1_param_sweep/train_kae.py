@@ -38,8 +38,9 @@ def parse_args():
     # --- Optimizer and Scheduler Arguments ---
     parser.add_argument("--lr", type=float, default=1e-3, help="Initial learning rate.")
     parser.add_argument("--patience", type=int, default=16, help="Patience for early stopping.")
-    parser.add_argument("--lr-patience", type=int, default=4, help="Patience for learning rate scheduler.")
+    parser.add_argument("--lr-patience", type=int, default=8, help="Patience for learning rate scheduler.")
     parser.add_argument("--lr-factor", type=float, default=0.1, help="Factor by which to reduce learning rate.")
+    parser.add_argument("--clip-grad-value", type=float, default=None, help="Value to clip gradients to (e.g., 1.0). Default is no clipping.")
 
     # --- Model and Loss Arguments ---
     parser.add_argument("--latent-dim", type=int, default=128, help="Dimension of the latent space.")
@@ -160,6 +161,22 @@ def main():
             )
             optimizer.zero_grad()
             loss.backward()
+            
+            # More efficient gradient norm calculation and clipping
+            if args.clip_grad_value:
+                # clip_grad_norm_ returns the total norm before clipping
+                total_norm = torch.nn.utils.clip_grad_norm_(
+                    model.parameters(), max_norm=args.clip_grad_value
+                )
+            else:
+                # If not clipping, calculate the norm manually for logging
+                total_norm = 0
+                for p in model.parameters():
+                    if p.grad is not None:
+                        param_norm = p.grad.data.norm(2)
+                        total_norm += param_norm.item() ** 2
+                total_norm = total_norm ** 0.5
+            
             optimizer.step()
             for key in epoch_train_losses:
                 epoch_train_losses[key] += loss_dict[key].item()
@@ -177,6 +194,7 @@ def main():
 
         writer.add_scalar("Loss/Train", avg_train_losses["total"], epoch)
         writer.add_scalar("Loss/Validation", avg_val_losses["total"], epoch)
+        writer.add_scalar("Gradient/Norm", total_norm, epoch)
         for key in ["recon", "pred", "lin"]:
             writer.add_scalars(f"Loss_Components/{key}", {
                 'train': avg_train_losses[key],

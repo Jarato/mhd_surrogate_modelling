@@ -3,10 +3,6 @@ This document tracks the development tasks for the MHD Surrogate Modeling projec
 
 - train.py (see Gemini webapp)
 
-    - Suggested further improvements (from Gemini):
-
-        - Gradient Clipping: As a safety measure against unstable training, it's common to "clip" the gradients to a maximum value before the optimizer step. This prevents rare, large gradients from derailing the training process.
-
     - Final model training (with normalization param determination) on whole train-val.
 
     - CV for fine-grained selection between top models.
