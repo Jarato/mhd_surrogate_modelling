@@ -26,21 +26,21 @@ def parse_args():
     """Parse command-line arguments."""
     parser = argparse.ArgumentParser(description="Train a Koopman Autoencoder.")
     # --- Data and I/O Arguments ---
-    parser.add_argument("--data-path",type=str,default="/raid/skowronek/ha1000/train_val_set_dev_8.npz",help="Path to the pre-split train_val_set.npz.",)
-    parser.add_argument("--norm-stats-path",type=str,default="output/normalization_stats.npz",help="Path to the normalization_stats.npz file.",)
-    parser.add_argument("--output-dir",type=str,default="output",help="Directory to save the best model and logs.",)
+    parser.add_argument("--data-path",type=str,default="/raid/skowronek/ha1000/train_val_set.npz",help="Path to the pre-split train_val_set.npz.",)
+    parser.add_argument("--norm-stats-path",type=str,default="output/all_data_test/normalization_stats.npz",help="Path to the normalization_stats.npz file.",)
+    parser.add_argument("--output-dir",type=str,default="output/all_data_test",help="Directory to save the best model and logs.",)
     parser.add_argument("--resume-from-checkpoint",type=str,default=None,help="Path to a 'latest_checkpoint.pth' to resume training.",)
     
     # --- Training Arguments ---
-    parser.add_argument("--epochs", type=int, default=128, help="Maximum number of training epochs.")
-    parser.add_argument("--batch-size", type=int, default=10, help="Batch size.")
+    parser.add_argument("--epochs", type=int, default=8, help="Maximum number of training epochs.")
+    parser.add_argument("--batch-size", type=int, default=8, help="Batch size.")
     
     # --- Optimizer and Scheduler Arguments ---
     parser.add_argument("--lr", type=float, default=1e-3, help="Initial learning rate.")
     parser.add_argument("--patience", type=int, default=16, help="Patience for early stopping.")
-    parser.add_argument("--lr-patience", type=int, default=8, help="Patience for learning rate scheduler.")
+    parser.add_argument("--lr-patience", type=int, default=4, help="Patience for learning rate scheduler.")
     parser.add_argument("--lr-factor", type=float, default=0.1, help="Factor by which to reduce learning rate.")
-    parser.add_argument("--clip-grad-value", type=float, default=1.0, help="Value to clip gradients to (e.g., 1.0). Default is no clipping.")
+    parser.add_argument("--clip-grad-value", type=float, default=None, help="Value to clip gradients to (e.g., 1.0). Default is no clipping.")
 
     # --- Model and Loss Arguments ---
     parser.add_argument("--latent-dim", type=int, default=128, help="Dimension of the latent space.")
