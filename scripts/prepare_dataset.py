@@ -1,5 +1,26 @@
 # -*- coding: utf-8 -*-
 # scripts/prepare_dataset.py
+"""
+Prepares the raw MHD simulation data for model training and evaluation.
+
+This script performs a crucial preprocessing step: splitting a single, large
+time-series dataset into two distinct sets:
+1.  A training/validation set: This portion of the data will be used for
+    training the model and for validation during hyperparameter tuning. The
+    samples within this set can be shuffled during training.
+2.  A contiguous test set: This is a hold-out set, taken from the end of the
+    original time-series. It is kept contiguous (unshuffled) to allow for
+    realistic, long-term autoregressive rollout evaluation of the trained model.
+
+The split is performed chronologically to prevent data leakage from the future
+(test set) into the past (training set).
+
+Example:
+    python scripts/prepare_dataset.py \\
+        --data-path /path/to/raw_simulation.npz \\
+        --output-dir data/processed \\
+        --test-split 0.15
+"""
 
 import argparse
 import logging
@@ -17,13 +38,16 @@ logging.basicConfig(
 def parse_args():
     """Parse command-line arguments."""
     parser = argparse.ArgumentParser(
-        description="Split raw MHD data into a train/val set and a contiguous test set."
+        description=(
+            "Splits a raw time-series dataset into a train/val set and a "
+            "contiguous test set for autoregressive model evaluation."
+        )
     )
     parser.add_argument(
         "--data-path",
         type=str,
         required=True,
-        help="Path to the raw .npz data file.",
+        help="Path to the raw .npz data file containing 'timeseries' and optional 'labels' arrays.",
     )
     parser.add_argument(
         "--output-dir",
@@ -52,9 +76,12 @@ def main():
     logging.info(f"Loading full dataset from {args.data_path}...")
     # We load the raw numpy arrays first to perform the chronological split
     with np.load(args.data_path, allow_pickle=True) as raw_data:
+        if "timeseries" not in raw_data:
+            raise KeyError("Input .npz file must contain a 'timeseries' array.")
         full_timeseries = raw_data["timeseries"]
-        full_labels = raw_data["labels"]
-    
+        # Safely get labels, which are assumed to be static channel names.
+        full_labels = raw_data.get("labels")
+
     num_timesteps = full_timeseries.shape[0]
     logging.info(f"Full dataset loaded with {num_timesteps} snapshots.")
 
@@ -63,10 +90,6 @@ def main():
     
     train_val_timeseries = full_timeseries[:test_start_index]
     test_timeseries = full_timeseries[test_start_index:]
-
-    # Also split the labels chronologically
-    train_val_labels = full_labels
-    test_labels = full_labels
 
     if len(train_val_timeseries) < 2 or len(test_timeseries) < 2:
          raise ValueError(
@@ -84,18 +107,19 @@ def main():
     train_val_path = output_dir / "train_val_set.npz"
     test_path = output_dir / "test_set.npz"
 
-    np.savez(
-        train_val_path,
-        timeseries=train_val_timeseries,
-        labels=train_val_labels,
-    )
+    # Build dictionaries of data to save, conditionally including static labels
+    train_val_data = {"timeseries": train_val_timeseries}
+    if full_labels is not None:
+        train_val_data["labels"] = full_labels
+
+    test_data = {"timeseries": test_timeseries}
+    if full_labels is not None:
+        test_data["labels"] = full_labels
+
+    np.savez(train_val_path, **train_val_data)
     logging.info(f"Train/Validation set saved to {train_val_path}")
 
-    np.savez(
-        test_path,
-        timeseries=test_timeseries,
-        labels=test_labels,
-    )
+    np.savez(test_path, **test_data)
     logging.info(f"Contiguous test set saved to {test_path}")
 
     logging.info("Data preparation complete.")
