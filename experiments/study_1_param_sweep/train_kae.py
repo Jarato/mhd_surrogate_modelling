@@ -40,44 +40,53 @@ def parse_args():
     parser.add_argument("--patience", type=int, default=16, help="Patience for early stopping.")
     parser.add_argument("--lr-patience", type=int, default=8, help="Patience for learning rate scheduler.")
     parser.add_argument("--lr-factor", type=float, default=0.1, help="Factor by which to reduce learning rate.")
-    parser.add_argument("--clip-grad-value", type=float, default=None, help="Value to clip gradients to (e.g., 1.0). Default is no clipping.")
+    parser.add_argument("--clip-grad-value", type=float, default=1.0, help="Value to clip gradients to (e.g., 1.0). Default is no clipping.")
 
     # --- Model and Loss Arguments ---
     parser.add_argument("--latent-dim", type=int, default=128, help="Dimension of the latent space.")
     parser.add_argument("--w-recon", type=float, default=1.0, help="Weight for the reconstruction loss.")
     parser.add_argument("--w-pred", type=float, default=1.0, help="Weight for the prediction loss.")
     parser.add_argument("--w-lin", type=float, default=1.0, help="Weight for the latent linearity loss.")
+    parser.add_argument("--w-eig", type=float, default=0.1, help="Weight for the eigenvalue regularization loss.")
     return parser.parse_args()
 
 
-def compute_loss(batch_x_t, batch_x_t_plus_1, outputs, loss_weights):
+def compute_loss(model, batch_x_t, batch_x_t_plus_1, outputs, loss_weights):
     loss_fn = nn.MSELoss()
     loss_recon = loss_fn(outputs["x_t_reconstructed"], batch_x_t)
     loss_pred = loss_fn(outputs["x_t_plus_1_predicted"], batch_x_t_plus_1)
     loss_lin = loss_fn(outputs["z_t_plus_1_predicted"], outputs["z_t_plus_1_encoded"])
+
+    K = model.koopman_operator.weight
+    eigenvalues = torch.linalg.eigvals(K)
+    # Penalize eigenvalues with magnitude > 1
+    eig_loss = torch.mean(torch.relu(torch.abs(eigenvalues) - 1.0))
+
     total_loss = (
         loss_weights["recon"] * loss_recon
         + loss_weights["pred"] * loss_pred
         + loss_weights["lin"] * loss_lin
+        + loss_weights["eig"] * eig_loss
     )
     return total_loss, {
         "total": total_loss.detach(),
         "recon": loss_recon.detach(),
         "pred": loss_pred.detach(),
         "lin": loss_lin.detach(),
+        "eig": eig_loss.detach(),
     }
 
 
 def validate_epoch(model, dataloader, loss_weights, device):
     model.eval()
-    total_losses = {"total": 0.0, "recon": 0.0, "pred": 0.0, "lin": 0.0}
+    total_losses = {"total": 0.0, "recon": 0.0, "pred": 0.0, "lin": 0.0, "eig": 0.0}
     with torch.no_grad():
         for batch_x_t, batch_x_t_plus_1 in dataloader:
             batch_x_t = batch_x_t.permute(0, 4, 1, 2, 3).to(device)
             batch_x_t_plus_1 = batch_x_t_plus_1.permute(0, 4, 1, 2, 3).to(device)
             outputs = model(batch_x_t, batch_x_t_plus_1)
             _, loss_dict = compute_loss(
-                batch_x_t, batch_x_t_plus_1, outputs, loss_weights
+                model, batch_x_t, batch_x_t_plus_1, outputs, loss_weights
             )
             for key in total_losses:
                 total_losses[key] += loss_dict[key].item()
@@ -145,31 +154,28 @@ def main():
     )
     logging.info(f"Data split: {len(train_dataset)} train, {len(val_dataset)} val.")
 
-    loss_weights = {"recon": args.w_recon, "pred": args.w_pred, "lin": args.w_lin}
+    loss_weights = {"recon": args.w_recon, "pred": args.w_pred, "lin": args.w_lin, "eig": args.w_eig}
     logging.info(f"Using loss weights: {loss_weights}")
 
     logging.info(f"Starting training from epoch {start_epoch+1}...")
     for epoch in range(start_epoch, args.epochs):
         model.train()
-        epoch_train_losses = {"total": 0.0, "recon": 0.0, "pred": 0.0, "lin": 0.0}
+        epoch_train_losses = {"total": 0.0, "recon": 0.0, "pred": 0.0, "lin": 0.0, "eig": 0.0}
         for batch_x_t, batch_x_t_plus_1 in train_dataloader:
             batch_x_t = batch_x_t.permute(0, 4, 1, 2, 3).to(device)
             batch_x_t_plus_1 = batch_x_t_plus_1.permute(0, 4, 1, 2, 3).to(device)
             outputs = model(batch_x_t, batch_x_t_plus_1)
             loss, loss_dict = compute_loss(
-                batch_x_t, batch_x_t_plus_1, outputs, loss_weights
+                model, batch_x_t, batch_x_t_plus_1, outputs, loss_weights
             )
             optimizer.zero_grad()
             loss.backward()
             
-            # More efficient gradient norm calculation and clipping
             if args.clip_grad_value:
-                # clip_grad_norm_ returns the total norm before clipping
                 total_norm = torch.nn.utils.clip_grad_norm_(
                     model.parameters(), max_norm=args.clip_grad_value
                 )
             else:
-                # If not clipping, calculate the norm manually for logging
                 total_norm = 0
                 for p in model.parameters():
                     if p.grad is not None:
@@ -195,7 +201,7 @@ def main():
         writer.add_scalar("Loss/Train", avg_train_losses["total"], epoch)
         writer.add_scalar("Loss/Validation", avg_val_losses["total"], epoch)
         writer.add_scalar("Gradient/Norm", total_norm, epoch)
-        for key in ["recon", "pred", "lin"]:
+        for key in ["recon", "pred", "lin", "eig"]:
             writer.add_scalars(f"Loss_Components/{key}", {
                 'train': avg_train_losses[key],
                 'val': avg_val_losses[key],
@@ -245,6 +251,7 @@ def main():
         'w_recon': args.w_recon,
         'w_pred': args.w_pred,
         'w_lin': args.w_lin,
+        'w_eig': args.w_eig,
     }
     final_metrics = {
         'hparam/best_val_loss': best_val_loss,
