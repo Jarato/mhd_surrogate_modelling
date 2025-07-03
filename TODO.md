@@ -5,9 +5,7 @@ This document tracks the development tasks for the MHD Surrogate Modeling projec
 
     - Suggested further improvements (from Gemini):
 
-        - Learning Rate Scheduling
-
-        - Gradient Clipping
+        - Gradient Clipping: As a safety measure against unstable training, it's common to "clip" the gradients to a maximum value before the optimizer step. This prevents rare, large gradients from derailing the training process.
 
     - Final model training (with normalization param determination) on whole train-val.
 

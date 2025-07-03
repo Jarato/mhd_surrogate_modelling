@@ -9,6 +9,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 from torch.optim import Adam
+from torch.optim.lr_scheduler import ReduceLROnPlateau
 from torch.utils.data import DataLoader
 from torch.utils.data import Subset
 from torch.utils.tensorboard import SummaryWriter
@@ -24,14 +25,23 @@ logging.basicConfig(
 def parse_args():
     """Parse command-line arguments."""
     parser = argparse.ArgumentParser(description="Train a Koopman Autoencoder.")
-    parser.add_argument("--data-path",type=str,required=True,help="Path to the pre-split train_val_set.npz.",)
-    parser.add_argument("--norm-stats-path",type=str,required=True,help="Path to the normalization_stats.npz file.",)
+    # --- Data and I/O Arguments ---
+    parser.add_argument("--data-path",type=str,default="/raid/skowronek/ha1000/train_val_set_dev_8.npz",help="Path to the pre-split train_val_set.npz.",)
+    parser.add_argument("--norm-stats-path",type=str,default="output/normalization_stats.npz",help="Path to the normalization_stats.npz file.",)
     parser.add_argument("--output-dir",type=str,default="output",help="Directory to save the best model and logs.",)
     parser.add_argument("--resume-from-checkpoint",type=str,default=None,help="Path to a 'latest_checkpoint.pth' to resume training.",)
-    parser.add_argument("--epochs", type=int, default=50, help="Maximum number of training epochs.")
-    parser.add_argument("--patience", type=int, default=10, help="Patience for early stopping.")
-    parser.add_argument("--batch-size", type=int, default=16, help="Batch size.")
-    parser.add_argument("--lr", type=float, default=1e-3, help="Learning rate.")
+    
+    # --- Training Arguments ---
+    parser.add_argument("--epochs", type=int, default=128, help="Maximum number of training epochs.")
+    parser.add_argument("--batch-size", type=int, default=10, help="Batch size.")
+    
+    # --- Optimizer and Scheduler Arguments ---
+    parser.add_argument("--lr", type=float, default=1e-3, help="Initial learning rate.")
+    parser.add_argument("--patience", type=int, default=16, help="Patience for early stopping.")
+    parser.add_argument("--lr-patience", type=int, default=4, help="Patience for learning rate scheduler.")
+    parser.add_argument("--lr-factor", type=float, default=0.1, help="Factor by which to reduce learning rate.")
+
+    # --- Model and Loss Arguments ---
     parser.add_argument("--latent-dim", type=int, default=128, help="Dimension of the latent space.")
     parser.add_argument("--w-recon", type=float, default=1.0, help="Weight for the reconstruction loss.")
     parser.add_argument("--w-pred", type=float, default=1.0, help="Weight for the prediction loss.")
@@ -104,6 +114,8 @@ def main():
         model.load_state_dict(checkpoint["model_state_dict"])
         optimizer = Adam(model.parameters(), lr=args.lr)
         optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
+        scheduler = ReduceLROnPlateau(optimizer, 'min', factor=args.lr_factor, patience=args.lr_patience)
+        scheduler.load_state_dict(checkpoint["scheduler_state_dict"])
         start_epoch = checkpoint["epoch"] + 1
         best_val_loss = checkpoint["best_val_loss"]
         patience_counter = checkpoint["patience_counter"]
@@ -122,6 +134,7 @@ def main():
         }
         model = KoopmanAutoencoder(**model_config).to(device)
         optimizer = Adam(model.parameters(), lr=args.lr)
+        scheduler = ReduceLROnPlateau(optimizer, 'min', factor=args.lr_factor, patience=args.lr_patience)
 
     train_dataloader = DataLoader(
         dataset=train_dataset, batch_size=args.batch_size, shuffle=True
@@ -153,6 +166,8 @@ def main():
 
         avg_train_losses = {key: val / len(train_dataloader) for key, val in epoch_train_losses.items()}
         avg_val_losses = validate_epoch(model, val_dataloader, loss_weights, device)
+        
+        scheduler.step(avg_val_losses["total"])
 
         logging.info(
             f"Epoch [{epoch+1}/{args.epochs}] | "
@@ -187,13 +202,13 @@ def main():
                 f"Validation loss did not improve. Patience: {patience_counter}/{args.patience}"
             )
 
-        # Save latest checkpoint at the end of every epoch
         latest_checkpoint_path = output_dir / "latest_checkpoint.pth"
         checkpoint = {
             "epoch": epoch,
             "config": model_config,
             "model_state_dict": model.state_dict(),
             "optimizer_state_dict": optimizer.state_dict(),
+            "scheduler_state_dict": scheduler.state_dict(),
             "best_val_loss": best_val_loss,
             "patience_counter": patience_counter,
             "train_indices": train_dataset.indices,
