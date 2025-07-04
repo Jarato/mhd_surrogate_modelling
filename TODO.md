@@ -3,8 +3,12 @@ This document tracks the development tasks for the MHD Surrogate Modeling projec
 
 - train.py (see Gemini webapp)
 
-    - Final model training (with normalization param determination) on whole train-val.
+    - param sweep
 
-    - CV for fine-grained selection between top models.
+    - evaluation
+
+    - CV for fine-grained selection between top models
+
+    - different random seeds to tune the final model a bit more for publishing
 
     - Try standardization instead of normalization to allow predictions outside of the seen realm.

@@ -6,15 +6,18 @@
 
 # --- Configuration ---
 TRAIN_SCRIPT="train_kae.py"
-DATA_PATH="/raid/skowronek/ha1000/train_val_set_dev_8.npz"
-NORM_STATS_PATH="output/normalization_stats.npz"
+DATA_PATH="/raid/skowronek/ha1000/test_15percent/train_val_set.npz"
+NORM_STATS_PATH="/raid/skowronek/ha1000/test_15percent/normalization_stats.npz"
 
 # --- Hyperparameters to Sweep ---
+# Based on analysis, we will focus on the most impactful parameters:
+# latent dimension and the weights of the linearity and eigenvalue losses.
+
 LEARNING_RATES=(1e-4)
 LATENT_DIMS=(128 256)
 W_RECONS=(1.0)
 W_PREDS=(1.0)
-W_LINS=(1.0)
+W_LINS=(1.0 10.0 50.0)
 W_EIGS=(0.1)
 
 
@@ -29,7 +32,7 @@ for wl in "${W_LINS[@]}"; do
 for we in "${W_EIGS[@]}"; do
 
     RUN_NAME="lr_${lr}_ld_${ld}_wr_${wr}_wp_${wp}_wl_${wl}_we_${we}"
-    BASE_OUTPUT_DIR="output"
+    BASE_OUTPUT_DIR="output/param_sweep_04_07_25"
     OUTPUT_DIR="${BASE_OUTPUT_DIR}/${RUN_NAME}"
     
     echo "--------------------------------------------------"
@@ -47,10 +50,12 @@ for we in "${W_EIGS[@]}"; do
       --w-pred "${wp}" \
       --w-lin "${wl}" \
       --w-eig "${we}" \
-      --epochs 4 \
-      --patience 16 \
-      --lr-patience 4 \
-      --batch-size 8
+      --epochs 128 \
+      --patience 20 \
+      --lr-patience 8 \
+      --clip-grad-value 25.0 \
+      --batch-size 8 \
+      --lr-factor 0.1
       
     if [ $? -ne 0 ]; then
       echo "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
