@@ -18,12 +18,21 @@ def parse_args():
     parser.add_argument("--model-path", type=str, required=True, help="Path to the saved model checkpoint (.pth file).")
     parser.add_argument("--test-data-path", type=str, required=True, help="Path to the contiguous test_set.npz file.")
     parser.add_argument("--norm-stats-path", type=str, required=True, help="Path to the normalization_stats.npz file.")
+    parser.add_argument("--output-dir", type=str, default=None, help="Directory to save evaluation results. Defaults to a new 'eval' folder in the model's directory.")
     return parser.parse_args()
 
 def main():
     args = parse_args()
     device = "cuda" if torch.cuda.is_available() else "cpu"
     logging.info(f"Using device: {device}")
+    model_path = Path(args.model_path)
+    
+    if args.output_dir:
+        output_dir = Path(args.output_dir)
+    else:
+        output_dir = model_path.parent / "eval"
+    output_dir.mkdir(parents=True, exist_ok=True)
+
 
     # --- Load Normalization Stats ---
     stats = np.load(args.norm_stats_path)
@@ -41,12 +50,11 @@ def main():
     with np.load(args.test_data_path) as raw_data:
         test_timeseries = raw_data["timeseries"]
     
-    # Keep the ground truth on the CPU
     test_tensor_cpu = torch.from_numpy(test_timeseries).float()
     logging.info(f"Test data loaded. Shape: {test_tensor_cpu.shape}")
 
     # --- Load Model from Checkpoint ---
-    checkpoint = torch.load(args.model_path, map_location=device)
+    checkpoint = torch.load(model_path, map_location=device)
     model_config = checkpoint['config']
     
     logging.info(f"Re-creating model with saved config: {model_config}")
@@ -64,31 +72,36 @@ def main():
 
     logging.info(f"Starting autoregressive rollout for {num_timesteps - 1} steps...")
     with torch.no_grad():
-        # The first "prediction" is the ground truth initial state (already on CPU)
         predictions_denorm_cpu.append(initial_state_original.squeeze(0))
-
         z_t = model.encode(current_state_norm)
 
         for _ in range(num_timesteps - 1):
             z_t = model.koopman_step(z_t)
             predicted_state_norm = model.decode(z_t)
-            
             predicted_state_denorm = denormalize(predicted_state_norm.permute(0, 2, 3, 4, 1))
-            
             predictions_denorm_cpu.append(predicted_state_denorm.squeeze(0).cpu())
-            
             current_state_norm = predicted_state_norm
 
     predicted_timeseries = torch.stack(predictions_denorm_cpu)
     logging.info(f"Rollout complete. Predicted timeseries shape: {predicted_timeseries.shape}")
 
-    # --- Calculate Final Error ---
-    # Compare the CPU prediction tensor with the CPU ground truth tensor
-    loss_fn = nn.MSELoss()
-    rollout_error = loss_fn(predicted_timeseries, test_tensor_cpu)
+    # --- Calculate Per-Timestep Error ---
+    loss_fn = nn.MSELoss(reduction='none') # Get per-element loss
+    per_step_error = []
+    for t in range(1, num_timesteps): # Start from the first prediction
+        # Calculate MSE over all spatial and channel dimensions for this timestep
+        error = loss_fn(predicted_timeseries[t], test_tensor_cpu[t]).mean().item()
+        per_step_error.append(error)
+    
+    rollout_error_path = output_dir / "rollout_error.npz"
+    np.savez(rollout_error_path, per_step_error=np.array(per_step_error))
+    logging.info(f"Per-timestep rollout error saved to {rollout_error_path}")
+
+    # --- Calculate Final Average Error ---
+    avg_rollout_error = np.mean(per_step_error)
 
     logging.info("--- EVALUATION COMPLETE ---")
-    logging.info(f"Autoregressive Rollout MSE: {rollout_error.item():.6f}")
+    logging.info(f"Average Autoregressive Rollout MSE: {avg_rollout_error:.6f}")
 
 if __name__ == "__main__":
     main()

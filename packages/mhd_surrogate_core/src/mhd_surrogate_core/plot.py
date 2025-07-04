@@ -4,7 +4,7 @@
 import logging
 from pathlib import Path
 
-import torch
+import numpy as np
 import matplotlib.pyplot as plt
 
 # Configure basic logging
@@ -14,52 +14,34 @@ logging.basicConfig(
 )
 
 
-def plot_loss_curves(checkpoint_path: Path | str):
+def plot_rollout_error(error_path: Path | str):
     """
-    Loads a model checkpoint and plots its training and validation loss curves.
+    Loads and plots the per-timestep error from an evaluation rollout.
 
     Args:
-        checkpoint_path (Path | str): The path to the saved .pth checkpoint file.
+        error_path (Path | str): Path to the rollout_error.npz file.
     """
-    checkpoint_path = Path(checkpoint_path)
-    if not checkpoint_path.exists():
-        logging.error(f"Checkpoint file not found at: {checkpoint_path}")
+    error_path = Path(error_path)
+    if not error_path.exists():
+        logging.error(f"Rollout error file not found at: {error_path}")
         return
-
-    # Load the checkpoint dictionary
-    logging.info(f"Loading checkpoint from {checkpoint_path}...")
-    checkpoint = torch.load(checkpoint_path, map_location=torch.device('cpu'))
-
-    # Extract the loss histories
-    train_loss = checkpoint.get('train_loss_history', [])
-    val_loss = checkpoint.get('val_loss_history', [])
     
-    if not train_loss or not val_loss:
-        logging.error("Loss history not found or is empty in the checkpoint.")
-        return
+    logging.info(f"Loading rollout error from {error_path}...")
+    with np.load(error_path) as data:
+        per_step_error = data['per_step_error']
         
-    logging.info(f"Found {len(train_loss)} epochs of training history.")
-
-    # --- Plotting ---
-    plt.style.use('seaborn-v0_8-whitegrid')
-    epochs = range(1, len(train_loss) + 1)
+    timesteps = range(1, len(per_step_error) + 1)
     
+    plt.style.use('seaborn-v0_8-whitegrid')
     plt.figure(figsize=(12, 7))
     
-    # Plot training loss
-    plt.plot(epochs, train_loss, 'o-', label='Training Loss', color='royalblue', alpha=0.8)
+    plt.plot(timesteps, per_step_error, 'o-', label='Per-Step MSE', color='crimson')
     
-    # Plot validation loss
-    plt.plot(epochs, val_loss, 's-', label='Validation Loss', color='darkorange', alpha=0.8)
-    
-    # Find the epoch with the best validation loss
-    best_epoch = val_loss.index(min(val_loss)) + 1
-    plt.axvline(x=best_epoch, color='grey', linestyle='--', label=f'Best Model (Epoch {best_epoch})')
-
-    plt.title('Training and Validation Loss Over Epochs', fontsize=16)
-    plt.xlabel('Epoch', fontsize=12)
-    plt.ylabel('Loss (MSE)', fontsize=12)
+    plt.title('Autoregressive Rollout Error Over Time', fontsize=16)
+    plt.xlabel('Prediction Timestep', fontsize=12)
+    plt.ylabel('Mean Squared Error (MSE)', fontsize=12)
     plt.legend(fontsize=12)
     plt.grid(True)
     plt.tight_layout()
     plt.show()
+
