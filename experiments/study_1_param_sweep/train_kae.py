@@ -110,6 +110,7 @@ def main():
     start_epoch = 0
     best_val_loss = float("inf")
     patience_counter = 0
+    best_epoch = 0
 
     if args.resume_from_checkpoint:
         checkpoint = torch.load(args.resume_from_checkpoint, map_location=device)
@@ -127,6 +128,7 @@ def main():
         start_epoch = checkpoint["epoch"] + 1
         best_val_loss = checkpoint["best_val_loss"]
         patience_counter = checkpoint["patience_counter"]
+        best_epoch = checkpoint.get("best_epoch", 0)
     else:
         stats = np.load(args.norm_stats_path)
         train_indices = stats["train_indices"]
@@ -211,6 +213,7 @@ def main():
         if avg_val_losses["total"] < best_val_loss:
             best_val_loss = avg_val_losses["total"]
             patience_counter = 0
+            best_epoch = epoch + 1
             best_model_path = output_dir / "best_model.pth"
             best_checkpoint = {
                 'config': model_config,
@@ -220,23 +223,6 @@ def main():
             logging.info(
                 f"New best model saved to {best_model_path} (Val Loss: {best_val_loss:.4f})"
             )
-            
-            # Log the hyperparameters and the best metrics every time the model improves
-            hparams = {
-                'lr': args.lr,
-                'latent_dim': args.latent_dim,
-                'batch_size': args.batch_size,
-                'w_recon': args.w_recon,
-                'w_pred': args.w_pred,
-                'w_lin': args.w_lin,
-                'w_eig': args.w_eig,
-            }
-            final_metrics = {
-                'hparam/best_val_loss': best_val_loss,
-                'hparam/best_epoch': epoch + 1,
-            }
-            writer.add_hparams(hparams, final_metrics)
-
         else:
             patience_counter += 1
             logging.info(
@@ -252,6 +238,7 @@ def main():
             "scheduler_state_dict": scheduler.state_dict(),
             "best_val_loss": best_val_loss,
             "patience_counter": patience_counter,
+            "best_epoch": best_epoch,
             "train_indices": train_dataset.indices,
             "val_indices": val_dataset.indices,
         }
@@ -261,6 +248,21 @@ def main():
             logging.info("Early stopping triggered.")
             break
 
+    hparams = {
+        'lr': args.lr,
+        'latent_dim': args.latent_dim,
+        'batch_size': args.batch_size,
+        'w_recon': args.w_recon,
+        'w_pred': args.w_pred,
+        'w_lin': args.w_lin,
+        'w_eig': args.w_eig,
+    }
+    final_metrics = {
+        'hparam/best_val_loss': best_val_loss,
+        'hparam/best_epoch': best_epoch,
+    }
+    writer.add_hparams(hparams, final_metrics)
+    
     writer.close()
     logging.info("Training finished.")
 
