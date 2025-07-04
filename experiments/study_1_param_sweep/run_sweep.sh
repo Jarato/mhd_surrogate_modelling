@@ -5,14 +5,17 @@
 # ====================================================================
 
 # --- Configuration ---
+# This script should be run from the experiment directory, e.g.:
+# cd experiments/study_1_param_sweep
+# ./run_sweep.sh
+# For logging use:
+# ./run_sweep.sh 2>&1 | tee <BASE_OUTPUT_DIR>/sweep_log.txt
+
 TRAIN_SCRIPT="train_kae.py"
 DATA_PATH="/raid/skowronek/ha1000/test_15percent/train_val_set.npz"
 NORM_STATS_PATH="/raid/skowronek/ha1000/test_15percent/normalization_stats.npz"
 
 # --- Hyperparameters to Sweep ---
-# Based on analysis, we will focus on the most impactful parameters:
-# latent dimension and the weights of the linearity and eigenvalue losses.
-
 LEARNING_RATES=(1e-4)
 LATENT_DIMS=(128 256)
 W_RECONS=(1.0)
