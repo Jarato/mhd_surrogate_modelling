@@ -86,10 +86,9 @@ def main():
     logging.info(f"Rollout complete. Predicted timeseries shape: {predicted_timeseries.shape}")
 
     # --- Calculate Per-Timestep Error ---
-    loss_fn = nn.MSELoss(reduction='none') # Get per-element loss
+    loss_fn = nn.MSELoss(reduction='none') 
     per_step_error = []
-    for t in range(1, num_timesteps): # Start from the first prediction
-        # Calculate MSE over all spatial and channel dimensions for this timestep
+    for t in range(1, num_timesteps):
         error = loss_fn(predicted_timeseries[t], test_tensor_cpu[t]).mean().item()
         per_step_error.append(error)
     
@@ -97,11 +96,22 @@ def main():
     np.savez(rollout_error_path, per_step_error=np.array(per_step_error))
     logging.info(f"Per-timestep rollout error saved to {rollout_error_path}")
 
-    # --- Calculate Final Average Error ---
-    avg_rollout_error = np.mean(per_step_error)
+    # --- Calculate Final Average Error and R-squared Score ---
+    avg_rollout_mse = np.mean(per_step_error)
+    
+    # Calculate the variance of the ground truth test data
+    # We calculate it on the CPU to avoid moving the whole tensor to the GPU if not needed
+    variance_of_data = torch.var(test_tensor_cpu).item()
+    
+    # Calculate R-squared score: 1 - (MSE / Variance)
+    # This score is meaningful only if variance is not zero
+    r_squared_score = 1 - (avg_rollout_mse / variance_of_data) if variance_of_data > 0 else 0.0
+
 
     logging.info("--- EVALUATION COMPLETE ---")
-    logging.info(f"Average Autoregressive Rollout MSE: {avg_rollout_error:.6f}")
+    logging.info(f"Average Autoregressive Rollout MSE: {avg_rollout_mse:.6f}")
+    logging.info(f"Variance of Test Data: {variance_of_data:.6f}")
+    logging.info(f"R-squared (R²) Score: {r_squared_score:.4f}")
 
 if __name__ == "__main__":
     main()
