@@ -44,4 +44,4 @@ dev = [
 ]
 
 [project.urls]
-"Homepage" = "https://github.com/MichaelSkowronek/mhd_surogate_modelling"
+"Homepage" = "https://github.com/MichaelSkowronek/mhd_surrogate_modelling"
