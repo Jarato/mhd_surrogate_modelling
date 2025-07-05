@@ -13,6 +13,7 @@ from torch.optim.lr_scheduler import ReduceLROnPlateau
 from torch.utils.data import DataLoader
 from torch.utils.data import Subset
 from torch.utils.tensorboard import SummaryWriter
+from tqdm import tqdm
 
 from mhd_canonical_kae.model import KoopmanAutoencoder
 from mhd_surrogate_core.data import MHDDataset
@@ -161,7 +162,9 @@ def main():
     for epoch in range(start_epoch, args.epochs):
         model.train()
         epoch_train_losses = {"total": 0.0, "recon": 0.0, "pred": 0.0, "lin": 0.0, "eig": 0.0}
-        for batch_x_t, batch_x_t_plus_1 in train_dataloader:
+        
+        pbar = tqdm(train_dataloader, desc=f"Epoch {epoch+1}/{args.epochs}", leave=False)
+        for batch_x_t, batch_x_t_plus_1 in pbar:
             batch_x_t = batch_x_t.permute(0, 4, 1, 2, 3).to(device)
             batch_x_t_plus_1 = batch_x_t_plus_1.permute(0, 4, 1, 2, 3).to(device)
             outputs = model(batch_x_t, batch_x_t_plus_1)
@@ -186,6 +189,8 @@ def main():
             optimizer.step()
             for key in epoch_train_losses:
                 epoch_train_losses[key] += loss_dict[key].item()
+
+            pbar.set_postfix(loss=loss.item())
 
         avg_train_losses = {key: val / len(train_dataloader) for key, val in epoch_train_losses.items()}
         avg_val_losses = validate_epoch(model, val_dataloader, loss_weights, device)
@@ -249,13 +254,11 @@ def main():
             break
 
     hparams = vars(args)
-    # The values must be scalar, so we handle the path objects
     hparams['data_path'] = str(hparams['data_path'])
     hparams['norm_stats_path'] = str(hparams['norm_stats_path'])
     hparams['output_dir'] = str(hparams['output_dir'])
     if hparams['resume_from_checkpoint']:
         hparams['resume_from_checkpoint'] = str(hparams['resume_from_checkpoint'])
-
 
     final_metrics = {
         'hparam/best_val_loss': best_val_loss,

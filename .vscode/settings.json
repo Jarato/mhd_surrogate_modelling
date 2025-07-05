@@ -3,6 +3,7 @@
         "denorm",
         "EIGS",
         "hparams",
+        "pbar",
         "PREDS"
     ]
 }
