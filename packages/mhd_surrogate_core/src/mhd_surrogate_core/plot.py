@@ -17,7 +17,7 @@ logging.basicConfig(
 
 def plot_rollout_error(error_path: Path | str):
     """
-    Loads and plots the per-channel, per-timestep error from an evaluation rollout.
+    Loads and plots the per-channel and total error from an evaluation rollout.
 
     Args:
         error_path (Path | str): Path to the rollout_error.npz file.
@@ -36,31 +36,49 @@ def plot_rollout_error(error_path: Path | str):
     num_channels = per_step_channel_error.shape[1]
     timesteps = range(1, num_timesteps + 1)
     
+    # Calculate the total MSE at each timestep by averaging across channels
+    total_per_step_error = per_step_channel_error.mean(axis=1)
+    
     # --- Plotting ---
     plt.style.use('seaborn-v0_8-whitegrid')
     
-    # Determine grid size for subplots
+    # --- THE FIX IS HERE ---
+    # Dynamically determine the figure layout to give subplots more space
     cols = 4
-    rows = math.ceil(num_channels / cols)
+    # Calculate how many rows are needed for the channel plots
+    channel_rows = math.ceil(num_channels / cols)
+    # Total rows = 1 for the main plot + rows for channel plots
+    total_rows = 1 + channel_rows
     
-    fig, axes = plt.subplots(rows, cols, figsize=(cols * 4, rows * 3), sharex=True)
-    axes = axes.flatten() # Flatten to make looping easier
+    # Adjust figure height based on the number of rows
+    fig_height = 3 * total_rows
+    fig = plt.figure(figsize=(16, fig_height))
+    
+    # Create a gridspec for the entire figure layout
+    gs = fig.add_gridspec(total_rows, cols, hspace=0.6, wspace=0.3)
+    
+    # Main plot for total error spans the top row
+    ax_total = fig.add_subplot(gs[0, :])
+    ax_total.plot(timesteps, total_per_step_error, 'o-', color='black', label='Total Average MSE')
+    ax_total.set_title('Total Rollout Error Over Time', fontsize=16, weight='bold')
+    ax_total.set_ylabel("MSE")
+    ax_total.set_yscale('log')
+    ax_total.grid(True, which="both", ls="--")
+    ax_total.legend()
 
+    # Create subplots for individual channels in the remaining space
     for i in range(num_channels):
-        ax = axes[i]
-        ax.plot(timesteps, per_step_channel_error[:, i], 'o-', color='crimson', markersize=4)
+        row = (i // cols) + 1 # Start from the second row of the main grid
+        col = i % cols
+        ax = fig.add_subplot(gs[row, col])
+        ax.plot(timesteps, per_step_channel_error[:, i], 'o-', color='crimson', markersize=3, alpha=0.8)
         ax.set_title(f"Channel: {channel_names[i]}")
         ax.set_ylabel("MSE")
+        ax.set_xlabel("Timestep") # Add x-label to each subplot
         ax.grid(True)
-        ax.set_yscale('log') # Use a log scale to better see variations
+        ax.set_yscale('log')
 
-    # Hide any unused subplots
-    for j in range(num_channels, len(axes)):
-        axes[j].set_visible(False)
-
-    # Add a common x-label
-    fig.text(0.5, 0.02, 'Prediction Timestep', ha='center', va='center', fontsize=12)
-    fig.suptitle('Per-Channel Autoregressive Rollout Error', fontsize=16, y=0.99)
+    fig.suptitle('Per-Channel Autoregressive Rollout Error', fontsize=20, y=0.99)
     
-    plt.tight_layout(rect=[0, 0.03, 1, 0.97])
+    plt.tight_layout(rect=[0, 0.03, 1, 0.96])
     plt.show()
