@@ -18,7 +18,7 @@ def parse_args():
     parser.add_argument("--model-path", type=str, required=True, help="Path to the saved model checkpoint (.pth file).")
     parser.add_argument("--test-data-path", type=str, required=True, help="Path to the contiguous test_set.npz file.")
     parser.add_argument("--norm-stats-path", type=str, required=True, help="Path to the normalization_stats.npz file.")
-    parser.add_argument("--output-dir", type=str, default=None, help="Directory to save evaluation results. Defaults to a new 'eval' folder in the model's directory.")
+    parser.add_argument("--output-path", type=str, default=None, help="Full path to save evaluation results (.npz file). Defaults to 'eval/rollout_error.npz' in the model's directory.")
     return parser.parse_args()
 
 def main():
@@ -27,11 +27,15 @@ def main():
     logging.info(f"Using device: {device}")
     model_path = Path(args.model_path)
     
-    if args.output_dir:
-        output_dir = Path(args.output_dir)
+    # Use the specified output path, or construct a default one
+    if args.output_path:
+        output_path = Path(args.output_path)
     else:
-        output_dir = model_path.parent / "eval"
-    output_dir.mkdir(parents=True, exist_ok=True)
+        output_path = model_path.parent / "eval" / "rollout_error.npz"
+    
+    # Ensure the parent directory for the output file exists
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
 
     # --- Load Normalization Stats ---
     stats = np.load(args.norm_stats_path)
@@ -91,31 +95,26 @@ def main():
     per_step_channel_error = np.zeros((num_timesteps - 1, num_channels))
 
     for t in range(1, num_timesteps):
-        # Calculate MSE for each channel separately
         error_tensor = loss_fn(predicted_timeseries[t], test_tensor_cpu[t])
-        # Average over spatial dimensions (D, H, W) to get per-channel error
         per_channel_mse = error_tensor.mean(dim=(0, 1, 2)).numpy()
         per_step_channel_error[t-1, :] = per_channel_mse
     
-    rollout_error_path = output_dir / "rollout_error.npz"
     np.savez(
-        rollout_error_path,
+        output_path,
         per_step_channel_error=per_step_channel_error,
         channel_names=channel_names,
     )
-    logging.info(f"Per-channel, per-timestep rollout error saved to {rollout_error_path}")
+    logging.info(f"Per-channel, per-timestep rollout error saved to {output_path}")
 
     # --- Calculate Final Average Error and R-squared Scores ---
     logging.info("--- EVALUATION COMPLETE ---")
     
-    # Overall metrics
     avg_rollout_mse_total = per_step_channel_error.mean()
     variance_total = test_tensor_cpu.var().item()
     r_squared_total = 1 - (avg_rollout_mse_total / variance_total) if variance_total > 0 else 0.0
     logging.info(f"Overall Average Rollout MSE: {avg_rollout_mse_total:.6f}")
     logging.info(f"Overall R-squared (R²) Score: {r_squared_total:.4f}\n")
 
-    # Per-channel metrics
     logging.info("--- Per-Channel Metrics ---")
     for i, name in enumerate(channel_names):
         avg_mse_channel = per_step_channel_error[:, i].mean()
