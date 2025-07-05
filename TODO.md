@@ -5,10 +5,6 @@ This document tracks the development tasks for the MHD Surrogate Modeling projec
 
     - param sweep
 
-        - discuss: should pred-loss be the new most important one?
-
-        - Add [pred|lin|recon|eig]_loss to hparams such that we can compare easily for these
-
         - analyze
 
         - new overnight run
@@ -17,7 +13,7 @@ This document tracks the development tasks for the MHD Surrogate Modeling projec
 
     - train
 
-        - 
+        - why is eigen loss always 0?
 
     - evaluation
 

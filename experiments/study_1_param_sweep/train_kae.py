@@ -85,13 +85,20 @@ def main():
     output_dir = Path(args.output_dir); output_dir.mkdir(parents=True, exist_ok=True)
     writer = SummaryWriter(log_dir=output_dir / "logs")
 
-    # --- Model and Optimizer Initialization ---
-    model = None
-    optimizer = None
+    # --- THE FIX IS HERE (Part 1: Initialize tracking variables) ---
     start_epoch = 0
-    best_val_loss = float("inf")
     patience_counter = 0
+    # Track best overall total loss and its epoch
+    best_val_loss = float("inf")
     best_epoch = 0
+    # Track component losses from the best epoch
+    losses_at_best_epoch = {}
+    # Track the independent best for each component loss
+    best_component_losses = {
+        "recon": float("inf"), "pred": float("inf"),
+        "lin": float("inf"), "eig": float("inf"),
+    }
+
     channels_used = args.channels
 
     if args.resume_from_checkpoint:
@@ -100,14 +107,9 @@ def main():
         channels_used = checkpoint.get("channels_used")
         logging.info(f"Resuming with channels from checkpoint: {channels_used}")
         
-        full_dataset = MHDDataset(
-            file_path=args.data_path,
-            norm_stats_path=args.norm_stats_path,
-            channels_to_use=channels_used,
-        )
+        full_dataset = MHDDataset(file_path=args.data_path, norm_stats_path=args.norm_stats_path, channels_to_use=channels_used)
         
-        train_indices = checkpoint["train_indices"]
-        val_indices = checkpoint["val_indices"]
+        train_indices, val_indices = checkpoint["train_indices"], checkpoint["val_indices"]
         train_dataset, val_dataset = Subset(full_dataset, train_indices), Subset(full_dataset, val_indices)
         
         model = KoopmanAutoencoder(**model_config).to(device)
@@ -120,28 +122,18 @@ def main():
         scheduler.load_state_dict(checkpoint["scheduler_state_dict"])
         
         start_epoch, best_val_loss, patience_counter, best_epoch = checkpoint["epoch"] + 1, checkpoint["best_val_loss"], checkpoint["patience_counter"], checkpoint.get("best_epoch", 0)
+        losses_at_best_epoch = checkpoint.get("losses_at_best_epoch", {})
+        best_component_losses = checkpoint.get("best_component_losses", best_component_losses)
     else:
-        full_dataset = MHDDataset(
-            file_path=args.data_path,
-            norm_stats_path=args.norm_stats_path,
-            channels_to_use=args.channels,
-        )
+        full_dataset = MHDDataset(file_path=args.data_path, norm_stats_path=args.norm_stats_path, channels_to_use=args.channels)
         channels_used = full_dataset.channel_names
 
         stats = np.load(args.norm_stats_path)
-        # --- THE FIX IS HERE ---
-        # Load each index array from the stats file separately
-        train_indices = stats["train_indices"]
-        val_indices = stats["val_indices"]
-        train_dataset = Subset(full_dataset, train_indices)
-        val_dataset = Subset(full_dataset, val_indices)
+        train_indices, val_indices = stats["train_indices"], stats["val_indices"]
+        train_dataset, val_dataset = Subset(full_dataset, train_indices), Subset(full_dataset, val_indices)
         
         sample_x, _ = full_dataset[0]
-        model_config = {
-            "in_channels": sample_x.shape[-1],
-            "latent_dim": args.latent_dim,
-            "input_spatial_dims": sample_x.shape[:-1],
-        }
+        model_config = {"in_channels": sample_x.shape[-1], "latent_dim": args.latent_dim, "input_spatial_dims": sample_x.shape[:-1]}
         model = KoopmanAutoencoder(**model_config).to(device)
         optimizer = Adam(model.parameters(), lr=args.lr)
         scheduler = ReduceLROnPlateau(optimizer, 'min', factor=args.lr_factor, patience=args.lr_patience)
@@ -178,8 +170,16 @@ def main():
         for key in ["recon", "pred", "lin", "eig"]: writer.add_scalars(f"Loss_Components/{key}", {'train': avg_train_losses[key],'val': avg_val_losses[key]}, epoch)
         writer.add_scalar("Learning_Rate", optimizer.param_groups[0]['lr'], epoch)
 
+        # --- THE FIX IS HERE (Part 2: Update tracking logic) ---
+        # Track independent best component losses
+        for key in best_component_losses:
+            best_component_losses[key] = min(best_component_losses[key], avg_val_losses[key])
+
         if avg_val_losses["total"] < best_val_loss:
-            best_val_loss, patience_counter, best_epoch = avg_val_losses["total"], 0, epoch + 1
+            best_val_loss = avg_val_losses["total"]
+            patience_counter = 0
+            best_epoch = epoch + 1
+            losses_at_best_epoch = avg_val_losses # Store all component losses
             best_model_path = output_dir / "best_model.pth"
             torch.save({'config': model_config, 'model_state_dict': model.state_dict(), 'channels_used': channels_used}, best_model_path)
             logging.info(f"New best model saved to {best_model_path} (Val Loss: {best_val_loss:.4f})")
@@ -188,15 +188,29 @@ def main():
             logging.info(f"Validation loss did not improve. Patience: {patience_counter}/{args.patience}")
 
         latest_checkpoint_path = output_dir / "latest_checkpoint.pth"
-        torch.save({"epoch": epoch, "config": model_config, "model_state_dict": model.state_dict(), "optimizer_state_dict": optimizer.state_dict(), "scheduler_state_dict": scheduler.state_dict(), "best_val_loss": best_val_loss, "patience_counter": patience_counter, "best_epoch": best_epoch, "train_indices": train_dataset.indices, "val_indices": val_dataset.indices, "channels_used": channels_used}, latest_checkpoint_path)
+        torch.save({"epoch": epoch, "config": model_config, "model_state_dict": model.state_dict(), "optimizer_state_dict": optimizer.state_dict(), "scheduler_state_dict": scheduler.state_dict(), "best_val_loss": best_val_loss, "patience_counter": patience_counter, "best_epoch": best_epoch, "train_indices": train_dataset.indices, "val_indices": val_dataset.indices, "channels_used": channels_used, "losses_at_best_epoch": losses_at_best_epoch, "best_component_losses": best_component_losses}, latest_checkpoint_path)
         if patience_counter >= args.patience: logging.info("Early stopping triggered."); break
 
+    # --- THE FIX IS HERE (Part 3: Update HParams logging) ---
     hparams = vars(args)
     hparams['channels'] = ",".join(channels_used) if channels_used is not None else "all"
     hparams.update({k: str(v) for k, v in hparams.items() if isinstance(v, Path) or k.endswith('_path')})
     if hparams.get('resume_from_checkpoint'): hparams['resume_from_checkpoint'] = str(hparams['resume_from_checkpoint'])
     
-    writer.add_hparams(hparams, {'hparam/best_val_loss': best_val_loss, 'hparam/best_epoch': best_epoch})
+    final_metrics = {
+        'hparam/best_val_loss': best_val_loss,
+        'hparam/best_epoch': best_epoch,
+        'hparam/recon_at_best': losses_at_best_epoch.get('recon', 0),
+        'hparam/pred_at_best': losses_at_best_epoch.get('pred', 0),
+        'hparam/lin_at_best': losses_at_best_epoch.get('lin', 0),
+        'hparam/eig_at_best': losses_at_best_epoch.get('eig', 0),
+        'hparam/best_recon_loss': best_component_losses['recon'],
+        'hparam/best_pred_loss': best_component_losses['pred'],
+        'hparam/best_lin_loss': best_component_losses['lin'],
+        'hparam/best_eig_loss': best_component_losses['eig'],
+    }
+    
+    writer.add_hparams(hparams, final_metrics)
     writer.close(); logging.info("Training finished.")
 
 if __name__ == "__main__":
