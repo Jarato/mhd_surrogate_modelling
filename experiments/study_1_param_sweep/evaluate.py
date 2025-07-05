@@ -8,6 +8,7 @@ from pathlib import Path
 import numpy as np
 import torch
 import torch.nn as nn
+from tqdm import tqdm
 
 from mhd_canonical_kae.model import KoopmanAutoencoder
 
@@ -27,13 +28,11 @@ def main():
     logging.info(f"Using device: {device}")
     model_path = Path(args.model_path)
     
-    # Use the specified output path, or construct a default one
     if args.output_path:
         output_path = Path(args.output_path)
     else:
         output_path = model_path.parent / "eval" / "rollout_error.npz"
     
-    # Ensure the parent directory for the output file exists
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
 
@@ -66,9 +65,11 @@ def main():
     model.load_state_dict(checkpoint['model_state_dict'])
     model.eval()
 
-    # --- Autoregressive Rollout ---
+    # --- Autoregressive Rollout (Memory-Efficient) ---
     num_timesteps = test_tensor_cpu.shape[0]
-    predictions_denorm_cpu = []
+    num_channels = test_tensor_cpu.shape[-1]
+    per_step_channel_error = np.zeros((num_timesteps - 1, num_channels))
+    loss_fn = nn.MSELoss(reduction='none')
     
     initial_state_original = test_tensor_cpu[0].unsqueeze(0)
     current_state_norm = normalize(initial_state_original)
@@ -76,29 +77,25 @@ def main():
 
     logging.info(f"Starting autoregressive rollout for {num_timesteps - 1} steps...")
     with torch.no_grad():
-        predictions_denorm_cpu.append(initial_state_original.squeeze(0))
         z_t = model.encode(current_state_norm)
 
-        for _ in range(num_timesteps - 1):
+        # Wrap the loop with tqdm for a progress bar
+        for t in tqdm(range(num_timesteps - 1), desc="Evaluating Rollout"):
             z_t = model.koopman_step(z_t)
             predicted_state_norm = model.decode(z_t)
+            
             predicted_state_denorm = denormalize(predicted_state_norm.permute(0, 2, 3, 4, 1))
-            predictions_denorm_cpu.append(predicted_state_denorm.squeeze(0).cpu())
+            
+            ground_truth_state = test_tensor_cpu[t+1].unsqueeze(0).to(device)
+            
+            error_tensor = loss_fn(predicted_state_denorm, ground_truth_state)
+            per_channel_mse = error_tensor.mean(dim=(0, 1, 2, 3)).cpu().numpy()
+            per_step_channel_error[t, :] = per_channel_mse
+            
             current_state_norm = predicted_state_norm
-
-    predicted_timeseries = torch.stack(predictions_denorm_cpu)
-    logging.info(f"Rollout complete. Predicted timeseries shape: {predicted_timeseries.shape}")
-
-    # --- Calculate Per-Channel, Per-Timestep Error ---
-    loss_fn = nn.MSELoss(reduction='none')
-    num_channels = test_tensor_cpu.shape[-1]
-    per_step_channel_error = np.zeros((num_timesteps - 1, num_channels))
-
-    for t in range(1, num_timesteps):
-        error_tensor = loss_fn(predicted_timeseries[t], test_tensor_cpu[t])
-        per_channel_mse = error_tensor.mean(dim=(0, 1, 2)).numpy()
-        per_step_channel_error[t-1, :] = per_channel_mse
     
+    logging.info("Rollout complete.")
+
     np.savez(
         output_path,
         per_step_channel_error=per_step_channel_error,
