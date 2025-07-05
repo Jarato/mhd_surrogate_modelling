@@ -19,7 +19,7 @@ def parse_args():
     parser.add_argument("--model-path", type=str, required=True, help="Path to the saved model checkpoint (.pth file).")
     parser.add_argument("--test-data-path", type=str, required=True, help="Path to the contiguous test_set.npz file.")
     parser.add_argument("--norm-stats-path", type=str, required=True, help="Path to the normalization_stats.npz file.")
-    parser.add_argument("--output-path", type=str, default=None, help="Full path to save evaluation results (.npz file). Defaults to 'eval/rollout_error.npz' in the model's directory.")
+    parser.add_argument("--output-path", type=str, default=None, help="Full path to save evaluation results (.npz file).")
     return parser.parse_args()
 
 def main():
@@ -28,84 +28,76 @@ def main():
     logging.info(f"Using device: {device}")
     model_path = Path(args.model_path)
     
-    if args.output_path:
-        output_path = Path(args.output_path)
-    else:
-        output_path = model_path.parent / "eval" / "rollout_error.npz"
-    
+    if args.output_path: output_path = Path(args.output_path)
+    else: output_path = model_path.parent / "eval" / "rollout_error.npz"
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
-
-    # --- Load Normalization Stats ---
-    stats = np.load(args.norm_stats_path)
-    min_vals = torch.from_numpy(stats['min_vals']).float().to(device)
-    max_vals = torch.from_numpy(stats['max_vals']).float().to(device)
-    data_range = max_vals - min_vals + 1e-8
-
-    def normalize(x):
-        return (x.to(device) - min_vals) / data_range * 2.0 - 1.0
-
-    def denormalize(x_norm):
-        return (x_norm + 1.0) / 2.0 * data_range + min_vals
-
-    # --- Load Test Data ---
-    with np.load(args.test_data_path, allow_pickle=True) as raw_data:
-        test_timeseries = raw_data["timeseries"]
-        channel_names = raw_data["labels"]
-    
-    test_tensor_cpu = torch.from_numpy(test_timeseries).float()
-    logging.info(f"Test data loaded. Shape: {test_tensor_cpu.shape}")
-
-    # --- Load Model from Checkpoint ---
+    # --- Load Model and Config from Checkpoint FIRST ---
     checkpoint = torch.load(model_path, map_location=device)
     model_config = checkpoint['config']
-    
+    # --- THE FIX IS HERE (Part 3) ---
+    # Load channels from the top level of the checkpoint
+    channels_to_use = checkpoint.get('channels_used') 
+
     logging.info(f"Re-creating model with saved config: {model_config}")
     model = KoopmanAutoencoder(**model_config).to(device)
     model.load_state_dict(checkpoint['model_state_dict'])
     model.eval()
 
-    # --- Autoregressive Rollout (Memory-Efficient) ---
-    num_timesteps = test_tensor_cpu.shape[0]
-    num_channels = test_tensor_cpu.shape[-1]
+    # --- Load Data and Stats based on Model Config ---
+    stats = np.load(args.norm_stats_path)
+    all_min_vals = torch.from_numpy(stats['min_vals']).float().to(device)
+    all_max_vals = torch.from_numpy(stats['max_vals']).float().to(device)
+    
+    with np.load(args.test_data_path, allow_pickle=True) as raw_data:
+        test_timeseries = raw_data["timeseries"]
+        all_channel_names = list(raw_data["labels"])
+    
+    if channels_to_use:
+        channel_indices = [all_channel_names.index(name) for name in channels_to_use]
+        test_timeseries = test_timeseries[..., channel_indices]
+        channel_names = channels_to_use
+        min_vals = all_min_vals[channel_indices]
+        max_vals = all_max_vals[channel_indices]
+        logging.info(f"Evaluating on channels from model config: {channel_names}")
+    else:
+        channel_names = all_channel_names
+        min_vals = all_min_vals
+        max_vals = all_max_vals
+
+    data_range = max_vals - min_vals + 1e-8
+    def normalize(x): return (x.to(device) - min_vals) / data_range * 2.0 - 1.0
+    def denormalize(x_norm): return (x_norm + 1.0) / 2.0 * data_range + min_vals
+
+    test_tensor_cpu = torch.from_numpy(test_timeseries).float()
+    logging.info(f"Test data loaded. Shape: {test_tensor_cpu.shape}")
+
+    # --- Autoregressive Rollout ---
+    num_timesteps, num_channels = test_tensor_cpu.shape[0], test_tensor_cpu.shape[-1]
     per_step_channel_error = np.zeros((num_timesteps - 1, num_channels))
     loss_fn = nn.MSELoss(reduction='none')
     
     initial_state_original = test_tensor_cpu[0].unsqueeze(0)
-    current_state_norm = normalize(initial_state_original)
-    current_state_norm = current_state_norm.permute(0, 4, 1, 2, 3)
+    current_state_norm = normalize(initial_state_original).permute(0, 4, 1, 2, 3)
 
     logging.info(f"Starting autoregressive rollout for {num_timesteps - 1} steps...")
     with torch.no_grad():
         z_t = model.encode(current_state_norm)
-
-        # Wrap the loop with tqdm for a progress bar
         for t in tqdm(range(num_timesteps - 1), desc="Evaluating Rollout"):
             z_t = model.koopman_step(z_t)
             predicted_state_norm = model.decode(z_t)
-            
             predicted_state_denorm = denormalize(predicted_state_norm.permute(0, 2, 3, 4, 1))
-            
             ground_truth_state = test_tensor_cpu[t+1].unsqueeze(0).to(device)
-            
             error_tensor = loss_fn(predicted_state_denorm, ground_truth_state)
-            per_channel_mse = error_tensor.mean(dim=(0, 1, 2, 3)).cpu().numpy()
-            per_step_channel_error[t, :] = per_channel_mse
-            
+            per_step_channel_error[t, :] = error_tensor.mean(dim=(0, 1, 2, 3)).cpu().numpy()
             current_state_norm = predicted_state_norm
     
     logging.info("Rollout complete.")
-
-    np.savez(
-        output_path,
-        per_step_channel_error=per_step_channel_error,
-        channel_names=channel_names,
-    )
+    np.savez(output_path, per_step_channel_error=per_step_channel_error, channel_names=channel_names)
     logging.info(f"Per-channel, per-timestep rollout error saved to {output_path}")
 
-    # --- Calculate Final Average Error and R-squared Scores ---
+    # --- Calculate Final Metrics ---
     logging.info("--- EVALUATION COMPLETE ---")
-    
     avg_rollout_mse_total = per_step_channel_error.mean()
     variance_total = test_tensor_cpu.var().item()
     r_squared_total = 1 - (avg_rollout_mse_total / variance_total) if variance_total > 0 else 0.0
@@ -118,7 +110,6 @@ def main():
         variance_channel = test_tensor_cpu[..., i].var().item()
         r_squared_channel = 1 - (avg_mse_channel / variance_channel) if variance_channel > 0 else 0.0
         logging.info(f"Channel '{name}':\t Avg MSE = {avg_mse_channel:.6f},\t R² = {r_squared_channel:.4f}")
-
 
 if __name__ == "__main__":
     main()

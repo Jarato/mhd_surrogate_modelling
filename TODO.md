@@ -5,13 +5,27 @@ This document tracks the development tasks for the MHD Surrogate Modeling projec
 
     - param sweep
 
-    - evaluation
+        - discuss: should pred-loss be the new most important one?
 
-        - R^2 or other predictions for init points in training data
+        - Add [pred|lin|recon|eig]_loss to hparams such that we can compare easily for these
+
+        - analyze
+
+        - new overnight run
+
+            - run with less channel? Or explore something else?
+
+    - train
+
+        - 
+
+    - evaluation
 
         - visualization of real data vs train and test predictions
 
         - total, recon, lin, pred error on test data
+
+        - eval in latent space?
 
     - CV for fine-grained selection between top models
 
