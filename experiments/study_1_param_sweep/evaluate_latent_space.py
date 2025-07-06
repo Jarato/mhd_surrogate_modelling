@@ -11,7 +11,7 @@ import torch.nn as nn
 from tqdm import tqdm
 
 from mhd_canonical_kae.model import KoopmanAutoencoder
-from mhd_surrogate_core.data import MHDDataset
+# We no longer need to import MHDDataset for this script
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
@@ -45,24 +45,44 @@ def main():
     model.load_state_dict(checkpoint['model_state_dict'])
     model.eval()
 
-    # --- Load Test Data and Encode to Latent Space ---
-    # We need to create the dataset to handle normalization correctly
-    test_dataset = MHDDataset(
-        file_path=args.test_data_path,
-        norm_stats_path=args.norm_stats_path,
-        channels_to_use=channels_used,
-    )
-    
-    # Manually encode the entire test set to get the ground truth latent trajectory
+    # --- THE FIX IS HERE (Memory-Efficient Data Handling) ---
+
+    # --- Load Normalization Stats and Data Handles ---
+    stats = np.load(args.norm_stats_path)
+    all_min_vals = torch.from_numpy(stats['min_vals']).float()
+    all_max_vals = torch.from_numpy(stats['max_vals']).float()
+
+    data_handle = np.load(args.test_data_path, allow_pickle=True)
+    full_timeseries = data_handle["timeseries"]
+    all_channel_names = list(data_handle["labels"])
+
+    # --- Select Channels and Stats without loading full data into RAM ---
+    if channels_used:
+        channel_indices = [all_channel_names.index(name) for name in channels_used]
+        min_vals = all_min_vals[channel_indices].to(device)
+        max_vals = all_max_vals[channel_indices].to(device)
+        logging.info(f"Evaluating on selected channels: {channels_used}")
+    else:
+        channel_indices = None
+        min_vals = all_min_vals.to(device)
+        max_vals = all_max_vals.to(device)
+
+    data_range = max_vals - min_vals + 1e-8
+    def normalize(x): return (x.to(device) - min_vals) / data_range * 2.0 - 1.0
+
+    # --- Manually encode the entire test set to get the ground truth latent trajectory ---
     true_latent_trajectory = []
     with torch.no_grad():
-        # The dataset produces N-1 pairs, but there are N snapshots.
-        # We need to access the underlying data array to get all snapshots.
-        for i in range(len(test_dataset.data)):
-            snapshot = torch.from_numpy(test_dataset.data[i]).float()
-            snapshot = test_dataset._normalize(snapshot)
-            snapshot = snapshot.unsqueeze(0).permute(0, 4, 1, 2, 3).to(device)
-            latent_vector = model.encode(snapshot)
+        for i in tqdm(range(full_timeseries.shape[0]), desc="Encoding Ground Truth"):
+            snapshot = full_timeseries[i]
+            if channel_indices:
+                snapshot = snapshot[..., channel_indices]
+            
+            snapshot_tensor = torch.from_numpy(snapshot).float()
+            snapshot_norm = normalize(snapshot_tensor)
+            snapshot_norm = snapshot_norm.unsqueeze(0).permute(0, 4, 1, 2, 3) # Add batch and permute
+            
+            latent_vector = model.encode(snapshot_norm)
             true_latent_trajectory.append(latent_vector.squeeze(0).cpu())
     
     true_latent_trajectory = torch.stack(true_latent_trajectory)
@@ -73,12 +93,11 @@ def main():
     num_timesteps = true_latent_trajectory.shape[0]
     predicted_latent_trajectory = []
     
-    # Initial condition is the first true latent vector
     z_t = true_latent_trajectory[0].unsqueeze(0).to(device)
     
     logging.info(f"Starting latent space rollout for {num_timesteps - 1} steps...")
     with torch.no_grad():
-        predicted_latent_trajectory.append(z_t.squeeze(0).cpu()) # Start with the initial condition
+        predicted_latent_trajectory.append(z_t.squeeze(0).cpu())
 
         for _ in tqdm(range(num_timesteps - 1), desc="Latent Rollout"):
             z_t = model.koopman_step(z_t)
