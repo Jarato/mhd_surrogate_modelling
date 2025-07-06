@@ -7,7 +7,6 @@ import math
 
 import numpy as np
 import matplotlib.pyplot as plt
-from mpl_toolkits.axes_grid1 import make_axes_locatable
 
 # Configure basic logging
 logging.basicConfig(
@@ -36,27 +35,23 @@ def plot_snapshot_comparison(true_data, recon_data, channel_name, timestep):
     recon_slice = recon_data[:, slice_idx, :]
     error_slice = np.abs(true_slice - recon_slice)
 
-    # Determine a shared color range for the true and recon plots
     vmin = min(true_slice.min(), recon_slice.min())
     vmax = max(true_slice.max(), recon_slice.max())
 
     fig, axes = plt.subplots(1, 3, figsize=(18, 5))
     fig.suptitle(f"Reconstruction Comparison for Channel '{channel_name}' at Timestep {timestep}", fontsize=16)
 
-    # Plot Ground Truth
     im1 = axes[0].imshow(true_slice.T, origin='lower', cmap='viridis', vmin=vmin, vmax=vmax)
     axes[0].set_title("Ground Truth")
     axes[0].set_xlabel("X-axis")
     axes[0].set_ylabel("Z-axis")
     fig.colorbar(im1, ax=axes[0], fraction=0.046, pad=0.04)
 
-    # Plot Reconstruction
     im2 = axes[1].imshow(recon_slice.T, origin='lower', cmap='viridis', vmin=vmin, vmax=vmax)
     axes[1].set_title("Reconstruction")
     axes[1].set_xlabel("X-axis")
     axes[1].set_yticklabels([])
 
-    # Plot Absolute Error
     im3 = axes[2].imshow(error_slice.T, origin='lower', cmap='inferno')
     axes[2].set_title("Absolute Error")
     axes[2].set_xlabel("X-axis")
@@ -67,16 +62,16 @@ def plot_snapshot_comparison(true_data, recon_data, channel_name, timestep):
     return fig
 
 
-def plot_rollout_error(error_path: Path | str):
+def plot_prediction_rollout_error(error_path: Path | str):
     """
-    Loads and plots the per-channel and total error from an evaluation rollout.
+    Loads and plots the per-channel and total error from a prediction rollout.
     """
     error_path = Path(error_path)
     if not error_path.exists():
         logging.error(f"Rollout error file not found at: {error_path}")
         return
     
-    logging.info(f"Loading rollout error from {error_path}...")
+    logging.info(f"Loading prediction rollout error from {error_path}...")
     with np.load(error_path, allow_pickle=True) as data:
         per_step_channel_error = data['per_step_channel_error']
         channel_names = data['channel_names']
@@ -86,31 +81,34 @@ def plot_rollout_error(error_path: Path | str):
     total_per_step_error = per_step_channel_error.mean(axis=1)
     
     plt.style.use('seaborn-v0_8-whitegrid')
-    
     cols = 4
     channel_rows = math.ceil(num_channels / cols)
     total_rows = 1 + channel_rows
-    
     fig_height = 3 * total_rows
     fig = plt.figure(figsize=(16, fig_height))
-    
     gs = fig.add_gridspec(total_rows, cols, hspace=0.6, wspace=0.3)
     
     ax_total = fig.add_subplot(gs[0, :])
     ax_total.plot(timesteps, total_per_step_error, 'o-', color='black', label='Total Average MSE')
-    ax_total.set_title('Total Rollout Error Over Time', fontsize=16, weight='bold')
-    ax_total.set_ylabel("MSE"); ax_total.set_yscale('log')
-    ax_total.grid(True, which="both", ls="--"); ax_total.legend()
+    ax_total.set_title('Total Prediction Rollout Error Over Time', fontsize=16, weight='bold')
+    ax_total.set_ylabel("MSE")
+    ax_total.set_yscale('log')
+    ax_total.grid(True, which="both", ls="--")
+    ax_total.legend()
 
     for i in range(num_channels):
         row, col = (i // cols) + 1, i % cols
         ax = fig.add_subplot(gs[row, col])
         ax.plot(timesteps, per_step_channel_error[:, i], 'o-', color='crimson', markersize=3, alpha=0.8)
-        ax.set_title(f"Channel: {channel_names[i]}"); ax.set_ylabel("MSE"); ax.set_xlabel("Timestep")
-        ax.grid(True); ax.set_yscale('log')
+        ax.set_title(f"Channel: {channel_names[i]}")
+        ax.set_ylabel("MSE")
+        ax.set_xlabel("Timestep")
+        ax.grid(True)
+        ax.set_yscale('log')
 
-    fig.suptitle('Per-Channel Autoregressive Rollout Error', fontsize=20, y=0.99)
-    plt.tight_layout(rect=[0, 0.03, 1, 0.96]); plt.show()
+    fig.suptitle('Per-Channel Prediction Rollout Error', fontsize=20, y=0.99)
+    plt.tight_layout(rect=[0, 0.03, 1, 0.96])
+    plt.show()
 
 
 def plot_latent_rollout_error(error_path: Path | str):
@@ -127,7 +125,6 @@ def plot_latent_rollout_error(error_path: Path | str):
     
     logging.info(f"Loading latent rollout error from {error_path}...")
     with np.load(error_path) as data:
-        # Check for old and new key for backwards compatibility
         if 'per_step_latent_error' in data:
             per_step_latent_error = data['per_step_latent_error']
         else:
@@ -156,32 +153,38 @@ def plot_latent_trajectories(eval_path: Path | str, num_dims_to_plot: int = 16):
     """
     eval_path = Path(eval_path)
     if not eval_path.exists():
-        logging.error(f"Latent evaluation file not found at: {eval_path}"); return
+        logging.error(f"Latent evaluation file not found at: {eval_path}")
+        return
 
     logging.info(f"Loading latent trajectories from {eval_path}...")
     with np.load(eval_path) as data:
-        true_traj = data['true_latent_trajectory']; pred_traj = data['predicted_latent_trajectory']
+        true_traj = data['true_latent_trajectory']
+        pred_traj = data['predicted_latent_trajectory']
 
     num_timesteps, latent_dim = true_traj.shape
     timesteps = range(num_timesteps)
     dims_to_plot = min(latent_dim, num_dims_to_plot)
     
     plt.style.use('seaborn-v0_8-whitegrid')
-    cols = 4; rows = math.ceil(dims_to_plot / cols)
+    cols = 4
+    rows = math.ceil(dims_to_plot / cols)
     fig, axes = plt.subplots(rows, cols, figsize=(cols * 4, rows * 3), sharex=True)
     axes = axes.flatten()
 
     for i in range(dims_to_plot):
         axes[i].plot(timesteps, true_traj[:, i], '-', color='royalblue', label='Ground Truth')
         axes[i].plot(timesteps, pred_traj[:, i], '--', color='darkorange', label='Prediction')
-        axes[i].set_title(f"Latent Dimension {i}"); axes[i].set_ylabel("Value")
+        axes[i].set_title(f"Latent Dimension {i}")
+        axes[i].set_ylabel("Value")
         axes[i].grid(True, which="both", ls="--")
 
-    for j in range(dims_to_plot, len(axes)): axes[j].set_visible(False)
+    for j in range(dims_to_plot, len(axes)):
+        axes[j].set_visible(False)
     handles, labels = axes[0].get_legend_handles_labels()
     fig.legend(handles, labels, loc='upper right', fontsize=12)
     fig.suptitle('Latent Space Trajectory Rollout', fontsize=16, y=0.99)
-    plt.tight_layout(rect=[0, 0, 1, 0.95]); plt.show()
+    plt.tight_layout(rect=[0, 0, 1, 0.95])
+    plt.show()
 
 
 def plot_koopman_mode_evolution(eval_path: Path | str, num_modes_to_plot: int = 16):
@@ -190,7 +193,8 @@ def plot_koopman_mode_evolution(eval_path: Path | str, num_modes_to_plot: int = 
     """
     eval_path = Path(eval_path)
     if not eval_path.exists():
-        logging.error(f"Latent evaluation file not found at: {eval_path}"); return
+        logging.error(f"Latent evaluation file not found at: {eval_path}")
+        return
 
     logging.info(f"Loading Koopman mode data from {eval_path}...")
     with np.load(eval_path, allow_pickle=True) as data:
@@ -200,7 +204,8 @@ def plot_koopman_mode_evolution(eval_path: Path | str, num_modes_to_plot: int = 
         initial_amplitudes = data.get('initial_mode_amplitudes')
     
     if true_proj.size == 0 or pred_proj.size == 0 or initial_amplitudes is None:
-        logging.error("Required data for mode evolution plot not found in file."); return
+        logging.error("Required data for mode evolution plot not found in file.")
+        return
 
     sort_indices = np.argsort(initial_amplitudes)[::-1]
     sorted_eigenvalues = eigenvalues[sort_indices]
@@ -213,7 +218,8 @@ def plot_koopman_mode_evolution(eval_path: Path | str, num_modes_to_plot: int = 
     modes_to_plot = min(latent_dim, num_modes_to_plot)
     
     plt.style.use('seaborn-v0_8-whitegrid')
-    cols = 4; rows = math.ceil(modes_to_plot / cols)
+    cols = 4
+    rows = math.ceil(modes_to_plot / cols)
     fig, axes = plt.subplots(rows, cols, figsize=(cols * 4.5, rows * 3.5), sharex=True)
     axes = axes.flatten()
 
@@ -231,11 +237,13 @@ def plot_koopman_mode_evolution(eval_path: Path | str, num_modes_to_plot: int = 
         ax.set_ylabel("Mode Amplitude")
         ax.grid(True, which="both", ls="--")
 
-    for j in range(modes_to_plot, len(axes)): axes[j].set_visible(False)
+    for j in range(modes_to_plot, len(axes)):
+        axes[j].set_visible(False)
     handles, labels = axes[0].get_legend_handles_labels()
     fig.legend(handles, labels, loc='upper right', fontsize=12)
     fig.suptitle('Evolution of Koopman Modes (Sorted by Importance)', fontsize=16, y=0.98)
-    plt.tight_layout(rect=[0, 0, 1, 0.94]); plt.show()
+    plt.tight_layout(rect=[0, 0, 1, 0.94])
+    plt.show()
 
 
 def plot_reconstruction_performance(eval_path: Path | str):
@@ -244,7 +252,8 @@ def plot_reconstruction_performance(eval_path: Path | str):
     """
     eval_path = Path(eval_path)
     if not eval_path.exists():
-        logging.error(f"Reconstruction analysis file not found at: {eval_path}"); return
+        logging.error(f"Reconstruction analysis file not found at: {eval_path}")
+        return
 
     logging.info(f"Loading reconstruction performance from {eval_path}...")
     with np.load(eval_path, allow_pickle=True) as data:
@@ -264,7 +273,8 @@ def plot_reconstruction_performance(eval_path: Path | str):
     ax.set_title('Per-Channel Reconstruction Performance')
     
     ax.axvline(0, color='black', linewidth=0.8, linestyle='--')
-    plt.tight_layout(); plt.show()
+    plt.tight_layout()
+    plt.show()
 
 
 def plot_reconstruction_error_over_time(error_path: Path | str):
@@ -273,7 +283,8 @@ def plot_reconstruction_error_over_time(error_path: Path | str):
     """
     error_path = Path(error_path)
     if not error_path.exists():
-        logging.error(f"Reconstruction error file not found at: {error_path}"); return
+        logging.error(f"Reconstruction error file not found at: {error_path}")
+        return
     
     logging.info(f"Loading reconstruction error from {error_path}...")
     with np.load(error_path, allow_pickle=True) as data:
@@ -298,15 +309,21 @@ def plot_reconstruction_error_over_time(error_path: Path | str):
     ax_total = fig.add_subplot(gs[0, :])
     ax_total.plot(timesteps, total_per_step_error, 'o-', color='black', label='Total Average MSE')
     ax_total.set_title('Total Reconstruction Error Over Time', fontsize=16, weight='bold')
-    ax_total.set_ylabel("MSE"); ax_total.set_yscale('log')
-    ax_total.grid(True, which="both", ls="--"); ax_total.legend()
+    ax_total.set_ylabel("MSE")
+    ax_total.set_yscale('log')
+    ax_total.grid(True, which="both", ls="--")
+    ax_total.legend()
 
     for i in range(num_channels):
         row, col = (i // cols) + 1, i % cols
         ax = fig.add_subplot(gs[row, col])
         ax.plot(timesteps, per_step_channel_error[:, i], 'o-', color='darkcyan', markersize=3, alpha=0.8)
-        ax.set_title(f"Channel: {channel_names[i]}"); ax.set_ylabel("MSE"); ax.set_xlabel("Timestep")
-        ax.grid(True); ax.set_yscale('log')
+        ax.set_title(f"Channel: {channel_names[i]}")
+        ax.set_ylabel("MSE")
+        ax.set_xlabel("Timestep")
+        ax.grid(True)
+        ax.set_yscale('log')
 
     fig.suptitle('Per-Channel Reconstruction Error', fontsize=20, y=0.99)
-    plt.tight_layout(rect=[0, 0.03, 1, 0.96]); plt.show()
+    plt.tight_layout(rect=[0, 0.03, 1, 0.96])
+    plt.show()
