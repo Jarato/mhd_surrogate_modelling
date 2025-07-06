@@ -23,9 +23,9 @@ This document tracks the development tasks for the MHD Surrogate Modeling projec
 
     - evaluation
 
-        - visualization of real data vs train and test predictions
+        -
 
-        - recon error on test data
+    - physics loss?!
 
     - CV for fine-grained selection between top models
 
