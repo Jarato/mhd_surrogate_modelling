@@ -18,9 +18,6 @@ logging.basicConfig(
 def plot_rollout_error(error_path: Path | str):
     """
     Loads and plots the per-channel and total error from an evaluation rollout.
-
-    Args:
-        error_path (Path | str): Path to the rollout_error.npz file.
     """
     error_path = Path(error_path)
     if not error_path.exists():
@@ -67,9 +64,6 @@ def plot_rollout_error(error_path: Path | str):
 def plot_latent_rollout_error(error_path: Path | str):
     """
     Loads and plots the per-timestep latent space error from an evaluation rollout.
-
-    Args:
-        error_path (Path | str): Path to the latent_space_analysis.npz file.
     """
     error_path = Path(error_path)
     if not error_path.exists():
@@ -78,7 +72,6 @@ def plot_latent_rollout_error(error_path: Path | str):
     
     logging.info(f"Loading latent rollout error from {error_path}...")
     with np.load(error_path) as data:
-        # Check for old and new key for backwards compatibility
         if 'per_step_latent_error' in data:
             per_step_latent_error = data['per_step_latent_error']
         else:
@@ -104,10 +97,6 @@ def plot_latent_rollout_error(error_path: Path | str):
 def plot_latent_trajectories(eval_path: Path | str, num_dims_to_plot: int = 16):
     """
     Loads and plots the predicted vs. true latent space trajectories.
-
-    Args:
-        eval_path (Path | str): Path to the latent_space_analysis.npz file.
-        num_dims_to_plot (int): The number of latent dimensions to visualize.
     """
     eval_path = Path(eval_path)
     if not eval_path.exists():
@@ -141,10 +130,8 @@ def plot_latent_trajectories(eval_path: Path | str, num_dims_to_plot: int = 16):
 
 def plot_koopman_mode_evolution(eval_path: Path | str, num_modes_to_plot: int = 16):
     """
-    Plots the time evolution of the system projected onto the Koopman eigenvectors.
-
-    Args:
-        eval_path (Path | str): Path to the latent_space_analysis.npz file.
+    Plots the time evolution of the system projected onto the Koopman eigenvectors,
+    sorted by the initial amplitude of each mode.
     """
     eval_path = Path(eval_path)
     if not eval_path.exists():
@@ -155,17 +142,19 @@ def plot_koopman_mode_evolution(eval_path: Path | str, num_modes_to_plot: int = 
         eigenvalues = data['eigenvalues']
         true_proj = data['true_projected_trajectory']
         pred_proj = data['pred_projected_trajectory']
+        initial_amplitudes = data.get('initial_mode_amplitudes')
     
-    if true_proj.size == 0 or pred_proj.size == 0:
-        logging.error("Projected trajectory data not found in file. Was the eigenvector matrix invertible?"); return
+    if true_proj.size == 0 or pred_proj.size == 0 or initial_amplitudes is None:
+        logging.error("Required data for mode evolution plot not found in file."); return
 
-    # Sort modes by eigenvalue magnitude in descending order
-    magnitudes = np.abs(eigenvalues)
-    sort_indices = np.argsort(magnitudes)[::-1]
+    # --- THE FIX IS HERE (Part 2: Sort by Amplitude) ---
+    # Sort modes by their initial amplitude in descending order
+    sort_indices = np.argsort(initial_amplitudes)[::-1]
     
     sorted_eigenvalues = eigenvalues[sort_indices]
     sorted_true_proj = true_proj[:, sort_indices]
     sorted_pred_proj = pred_proj[:, sort_indices]
+    sorted_amplitudes = initial_amplitudes[sort_indices]
 
     num_timesteps, latent_dim = true_proj.shape
     timesteps = range(num_timesteps)
@@ -178,14 +167,14 @@ def plot_koopman_mode_evolution(eval_path: Path | str, num_modes_to_plot: int = 
 
     for i in range(modes_to_plot):
         ax = axes[i]
-        # Since the projection can be complex, we plot its magnitude
         ax.plot(timesteps, np.abs(sorted_true_proj[:, i]), '-', color='royalblue', label='Ground Truth')
         ax.plot(timesteps, np.abs(sorted_pred_proj[:, i]), '--', color='darkorange', label='Prediction')
         
         eig_val = sorted_eigenvalues[i]
-        title = (f"Mode {i+1}\n"
-                 f"λ = {eig_val.real:.3f} + {eig_val.imag:.3f}i\n"
-                 f"|λ| = {np.abs(eig_val):.4f}")
+        amp = sorted_amplitudes[i]
+        title = (f"Mode {i+1} (Sorted by Amp.)\n"
+                 f"λ = {eig_val.real:.3f} + {eig_val.imag:.3f}i | |λ| = {np.abs(eig_val):.4f}\n"
+                 f"Initial Amplitude: {amp:.3f}")
         ax.set_title(title)
         ax.set_ylabel("Mode Amplitude")
         ax.grid(True, which="both", ls="--")
@@ -193,5 +182,5 @@ def plot_koopman_mode_evolution(eval_path: Path | str, num_modes_to_plot: int = 
     for j in range(modes_to_plot, len(axes)): axes[j].set_visible(False)
     handles, labels = axes[0].get_legend_handles_labels()
     fig.legend(handles, labels, loc='upper right', fontsize=12)
-    fig.suptitle('Evolution of Koopman Modes', fontsize=16, y=0.98)
+    fig.suptitle('Evolution of Koopman Modes (Sorted by Importance)', fontsize=16, y=0.98)
     plt.tight_layout(rect=[0, 0, 1, 0.94]); plt.show()

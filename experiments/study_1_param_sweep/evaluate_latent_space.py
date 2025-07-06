@@ -105,10 +105,11 @@ def main():
             W_inv = torch.linalg.inv(eigenvectors)
             true_projected_traj = (W_inv @ true_latent_trajectory.cfloat().T).T
             pred_projected_traj = (W_inv @ predicted_latent_trajectory.cfloat().T).T
+            # --- THE FIX IS HERE (Part 1: Calculate Initial Amplitudes) ---
+            initial_mode_amplitudes = np.abs(true_projected_traj[0].numpy())
         except torch.linalg.LinAlgError:
             logging.error("Eigenvector matrix is singular; cannot perform projection.")
-            true_projected_traj = None
-            pred_projected_traj = None
+            true_projected_traj, pred_projected_traj, initial_mode_amplitudes = None, None, None
 
     # --- Calculate Per-Timestep Error ---
     loss_fn = nn.MSELoss(reduction='none')
@@ -131,6 +132,7 @@ def main():
         eigenvalues=eigenvalues.numpy(),
         true_projected_trajectory=true_projected_traj.numpy() if true_projected_traj is not None else None,
         pred_projected_trajectory=pred_projected_traj.numpy() if pred_projected_traj is not None else None,
+        initial_mode_amplitudes=initial_mode_amplitudes if initial_mode_amplitudes is not None else None,
         avg_rollout_mse=avg_rollout_mse,
         r_squared_latent=r_squared_latent,
     )
