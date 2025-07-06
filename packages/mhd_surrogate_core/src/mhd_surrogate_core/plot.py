@@ -246,16 +246,21 @@ def plot_koopman_mode_evolution(eval_path: Path | str, num_modes_to_plot: int = 
     plt.show()
 
 
-def plot_reconstruction_performance(eval_path: Path | str):
+def plot_r2_performance(eval_path: Path | str, eval_type: str = "Reconstruction"):
     """
-    Loads and plots the per-channel R-squared scores for reconstruction.
+    Loads and plots the per-channel R-squared scores.
+
+    Args:
+        eval_path (Path | str): Path to the evaluation analysis .npz file.
+        eval_type (str): The type of evaluation (e.g., "Reconstruction", "Prediction")
+                         to use in the plot title.
     """
     eval_path = Path(eval_path)
     if not eval_path.exists():
-        logging.error(f"Reconstruction analysis file not found at: {eval_path}")
+        logging.error(f"Evaluation analysis file not found at: {eval_path}")
         return
 
-    logging.info(f"Loading reconstruction performance from {eval_path}...")
+    logging.info(f"Loading R² performance from {eval_path}...")
     with np.load(eval_path, allow_pickle=True) as data:
         r_squared_per_channel = data['r_squared_per_channel']
         channel_names = data['channel_names']
@@ -270,7 +275,7 @@ def plot_reconstruction_performance(eval_path: Path | str):
     ax.set_yticks(y_pos, labels=channel_names)
     ax.invert_yaxis()
     ax.set_xlabel('R-squared (R²) Score')
-    ax.set_title('Per-Channel Reconstruction Performance')
+    ax.set_title(f'Per-Channel {eval_type} Performance')
     
     ax.axvline(0, color='black', linewidth=0.8, linestyle='--')
     plt.tight_layout()
