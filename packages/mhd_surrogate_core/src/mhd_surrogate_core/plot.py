@@ -7,12 +7,64 @@ import math
 
 import numpy as np
 import matplotlib.pyplot as plt
+from mpl_toolkits.axes_grid1 import make_axes_locatable
 
 # Configure basic logging
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(levelname)s - %(message)s",
 )
+
+
+def plot_snapshot_comparison(true_data, recon_data, channel_name, timestep):
+    """
+    Creates a 3-panel plot comparing a true data slice, its reconstruction,
+    and the absolute error.
+
+    Args:
+        true_data (np.ndarray): 3D numpy array of the ground truth data.
+        recon_data (np.ndarray): 3D numpy array of the reconstructed data.
+        channel_name (str): The name of the channel being plotted.
+        timestep (int): The timestep of the snapshot.
+
+    Returns:
+        matplotlib.figure.Figure: The figure object for saving.
+    """
+    # Take a 2D slice from the middle of the z-axis for visualization
+    slice_idx = true_data.shape[1] // 2
+    true_slice = true_data[:, slice_idx, :]
+    recon_slice = recon_data[:, slice_idx, :]
+    error_slice = np.abs(true_slice - recon_slice)
+
+    # Determine a shared color range for the true and recon plots
+    vmin = min(true_slice.min(), recon_slice.min())
+    vmax = max(true_slice.max(), recon_slice.max())
+
+    fig, axes = plt.subplots(1, 3, figsize=(18, 5))
+    fig.suptitle(f"Reconstruction Comparison for Channel '{channel_name}' at Timestep {timestep}", fontsize=16)
+
+    # Plot Ground Truth
+    im1 = axes[0].imshow(true_slice.T, origin='lower', cmap='viridis', vmin=vmin, vmax=vmax)
+    axes[0].set_title("Ground Truth")
+    axes[0].set_xlabel("X-axis")
+    axes[0].set_ylabel("Z-axis")
+    fig.colorbar(im1, ax=axes[0], fraction=0.046, pad=0.04)
+
+    # Plot Reconstruction
+    im2 = axes[1].imshow(recon_slice.T, origin='lower', cmap='viridis', vmin=vmin, vmax=vmax)
+    axes[1].set_title("Reconstruction")
+    axes[1].set_xlabel("X-axis")
+    axes[1].set_yticklabels([])
+
+    # Plot Absolute Error
+    im3 = axes[2].imshow(error_slice.T, origin='lower', cmap='inferno')
+    axes[2].set_title("Absolute Error")
+    axes[2].set_xlabel("X-axis")
+    axes[2].set_yticklabels([])
+    fig.colorbar(im3, ax=axes[2], fraction=0.046, pad=0.04)
+
+    plt.tight_layout(rect=[0, 0, 1, 0.95])
+    return fig
 
 
 def plot_rollout_error(error_path: Path | str):
