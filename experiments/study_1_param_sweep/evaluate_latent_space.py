@@ -34,14 +34,17 @@ def main():
         output_path = model_path.parent / "eval" / "latent_space_analysis.npz"
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
+    # --- Load Model from Checkpoint ---
     checkpoint = torch.load(model_path, map_location=device)
     model_config = checkpoint['config']
     channels_used = checkpoint.get('channels_used')
     
+    logging.info(f"Re-creating model with saved config: {model_config}")
     model = KoopmanAutoencoder(**model_config).to(device)
     model.load_state_dict(checkpoint['model_state_dict'])
     model.eval()
 
+    # --- Load Data and Stats ---
     stats = np.load(args.norm_stats_path)
     all_min_vals = torch.from_numpy(stats['min_vals']).float()
     all_max_vals = torch.from_numpy(stats['max_vals']).float()
@@ -61,6 +64,7 @@ def main():
     data_range = max_vals - min_vals + 1e-8
     def normalize(x): return (x - min_vals) / data_range * 2.0 - 1.0
 
+    # --- Encode Ground Truth Trajectory ---
     true_latent_trajectory = []
     with torch.no_grad():
         for i in tqdm(range(full_timeseries.shape[0]), desc="Encoding Ground Truth"):
@@ -76,9 +80,12 @@ def main():
             true_latent_trajectory.append(latent_vector.squeeze(0).cpu())
     
     true_latent_trajectory = torch.stack(true_latent_trajectory)
-    
+    logging.info(f"Encoded ground truth trajectory. Latent shape: {true_latent_trajectory.shape}")
+
+    # --- Autoregressive Rollout in Latent Space ---
     num_timesteps = true_latent_trajectory.shape[0]
     predicted_latent_trajectory = []
+    
     z_t = true_latent_trajectory[0].unsqueeze(0).to(device)
     
     with torch.no_grad():
@@ -88,26 +95,34 @@ def main():
             predicted_latent_trajectory.append(z_t.squeeze(0).cpu())
     predicted_latent_trajectory = torch.stack(predicted_latent_trajectory)
 
+    # --- Eigendecomposition and Projection ---
+    logging.info("Performing eigendecomposition of the Koopman matrix...")
     with torch.no_grad():
         K = model.koopman_operator.weight.cpu()
         eigenvalues, eigenvectors = torch.linalg.eig(K)
+        
         try:
             W_inv = torch.linalg.inv(eigenvectors)
-            true_projected_traj = (W_inv @ true_latent_trajectory.T).T
-            pred_projected_traj = (W_inv @ predicted_latent_trajectory.T).T
+            true_projected_traj = (W_inv @ true_latent_trajectory.cfloat().T).T
+            pred_projected_traj = (W_inv @ predicted_latent_trajectory.cfloat().T).T
         except torch.linalg.LinAlgError:
-            true_projected_traj, pred_projected_traj = None, None
+            logging.error("Eigenvector matrix is singular; cannot perform projection.")
+            true_projected_traj = None
+            pred_projected_traj = None
 
+    # --- Calculate Per-Timestep Error ---
     loss_fn = nn.MSELoss(reduction='none')
     per_step_latent_error = []
     for t in range(1, num_timesteps):
         error = loss_fn(predicted_latent_trajectory[t], true_latent_trajectory[t]).mean().item()
         per_step_latent_error.append(error)
 
+    # --- Calculate Final Metrics ---
     avg_rollout_mse = np.mean(per_step_latent_error)
     variance_latent = true_latent_trajectory.var().item()
     r_squared_latent = 1 - (avg_rollout_mse / variance_latent) if variance_latent > 0 else 0.0
     
+    # --- Save All Results ---
     np.savez(
         output_path, 
         per_step_latent_error=np.array(per_step_latent_error),
@@ -121,9 +136,11 @@ def main():
     )
     logging.info(f"Latent space analysis results saved to {output_path}")
 
+    # --- Log Final Metrics ---
     logging.info("--- LATENT SPACE EVALUATION COMPLETE ---")
     logging.info(f"Average Latent Space Rollout MSE: {avg_rollout_mse:.6f}")
     logging.info(f"Latent Space R-squared (R²) Score: {r_squared_latent:.4f}")
+
 
 if __name__ == "__main__":
     main()
