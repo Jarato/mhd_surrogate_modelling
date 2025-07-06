@@ -1,0 +1,111 @@
+# -*- coding: utf-8 -*-
+# experiments/study_1_param_sweep/evaluate_latent_space.py
+
+import argparse
+import logging
+from pathlib import Path
+
+import numpy as np
+import torch
+import torch.nn as nn
+from tqdm import tqdm
+
+from mhd_canonical_kae.model import KoopmanAutoencoder
+from mhd_surrogate_core.data import MHDDataset
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
+
+def parse_args():
+    parser = argparse.ArgumentParser(description="Evaluate a trained model's latent space dynamics.")
+    parser.add_argument("--model-path", type=str, required=True, help="Path to the saved model checkpoint (.pth file).")
+    parser.add_argument("--test-data-path", type=str, required=True, help="Path to the contiguous test_set.npz file.")
+    parser.add_argument("--norm-stats-path", type=str, required=True, help="Path to the normalization_stats.npz file.")
+    parser.add_argument("--output-path", type=str, default=None, help="Full path to save latent space evaluation results (.npz file).")
+    return parser.parse_args()
+
+def main():
+    args = parse_args()
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    logging.info(f"Using device: {device}")
+    model_path = Path(args.model_path)
+    
+    if args.output_path:
+        output_path = Path(args.output_path)
+    else:
+        output_path = model_path.parent / "eval" / "latent_rollout_error.npz"
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    # --- Load Model from Checkpoint ---
+    checkpoint = torch.load(model_path, map_location=device)
+    model_config = checkpoint['config']
+    channels_used = checkpoint.get('channels_used')
+    
+    logging.info(f"Re-creating model with saved config: {model_config}")
+    model = KoopmanAutoencoder(**model_config).to(device)
+    model.load_state_dict(checkpoint['model_state_dict'])
+    model.eval()
+
+    # --- Load Test Data and Encode to Latent Space ---
+    # We need to create the dataset to handle normalization correctly
+    test_dataset = MHDDataset(
+        file_path=args.test_data_path,
+        norm_stats_path=args.norm_stats_path,
+        channels_to_use=channels_used,
+    )
+    
+    # Manually encode the entire test set to get the ground truth latent trajectory
+    true_latent_trajectory = []
+    with torch.no_grad():
+        # The dataset produces N-1 pairs, but there are N snapshots.
+        # We need to access the underlying data array to get all snapshots.
+        for i in range(len(test_dataset.data)):
+            snapshot = torch.from_numpy(test_dataset.data[i]).float()
+            snapshot = test_dataset._normalize(snapshot)
+            snapshot = snapshot.unsqueeze(0).permute(0, 4, 1, 2, 3).to(device)
+            latent_vector = model.encode(snapshot)
+            true_latent_trajectory.append(latent_vector.squeeze(0).cpu())
+    
+    true_latent_trajectory = torch.stack(true_latent_trajectory)
+    logging.info(f"Encoded ground truth trajectory. Latent shape: {true_latent_trajectory.shape}")
+
+
+    # --- Autoregressive Rollout in Latent Space ---
+    num_timesteps = true_latent_trajectory.shape[0]
+    predicted_latent_trajectory = []
+    
+    # Initial condition is the first true latent vector
+    z_t = true_latent_trajectory[0].unsqueeze(0).to(device)
+    
+    logging.info(f"Starting latent space rollout for {num_timesteps - 1} steps...")
+    with torch.no_grad():
+        predicted_latent_trajectory.append(z_t.squeeze(0).cpu()) # Start with the initial condition
+
+        for _ in tqdm(range(num_timesteps - 1), desc="Latent Rollout"):
+            z_t = model.koopman_step(z_t)
+            predicted_latent_trajectory.append(z_t.squeeze(0).cpu())
+
+    predicted_latent_trajectory = torch.stack(predicted_latent_trajectory)
+    logging.info(f"Rollout complete. Predicted latent shape: {predicted_latent_trajectory.shape}")
+
+    # --- Calculate Per-Timestep Error ---
+    loss_fn = nn.MSELoss(reduction='none')
+    per_step_latent_error = []
+    for t in range(1, num_timesteps):
+        error = loss_fn(predicted_latent_trajectory[t], true_latent_trajectory[t]).mean().item()
+        per_step_latent_error.append(error)
+    
+    np.savez(output_path, per_step_latent_error=np.array(per_step_latent_error))
+    logging.info(f"Per-timestep latent space error saved to {output_path}")
+
+    # --- Calculate Final Average Error and R-squared Scores ---
+    logging.info("--- LATENT SPACE EVALUATION COMPLETE ---")
+    avg_rollout_mse = np.mean(per_step_latent_error)
+    variance_latent = true_latent_trajectory.var().item()
+    r_squared_latent = 1 - (avg_rollout_mse / variance_latent) if variance_latent > 0 else 0.0
+    
+    logging.info(f"Average Latent Space Rollout MSE: {avg_rollout_mse:.6f}")
+    logging.info(f"Latent Space R-squared (R²) Score: {r_squared_latent:.4f}")
+
+
+if __name__ == "__main__":
+    main()
