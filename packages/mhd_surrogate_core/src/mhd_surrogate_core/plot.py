@@ -18,9 +18,6 @@ logging.basicConfig(
 def plot_rollout_error(error_path: Path | str):
     """
     Loads and plots the per-channel and total error from an evaluation rollout.
-
-    Args:
-        error_path (Path | str): Path to the rollout_error.npz file.
     """
     error_path = Path(error_path)
     if not error_path.exists():
@@ -79,9 +76,6 @@ def plot_rollout_error(error_path: Path | str):
 def plot_latent_rollout_error(error_path: Path | str):
     """
     Loads and plots the per-timestep latent space error from an evaluation rollout.
-
-    Args:
-        error_path (Path | str): Path to the latent_rollout_error.npz file.
     """
     error_path = Path(error_path)
     if not error_path.exists():
@@ -105,4 +99,58 @@ def plot_latent_rollout_error(error_path: Path | str):
     plt.legend(fontsize=12)
     plt.grid(True)
     plt.tight_layout()
+    plt.show()
+
+
+def plot_latent_trajectories(eval_path: Path | str, num_dims_to_plot: int = 16):
+    """
+    Loads and plots the predicted vs. true latent space trajectories.
+
+    Args:
+        eval_path (Path | str): Path to the latent space evaluation .npz file.
+        num_dims_to_plot (int): The number of latent dimensions to visualize.
+    """
+    eval_path = Path(eval_path)
+    if not eval_path.exists():
+        logging.error(f"Latent evaluation file not found at: {eval_path}")
+        return
+
+    logging.info(f"Loading latent trajectories from {eval_path}...")
+    with np.load(eval_path) as data:
+        true_traj = data['true_latent_trajectory']
+        pred_traj = data['predicted_latent_trajectory']
+
+    num_timesteps, latent_dim = true_traj.shape
+    timesteps = range(num_timesteps)
+    
+    # Ensure we don't try to plot more dimensions than exist
+    dims_to_plot = min(latent_dim, num_dims_to_plot)
+    
+    plt.style.use('seaborn-v0_8-whitegrid')
+    cols = 4
+    rows = math.ceil(dims_to_plot / cols)
+    
+    fig, axes = plt.subplots(rows, cols, figsize=(cols * 4, rows * 3), sharex=True)
+    axes = axes.flatten()
+
+    for i in range(dims_to_plot):
+        ax = axes[i]
+        ax.plot(timesteps, true_traj[:, i], '-', color='royalblue', label='Ground Truth')
+        ax.plot(timesteps, pred_traj[:, i], '--', color='darkorange', label='Prediction')
+        ax.set_title(f"Latent Dimension {i}")
+        ax.set_ylabel("Value")
+        ax.grid(True, which="both", ls="--")
+
+    # Hide unused subplots
+    for j in range(dims_to_plot, len(axes)):
+        axes[j].set_visible(False)
+        
+    # Add a single legend for the whole figure
+    handles, labels = axes[0].get_legend_handles_labels()
+    fig.legend(handles, labels, loc='upper right', fontsize=12)
+
+    fig.text(0.5, 0.02, 'Timestep', ha='center', va='center', fontsize=12)
+    fig.suptitle('Latent Space Trajectory Rollout', fontsize=16, y=0.99)
+    
+    plt.tight_layout(rect=[0, 0.03, 1, 0.95])
     plt.show()

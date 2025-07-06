@@ -4,6 +4,7 @@
         "EIGS",
         "hparams",
         "pbar",
-        "PREDS"
+        "PREDS",
+        "traj"
     ]
 }
