@@ -46,8 +46,10 @@ def main():
 
     # --- Load Data and Stats ---
     stats = np.load(args.norm_stats_path)
-    all_min_vals = torch.from_numpy(stats['min_vals']).float()
-    all_max_vals = torch.from_numpy(stats['max_vals']).float()
+    # --- THE FIX IS HERE ---
+    # Move normalization stats to the correct device
+    all_min_vals = torch.from_numpy(stats['min_vals']).float().to(device)
+    all_max_vals = torch.from_numpy(stats['max_vals']).float().to(device)
     
     data_handle = np.load(args.test_data_path, allow_pickle=True)
     full_timeseries = data_handle["timeseries"]
@@ -64,7 +66,7 @@ def main():
         channel_names = all_channel_names
 
     data_range = max_vals - min_vals + 1e-8
-    def normalize(x): return (x - min_vals) / data_range * 2.0 - 1.0
+    def normalize(x): return (x.to(device) - min_vals) / data_range * 2.0 - 1.0
     def denormalize(x_norm): return (x_norm + 1.0) / 2.0 * data_range + min_vals
 
     # --- Evaluate Reconstruction Error ---
@@ -81,7 +83,7 @@ def main():
             
             snapshot_tensor = torch.from_numpy(snapshot).float()
             snapshot_norm = normalize(snapshot_tensor)
-            snapshot_norm = snapshot_norm.unsqueeze(0).permute(0, 4, 1, 2, 3).to(device)
+            snapshot_norm = snapshot_norm.unsqueeze(0).permute(0, 4, 1, 2, 3) # Already on device
             
             latent_vec = model.encode(snapshot_norm)
             recon_norm = model.decode(latent_vec)
@@ -101,7 +103,6 @@ def main():
         variance_channel = test_tensor_cpu[..., i].var().item()
         r_squared_per_channel[i] = 1 - (avg_per_channel_recon_error[i] / variance_channel) if variance_channel > 0 else 0.0
 
-    # --- THE FIX IS HERE (Part 1: Calculate Overall Metrics) ---
     avg_total_recon_error = avg_per_channel_recon_error.mean()
     total_variance = test_tensor_cpu.var().item()
     r_squared_total = 1 - (avg_total_recon_error / total_variance) if total_variance > 0 else 0.0
@@ -110,7 +111,7 @@ def main():
     np.savez(
         output_path,
         r_squared_per_channel=r_squared_per_channel,
-        r_squared_total=r_squared_total, # <-- Save overall score
+        r_squared_total=r_squared_total,
         channel_names=channel_names,
     )
     logging.info(f"Reconstruction analysis results saved to {output_path}")
