@@ -64,6 +64,9 @@ def plot_rollout_error(error_path: Path | str):
 def plot_latent_rollout_error(error_path: Path | str):
     """
     Loads and plots the per-timestep latent space error from an evaluation rollout.
+
+    Args:
+        error_path (Path | str): Path to the latent_space_analysis.npz file.
     """
     error_path = Path(error_path)
     if not error_path.exists():
@@ -130,8 +133,7 @@ def plot_latent_trajectories(eval_path: Path | str, num_dims_to_plot: int = 16):
 
 def plot_koopman_mode_evolution(eval_path: Path | str, num_modes_to_plot: int = 16):
     """
-    Plots the time evolution of the system projected onto the Koopman eigenvectors,
-    sorted by the initial amplitude of each mode.
+    Plots the time evolution of the system projected onto the Koopman eigenvectors.
     """
     eval_path = Path(eval_path)
     if not eval_path.exists():
@@ -147,10 +149,7 @@ def plot_koopman_mode_evolution(eval_path: Path | str, num_modes_to_plot: int = 
     if true_proj.size == 0 or pred_proj.size == 0 or initial_amplitudes is None:
         logging.error("Required data for mode evolution plot not found in file."); return
 
-    # --- THE FIX IS HERE (Part 2: Sort by Amplitude) ---
-    # Sort modes by their initial amplitude in descending order
     sort_indices = np.argsort(initial_amplitudes)[::-1]
-    
     sorted_eigenvalues = eigenvalues[sort_indices]
     sorted_true_proj = true_proj[:, sort_indices]
     sorted_pred_proj = pred_proj[:, sort_indices]
@@ -184,3 +183,37 @@ def plot_koopman_mode_evolution(eval_path: Path | str, num_modes_to_plot: int = 
     fig.legend(handles, labels, loc='upper right', fontsize=12)
     fig.suptitle('Evolution of Koopman Modes (Sorted by Importance)', fontsize=16, y=0.98)
     plt.tight_layout(rect=[0, 0, 1, 0.94]); plt.show()
+
+
+def plot_reconstruction_performance(eval_path: Path | str):
+    """
+    Loads and plots the per-channel R-squared scores for reconstruction.
+
+    Args:
+        eval_path (Path | str): Path to the reconstruction_analysis.npz file.
+    """
+    eval_path = Path(eval_path)
+    if not eval_path.exists():
+        logging.error(f"Reconstruction analysis file not found at: {eval_path}"); return
+
+    logging.info(f"Loading reconstruction performance from {eval_path}...")
+    with np.load(eval_path, allow_pickle=True) as data:
+        r_squared_per_channel = data['r_squared_per_channel']
+        channel_names = data['channel_names']
+
+    plt.style.use('seaborn-v0_8-whitegrid')
+    fig, ax = plt.subplots(figsize=(10, 8))
+    
+    y_pos = np.arange(len(channel_names))
+    colors = ['#2ca02c' if x > 0 else '#d62728' for x in r_squared_per_channel]
+    
+    ax.barh(y_pos, r_squared_per_channel, align='center', color=colors)
+    ax.set_yticks(y_pos, labels=channel_names)
+    ax.invert_yaxis()  # labels read top-to-bottom
+    ax.set_xlabel('R-squared (R²) Score')
+    ax.set_title('Per-Channel Reconstruction Performance')
+    
+    ax.axvline(0, color='black', linewidth=0.8, linestyle='--')
+    
+    plt.tight_layout()
+    plt.show()
