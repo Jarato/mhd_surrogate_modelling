@@ -3,6 +3,12 @@ This document tracks the development tasks for the MHD Surrogate Modeling projec
 
 - train.py (see Gemini webapp)
 
+    - theory:
+
+        - think about learning transitions vs learning TS prediction
+
+        - r^2 score, get more in depth 
+
     - param sweep
 
         - analyze
@@ -13,15 +19,13 @@ This document tracks the development tasks for the MHD Surrogate Modeling projec
 
     - train
 
-        - why is eigen loss always 0?
+        - 
 
     - evaluation
 
         - visualization of real data vs train and test predictions
 
-        - total, recon, lin, pred error on test data
-
-        - eval in latent space?
+        - recon error on test data
 
     - CV for fine-grained selection between top models
 
