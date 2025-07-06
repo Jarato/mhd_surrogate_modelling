@@ -19,17 +19,7 @@ def plot_snapshot_comparison(true_data, recon_data, channel_name, timestep):
     """
     Creates a 3-panel plot comparing a true data slice, its reconstruction,
     and the absolute error.
-
-    Args:
-        true_data (np.ndarray): 3D numpy array of the ground truth data.
-        recon_data (np.ndarray): 3D numpy array of the reconstructed data.
-        channel_name (str): The name of the channel being plotted.
-        timestep (int): The timestep of the snapshot.
-
-    Returns:
-        matplotlib.figure.Figure: The figure object for saving.
     """
-    # Take a 2D slice from the middle of the z-axis for visualization
     slice_idx = true_data.shape[1] // 2
     true_slice = true_data[:, slice_idx, :]
     recon_slice = recon_data[:, slice_idx, :]
@@ -42,24 +32,47 @@ def plot_snapshot_comparison(true_data, recon_data, channel_name, timestep):
     fig.suptitle(f"Reconstruction Comparison for Channel '{channel_name}' at Timestep {timestep}", fontsize=16)
 
     im1 = axes[0].imshow(true_slice.T, origin='lower', cmap='viridis', vmin=vmin, vmax=vmax)
-    axes[0].set_title("Ground Truth")
-    axes[0].set_xlabel("X-axis")
-    axes[0].set_ylabel("Z-axis")
+    axes[0].set_title("Ground Truth"); axes[0].set_xlabel("X-axis"); axes[0].set_ylabel("Z-axis")
     fig.colorbar(im1, ax=axes[0], fraction=0.046, pad=0.04)
 
     im2 = axes[1].imshow(recon_slice.T, origin='lower', cmap='viridis', vmin=vmin, vmax=vmax)
-    axes[1].set_title("Reconstruction")
-    axes[1].set_xlabel("X-axis")
-    axes[1].set_yticklabels([])
+    axes[1].set_title("Reconstruction"); axes[1].set_xlabel("X-axis"); axes[1].set_yticklabels([])
 
     im3 = axes[2].imshow(error_slice.T, origin='lower', cmap='inferno')
-    axes[2].set_title("Absolute Error")
-    axes[2].set_xlabel("X-axis")
-    axes[2].set_yticklabels([])
+    axes[2].set_title("Absolute Error"); axes[2].set_xlabel("X-axis"); axes[2].set_yticklabels([])
     fig.colorbar(im3, ax=axes[2], fraction=0.046, pad=0.04)
 
-    plt.tight_layout(rect=[0, 0, 1, 0.95])
-    return fig
+    plt.tight_layout(rect=[0, 0, 1, 0.95]); return fig
+
+
+def plot_prediction_comparison(true_data, pred_data, channel_name, timestep):
+    """
+    Creates a 3-panel plot comparing a true data slice, its prediction,
+    and the absolute error.
+    """
+    slice_idx = true_data.shape[1] // 2
+    true_slice = true_data[:, slice_idx, :]
+    pred_slice = pred_data[:, slice_idx, :]
+    error_slice = np.abs(true_slice - pred_slice)
+
+    vmin = min(true_slice.min(), pred_slice.min())
+    vmax = max(true_slice.max(), pred_slice.max())
+
+    fig, axes = plt.subplots(1, 3, figsize=(18, 5))
+    fig.suptitle(f"Prediction Comparison for Channel '{channel_name}' at Timestep {timestep}", fontsize=16)
+
+    im1 = axes[0].imshow(true_slice.T, origin='lower', cmap='viridis', vmin=vmin, vmax=vmax)
+    axes[0].set_title("Ground Truth"); axes[0].set_xlabel("X-axis"); axes[0].set_ylabel("Z-axis")
+    fig.colorbar(im1, ax=axes[0], fraction=0.046, pad=0.04)
+
+    im2 = axes[1].imshow(pred_slice.T, origin='lower', cmap='viridis', vmin=vmin, vmax=vmax)
+    axes[1].set_title("Prediction"); axes[1].set_xlabel("X-axis"); axes[1].set_yticklabels([])
+
+    im3 = axes[2].imshow(error_slice.T, origin='lower', cmap='inferno')
+    axes[2].set_title("Absolute Error"); axes[2].set_xlabel("X-axis"); axes[2].set_yticklabels([])
+    fig.colorbar(im3, ax=axes[2], fraction=0.046, pad=0.04)
+
+    plt.tight_layout(rect=[0, 0, 1, 0.95]); return fig
 
 
 def plot_prediction_rollout_error(error_path: Path | str):
