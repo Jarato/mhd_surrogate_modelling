@@ -46,8 +46,6 @@ def main():
 
     # --- Load Data and Stats ---
     stats = np.load(args.norm_stats_path)
-    # --- THE FIX IS HERE ---
-    # Move normalization stats to the correct device
     all_min_vals = torch.from_numpy(stats['min_vals']).float().to(device)
     all_max_vals = torch.from_numpy(stats['max_vals']).float().to(device)
     
@@ -71,7 +69,8 @@ def main():
 
     # --- Evaluate Reconstruction Error ---
     num_timesteps, num_channels = full_timeseries.shape[0], len(channel_names)
-    per_channel_recon_error = np.zeros(num_channels)
+    # --- THE FIX IS HERE (Part 1: Store per-step error) ---
+    per_step_channel_recon_error = np.zeros((num_timesteps, num_channels))
     loss_fn = nn.MSELoss(reduction='none')
     
     logging.info(f"Evaluating reconstruction for {num_timesteps} snapshots...")
@@ -83,7 +82,7 @@ def main():
             
             snapshot_tensor = torch.from_numpy(snapshot).float()
             snapshot_norm = normalize(snapshot_tensor)
-            snapshot_norm = snapshot_norm.unsqueeze(0).permute(0, 4, 1, 2, 3) # Already on device
+            snapshot_norm = snapshot_norm.unsqueeze(0).permute(0, 4, 1, 2, 3)
             
             latent_vec = model.encode(snapshot_norm)
             recon_norm = model.decode(latent_vec)
@@ -92,9 +91,10 @@ def main():
             
             error_tensor = loss_fn(recon_denorm, snapshot_tensor.to(device))
             per_channel_mse = error_tensor.mean(dim=(0, 1, 2)).cpu().numpy()
-            per_channel_recon_error += per_channel_mse
+            per_step_channel_recon_error[i, :] = per_channel_mse
 
-    avg_per_channel_recon_error = per_channel_recon_error / num_timesteps
+    # Average the error over all timesteps to get the final per-channel score
+    avg_per_channel_recon_error = per_step_channel_recon_error.mean(axis=0)
     
     # --- Calculate R-squared Scores ---
     test_tensor_cpu = torch.from_numpy(full_timeseries[..., channel_indices] if channels_used else full_timeseries).float()
@@ -110,6 +110,7 @@ def main():
     # --- Save and Log Results ---
     np.savez(
         output_path,
+        per_step_channel_recon_error=per_step_channel_recon_error, # <-- Save new metric
         r_squared_per_channel=r_squared_per_channel,
         r_squared_total=r_squared_total,
         channel_names=channel_names,
