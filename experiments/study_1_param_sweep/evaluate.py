@@ -28,51 +28,31 @@ def main():
     logging.info(f"Using device: {device}")
     model_path = Path(args.model_path)
     
-    if args.output_path: output_path = Path(args.output_path)
-    else: output_path = model_path.parent / "eval" / "rollout_error.npz"
+    if args.output_path:
+        output_path = Path(args.output_path)
+    else:
+        output_path = model_path.parent / "eval" / "rollout_error.npz"
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    # --- Load Model and Config from Checkpoint FIRST ---
     checkpoint = torch.load(model_path, map_location=device)
     model_config = checkpoint['config']
-    # --- THE FIX IS HERE (Part 3) ---
-    # Load channels from the top level of the checkpoint
-    channels_to_use = checkpoint.get('channels_used') 
-
-    logging.info(f"Re-creating model with saved config: {model_config}")
     model = KoopmanAutoencoder(**model_config).to(device)
     model.load_state_dict(checkpoint['model_state_dict'])
     model.eval()
 
-    # --- Load Data and Stats based on Model Config ---
     stats = np.load(args.norm_stats_path)
-    all_min_vals = torch.from_numpy(stats['min_vals']).float().to(device)
-    all_max_vals = torch.from_numpy(stats['max_vals']).float().to(device)
-    
-    with np.load(args.test_data_path, allow_pickle=True) as raw_data:
-        test_timeseries = raw_data["timeseries"]
-        all_channel_names = list(raw_data["labels"])
-    
-    if channels_to_use:
-        channel_indices = [all_channel_names.index(name) for name in channels_to_use]
-        test_timeseries = test_timeseries[..., channel_indices]
-        channel_names = channels_to_use
-        min_vals = all_min_vals[channel_indices]
-        max_vals = all_max_vals[channel_indices]
-        logging.info(f"Evaluating on channels from model config: {channel_names}")
-    else:
-        channel_names = all_channel_names
-        min_vals = all_min_vals
-        max_vals = all_max_vals
-
+    min_vals = torch.from_numpy(stats['min_vals']).float().to(device)
+    max_vals = torch.from_numpy(stats['max_vals']).float().to(device)
     data_range = max_vals - min_vals + 1e-8
     def normalize(x): return (x.to(device) - min_vals) / data_range * 2.0 - 1.0
     def denormalize(x_norm): return (x_norm + 1.0) / 2.0 * data_range + min_vals
 
+    with np.load(args.test_data_path, allow_pickle=True) as raw_data:
+        test_timeseries = raw_data["timeseries"]
+        channel_names = raw_data["labels"]
+    
     test_tensor_cpu = torch.from_numpy(test_timeseries).float()
-    logging.info(f"Test data loaded. Shape: {test_tensor_cpu.shape}")
-
-    # --- Autoregressive Rollout ---
+    
     num_timesteps, num_channels = test_tensor_cpu.shape[0], test_tensor_cpu.shape[-1]
     per_step_channel_error = np.zeros((num_timesteps - 1, num_channels))
     loss_fn = nn.MSELoss(reduction='none')
@@ -93,23 +73,37 @@ def main():
             current_state_norm = predicted_state_norm
     
     logging.info("Rollout complete.")
-    np.savez(output_path, per_step_channel_error=per_step_channel_error, channel_names=channel_names)
-    logging.info(f"Per-channel, per-timestep rollout error saved to {output_path}")
 
     # --- Calculate Final Metrics ---
-    logging.info("--- EVALUATION COMPLETE ---")
     avg_rollout_mse_total = per_step_channel_error.mean()
     variance_total = test_tensor_cpu.var().item()
     r_squared_total = 1 - (avg_rollout_mse_total / variance_total) if variance_total > 0 else 0.0
+    
+    avg_mse_per_channel = per_step_channel_error.mean(axis=0)
+    r_squared_per_channel = np.zeros(num_channels)
+    for i in range(num_channels):
+        variance_channel = test_tensor_cpu[..., i].var().item()
+        r_squared_per_channel[i] = 1 - (avg_mse_per_channel[i] / variance_channel) if variance_channel > 0 else 0.0
+
+    # --- Save All Results ---
+    np.savez(
+        output_path,
+        per_step_channel_error=per_step_channel_error,
+        channel_names=channel_names,
+        avg_rollout_mse_total=avg_rollout_mse_total,
+        r_squared_total=r_squared_total,
+        avg_mse_per_channel=avg_mse_per_channel,
+        r_squared_per_channel=r_squared_per_channel
+    )
+    logging.info(f"All evaluation results saved to {output_path}")
+
+    # --- Log Final Metrics ---
+    logging.info("--- EVALUATION COMPLETE ---")
     logging.info(f"Overall Average Rollout MSE: {avg_rollout_mse_total:.6f}")
     logging.info(f"Overall R-squared (R²) Score: {r_squared_total:.4f}\n")
-
     logging.info("--- Per-Channel Metrics ---")
     for i, name in enumerate(channel_names):
-        avg_mse_channel = per_step_channel_error[:, i].mean()
-        variance_channel = test_tensor_cpu[..., i].var().item()
-        r_squared_channel = 1 - (avg_mse_channel / variance_channel) if variance_channel > 0 else 0.0
-        logging.info(f"Channel '{name}':\t Avg MSE = {avg_mse_channel:.6f},\t R² = {r_squared_channel:.4f}")
+        logging.info(f"Channel '{name}':\t Avg MSE = {avg_mse_per_channel[i]:.6f},\t R² = {r_squared_per_channel[i]:.4f}")
 
 if __name__ == "__main__":
     main()
