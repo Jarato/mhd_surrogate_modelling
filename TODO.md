@@ -1,6 +1,10 @@
 # Project TODO List
 This document tracks the development tasks for the MHD Surrogate Modeling project.
 
+- Presentation
+
+    - 
+
 - train.py (see Gemini webapp)
 
     - theory:
