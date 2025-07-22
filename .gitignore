@@ -199,3 +199,21 @@ cython_debug/
 
 # Ignore generated artifacts and model checkpoints
 **/output/
+
+# =================================================
+# Rules for the /data directory
+# =================================================
+
+# Ignore everything inside the data/ directory by default.
+# The trailing slash is important.
+data/*
+
+# Now, create exceptions to whitelist the specific path.
+# First, un-ignore the parent directory 'example'.
+!data/example/
+
+# Then, re-ignore everything else inside 'example'.
+data/example/*
+
+# Finally, un-ignore the specific 'dns_output' directory you want to keep.
+!data/example/dns_output/

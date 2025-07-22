@@ -1,0 +1,8 @@
+nX: 2300
+nY: 480
+nZ: 120
+t0: 110
+nFiles: 2
+version: 1
+path:
+coldFluid: 1
