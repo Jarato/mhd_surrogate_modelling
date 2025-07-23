@@ -333,7 +333,7 @@ def main():
     parser.add_argument('--time-end', type=int, default=4, help="Ending time index to process (exclusive).")
     parser.add_argument('--num-x-samples', type=int, default=32, help="Number of evenly spaced points to select along the x-axis.")
     parser.add_argument('--y-indices-to-keep', type=int, nargs='+', default=[3, 10, 17], help="Space-separated list of specific y-indices to keep.")
-    parser.add_argument('--num-workers', type=int, default=-1, help="Number of parallel worker processes to use. Set to -1 to use all available cores.")
+    parser.add_argument('--num-workers', type=int, default=1, help="Number of parallel worker processes to use. Set to -1 to use all available cores.")
 
     args = parser.parse_args()
 
