@@ -333,9 +333,15 @@ def main():
     parser.add_argument('--time-end', type=int, default=4, help="Ending time index to process (exclusive).")
     parser.add_argument('--num-x-samples', type=int, default=32, help="Number of evenly spaced points to select along the x-axis.")
     parser.add_argument('--y-indices-to-keep', type=int, nargs='+', default=[3, 10, 17], help="Space-separated list of specific y-indices to keep.")
-    parser.add_argument('--num-workers', type=int, default=multiprocessing.cpu_count(), help="Number of parallel worker processes to use.")
+    parser.add_argument('--num-workers', type=int, default=-1, help="Number of parallel worker processes to use. Set to -1 to use all available cores.")
 
     args = parser.parse_args()
+
+    # --- Execution Logic ---
+    num_workers = args.num_workers
+    if num_workers == -1:
+        num_workers = multiprocessing.cpu_count()
+        print(f"Using all available cores: {num_workers}")
 
     if args.generate_mock_data:
         print("GENERATE_MOCK_DATA is True. Generating mock data for testing.")
@@ -373,7 +379,7 @@ def main():
         num_input_channels=num_input_channels,
         num_output_channels=num_output_channels,
         final_channel_labels=final_channel_labels,
-        num_workers=args.num_workers,
+        num_workers=num_workers,
     )
 
     verify_output(args.output_file)
