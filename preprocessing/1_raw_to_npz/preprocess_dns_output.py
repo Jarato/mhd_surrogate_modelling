@@ -2,6 +2,7 @@ import numpy as np
 import re
 from pathlib import Path
 import argparse
+from tqdm import tqdm
 
 # --- Helper Functions ---
 
@@ -77,9 +78,8 @@ def generate_mock_data(
         f.write(f"nY: {ny_points - 1}\n")
         f.write(f"nZ: {nz_points - 1}\n")
 
-    for t in time_indices:
+    for t in tqdm(time_indices, desc="Generating mock files"):
         filename = dir_path / f"{prefix}{t:06d}"
-        print(f"Creating mock file: {filename}")
         with open(filename, 'wb') as f:
             x_coords = np.linspace(0, 1, nx_points, dtype=np.float64)
             y_coords = np.linspace(0, 1, ny_points, dtype=np.float64)
@@ -160,19 +160,18 @@ def process_and_subsample(
     print(f"Creating memory-mapped file at '{temp_filename}' with shape {final_shape} and dtype {output_dtype}")
     memmap_array = np.memmap(temp_filename, dtype=output_dtype, mode='w+', shape=final_shape)
     
-    for i, t in enumerate(time_indices):
+    for i, t in enumerate(tqdm(time_indices, desc="Processing files")):
         filename = input_dir / f"{prefix}{t:06d}"
-        print(f"Processing file: {filename} -> Writing to timestep index {i}")
-
+        
         # --- File Size Verification ---
         actual_bytes = filename.stat().st_size
         if actual_bytes != total_expected_bytes:
-            print(f"\n--- WARNING: FILE SIZE MISMATCH ---")
-            print(f"File: {filename}")
-            print(f"Expected size based on parameters: {format_bytes(total_expected_bytes)}")
-            print(f"Actual size of file on disk:   {format_bytes(actual_bytes)}")
-            print(f"This may indicate data corruption or a mismatch with runParameters.txt.")
-            print(f"Continuing, but the output may be incorrect.")
+            tqdm.write(f"\n--- WARNING: FILE SIZE MISMATCH ---")
+            tqdm.write(f"File: {filename}")
+            tqdm.write(f"Expected size based on parameters: {format_bytes(total_expected_bytes)}")
+            tqdm.write(f"Actual size of file on disk:   {format_bytes(actual_bytes)}")
+            tqdm.write(f"This may indicate data corruption or a mismatch with runParameters.txt.")
+            tqdm.write(f"Continuing, but the output may be incorrect.")
 
         with open(filename, 'rb') as f:
             offset_bytes = coord_offset_count * itemsize
@@ -182,9 +181,9 @@ def process_and_subsample(
                 data_4d_physical = channel_data_1d.reshape((nz, num_input_channels, ny, nx))
                 data_4d_logical = data_4d_physical.transpose(1, 0, 2, 3)
             except ValueError as e:
-                print(f"Error reshaping data for {filename}. Check dimensions and source channel list.")
+                tqdm.write(f"Error reshaping data for {filename}. Check dimensions and source channel list.")
                 expected_elements = num_input_channels * nz * ny * nx
-                print(f"Expected {expected_elements} elements, but read {len(channel_data_1d)}.")
+                tqdm.write(f"Expected {expected_elements} elements, but read {len(channel_data_1d)}.")
                 del memmap_array
                 temp_filename.unlink(missing_ok=True)
                 raise e
@@ -291,7 +290,7 @@ def main():
 
     # --- Timeseries Arguments ---
     parser.add_argument('--time-start', type=int, default=0, help="Starting time index to process.")
-    parser.add_argument('--time-end', type=int, default=10, help="Ending time index to process (exclusive).")
+    parser.add_argument('--time-end', type=int, default=4, help="Ending time index to process (exclusive).")
 
     # --- Subsampling Arguments ---
     parser.add_argument('--num-x-samples', type=int, default=32, help="Number of evenly spaced points to select along the x-axis.")
