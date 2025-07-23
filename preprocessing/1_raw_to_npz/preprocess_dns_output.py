@@ -1,53 +1,13 @@
 import numpy as np
 import re
 from pathlib import Path
-
-# --- Configuration ---
-# --- STEP 1: CONFIGURE YOUR PARAMETERS HERE ---
-
-# --- Master Switch for Mock Data ---
-# Set this to True to generate a local test dataset.
-# Set this to False when running on the cluster with real data.
-GENERATE_MOCK_DATA = True
-
-# --- Channel Settings ---
-# Define ALL possible channels present in the source data, in their physical order.
-# The script will use this list as the ground truth for reading the files.
-SOURCE_CHANNEL_LABELS = ['vx', 'vy', 'vz', 'T'] 
-
-# Define the indices of the channels you want to KEEP in the final output.
-# For example, to keep only 'vx' (index 0) and 'T' (index 3):
-CHANNEL_INDICES_TO_KEEP = [0, 1, 2, 3]
-
-# --- I/O Settings (using pathlib) ---
-INPUT_DIR = Path("./output/timeseries_data/")
-OUTPUT_FILE = Path("./output/subsampled_timeseries.npz")
-FILE_PREFIX = "patt3d_vx3d_"
-# The full path to the metadata file.
-META_FILE_PATH = Path("./output/timeseries_data/runParameters.txt")
-
-# --- Data Dimensions & Channels (These will be set dynamically) ---
-Nx, Ny, Nz = None, None, None
-FINAL_CHANNEL_LABELS = []
-NUM_INPUT_CHANNELS = len(SOURCE_CHANNEL_LABELS)
-NUM_OUTPUT_CHANNELS = len(CHANNEL_INDICES_TO_KEEP)
-
-
-# --- Timeseries Settings ---
-TIME_INDICES = range(10)
-
-# --- Subsampling Settings ---
-NUM_X_SAMPLES = 32
-# Define the interior Y-indices you want to keep.
-Y_INDICES_TO_KEEP = [10, 20, 30, 40, 55, 80]
-
+import argparse
 
 # --- Helper Functions ---
 
 def get_parameters_from_run_file(meta_filepath: Path):
     """
     Reads the runParameters.txt file to extract grid dimensions.
-    The coldFluid flag is read for completeness but no longer used for logic.
 
     Returns:
         - nx (int): Number of points on the x-axis.
@@ -120,18 +80,12 @@ def generate_mock_data(
             for z in range(nz_points):
                 for i, channel in enumerate(source_labels):
                     channel_val = float(i + 1)
-                    
-                    # Create a base slice that is time-dependent
                     time_dependent_val = channel_val + t * 0.1 + z * 0.01
                     data_slice = np.full((nx_points, ny_points), time_dependent_val, dtype=np.float64)
-
-                    # Overwrite boundaries with time-INdependent values for verification
                     time_independent_val = channel_val + z * 0.01
                     if z == 0 or z == nz_points - 1:
-                        # For the first and last Z-slices, the whole slice is time-independent
                         data_slice.fill(time_independent_val)
                     
-                    # For all other Z-slices, only the Y-boundaries are time-independent
                     data_slice[:, 0] = time_independent_val
                     data_slice[:, -1] = time_independent_val
                     
@@ -151,6 +105,9 @@ def process_and_subsample(
     num_x_samples: int,
     y_indices: list,
     channel_indices_to_keep: list,
+    num_input_channels: int,
+    num_output_channels: int,
+    final_channel_labels: list,
 ):
     """
     The core function to read, subsample, and save the data using a
@@ -179,7 +136,7 @@ def process_and_subsample(
 
     print(f"Subsampled coordinate shapes: x={x_coords_sub.shape}, y={y_coords_sub.shape}, z={z_coords_sub.shape}")
     
-    final_shape = (len(time_indices), num_x_samples, len(y_indices), nz, NUM_OUTPUT_CHANNELS)
+    final_shape = (len(time_indices), num_x_samples, len(y_indices), nz, num_output_channels)
     
     temp_filename = output_file.with_suffix(output_file.suffix + ".tmp")
     
@@ -195,11 +152,11 @@ def process_and_subsample(
             channel_data_1d = np.fromfile(f, dtype=input_dtype, offset=offset_bytes)
 
             try:
-                data_4d_physical = channel_data_1d.reshape((nz, NUM_INPUT_CHANNELS, ny, nx))
+                data_4d_physical = channel_data_1d.reshape((nz, num_input_channels, ny, nx))
                 data_4d_logical = data_4d_physical.transpose(1, 0, 2, 3)
             except ValueError as e:
                 print(f"Error reshaping data for {filename}. Check dimensions and source channel list.")
-                expected_elements = NUM_INPUT_CHANNELS * nz * ny * nx
+                expected_elements = num_input_channels * nz * ny * nx
                 print(f"Expected {expected_elements} elements, but read {len(channel_data_1d)}.")
                 del memmap_array
                 temp_filename.unlink(missing_ok=True)
@@ -218,7 +175,7 @@ def process_and_subsample(
     np.savez_compressed(
         output_file,
         timeseries=final_timeseries,
-        labels=np.array(FINAL_CHANNEL_LABELS),
+        labels=np.array(final_channel_labels),
         x_coords=x_coords_sub,
         y_coords=y_coords_sub,
         z_coords=z_coords_sub,
@@ -261,13 +218,11 @@ def verify_output(output_file: Path):
         print("\nSample data (t=0, x=0, y=0, z=0):")
         print(timeseries_data[0, 0, 0, 0, :])
         
-        # --- Boundary Value Verification ---
         print("\n--- Verifying Boundary Conditions ---")
         all_boundaries_ok = True
         num_timesteps = timeseries_data.shape[0]
 
         if num_timesteps > 1:
-            # Check Z boundaries (first and last slice)
             for z_boundary_idx in [0, -1]:
                 first_step_slice = timeseries_data[0, :, :, z_boundary_idx, :]
                 for t in range(1, num_timesteps):
@@ -286,37 +241,79 @@ def verify_output(output_file: Path):
     print("--- Verification Complete ---")
 
 
-if __name__ == "__main__":
-    if GENERATE_MOCK_DATA:
+def main():
+    """
+    Main function to parse arguments and run the subsampling process.
+    """
+    parser = argparse.ArgumentParser(
+        description="Subsample 3D timeseries data from Fortran-style binary files.",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter
+    )
+
+    # --- I/O Arguments ---
+    parser.add_argument('--input-dir', type=Path, default=Path("./output/timeseries_data/"), help="Directory containing the input timeseries files.")
+    parser.add_argument('--output-file', type=Path, default=Path("./output/subsampled_timeseries.npz"), help="Path for the final compressed .npz output file.")
+    parser.add_argument('--meta-file-path', type=Path, default=Path("./output/timeseries_data/runParameters.txt"), help="Full path to the runParameters.txt metadata file.")
+    parser.add_argument('--file-prefix', type=str, default="patt3d_vx3d_", help="The common prefix for the timeseries files.")
+
+    # --- Mock Data Arguments ---
+    parser.add_argument('--generate-mock-data', action='store_true', help="If set, generate a local test dataset before running.")
+
+    # --- Channel Arguments ---
+    parser.add_argument('--source-channel-labels', type=str, nargs='+', default=['vx', 'vy', 'vz', 'T'], help="Space-separated list of ALL channel labels in the source data order.")
+    parser.add_argument('--channel-indices-to-keep', type=int, nargs='+', default=[0, 1, 2, 3], help="Space-separated list of channel indices to keep in the final output.")
+
+    # --- Timeseries Arguments ---
+    parser.add_argument('--time-start', type=int, default=0, help="Starting time index to process.")
+    parser.add_argument('--time-end', type=int, default=10, help="Ending time index to process (exclusive).")
+
+    # --- Subsampling Arguments ---
+    parser.add_argument('--num-x-samples', type=int, default=32, help="Number of evenly spaced points to select along the x-axis.")
+    parser.add_argument('--y-indices-to-keep', type=int, nargs='+', default=[3, 10, 17], help="Space-separated list of specific y-indices to keep.")
+
+    args = parser.parse_args()
+
+    # --- Execution Logic ---
+    if args.generate_mock_data:
         print("GENERATE_MOCK_DATA is True. Generating mock data for testing.")
         mock_nx, mock_ny, mock_nz = 2301, 481, 121
         generate_mock_data(
-            INPUT_DIR,
-            META_FILE_PATH,
-            FILE_PREFIX,
-            TIME_INDICES,
+            args.input_dir,
+            args.meta_file_path,
+            args.file_prefix,
+            range(args.time_start, args.time_end),
             mock_nx,
             mock_ny,
             mock_nz,
-            source_labels=SOURCE_CHANNEL_LABELS,
+            source_labels=args.source_channel_labels,
         )
 
-    Nx, Ny, Nz = get_parameters_from_run_file(META_FILE_PATH)
+    Nx, Ny, Nz = get_parameters_from_run_file(args.meta_file_path)
 
-    FINAL_CHANNEL_LABELS = [SOURCE_CHANNEL_LABELS[i] for i in CHANNEL_INDICES_TO_KEEP]
-    print(f"Channels selected for output: {FINAL_CHANNEL_LABELS}")
+    final_channel_labels = [args.source_channel_labels[i] for i in args.channel_indices_to_keep]
+    num_input_channels = len(args.source_channel_labels)
+    num_output_channels = len(args.channel_indices_to_keep)
+    
+    print(f"Channels selected for output: {final_channel_labels}")
 
     process_and_subsample(
-        input_dir=INPUT_DIR,
-        output_file=OUTPUT_FILE,
-        prefix=FILE_PREFIX,
-        time_indices=TIME_INDICES,
+        input_dir=args.input_dir,
+        output_file=args.output_file,
+        prefix=args.file_prefix,
+        time_indices=range(args.time_start, args.time_end),
         nx=Nx,
         ny=Ny,
         nz=Nz,
-        num_x_samples=NUM_X_SAMPLES,
-        y_indices=Y_INDICES_TO_KEEP,
-        channel_indices_to_keep=CHANNEL_INDICES_TO_KEEP,
+        num_x_samples=args.num_x_samples,
+        y_indices=args.y_indices_to_keep,
+        channel_indices_to_keep=args.channel_indices_to_keep,
+        num_input_channels=num_input_channels,
+        num_output_channels=num_output_channels,
+        final_channel_labels=final_channel_labels,
     )
 
-    verify_output(OUTPUT_FILE)
+    verify_output(args.output_file)
+
+
+if __name__ == "__main__":
+    main()
