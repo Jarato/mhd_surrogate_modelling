@@ -53,7 +53,7 @@ def generate_mock_data(
         error_message = (
             f"\n--- SAFETY ABORT ---\n"
             f"Error: Mock data generation target directory '{dir_path}' is not empty.\n"
-            f"To prevent overwriting real data, please clear this directory or set GENERATE_MOCK_DATA to False in the script.\n"
+            f"To prevent overwriting real data, please clear this directory or set --generate-mock-data to False in the script.\n"
         )
         print(error_message)
         raise SystemExit() # Stop the script entirely
@@ -168,24 +168,30 @@ def process_and_subsample(
             
             memmap_array[i] = transposed_timestep.astype(output_dtype)
             
-    del memmap_array
+    # --- FIX ---
+    # Instead of deleting and reloading the memmap file, we pass the
+    # memmap object directly to np.savez_compressed. This avoids the
+    # allow_pickle error and is more efficient.
     
     print(f"\nPackaging final data into {output_file}...")
-    final_timeseries = np.load(temp_filename)
     np.savez_compressed(
         output_file,
-        timeseries=final_timeseries,
+        timeseries=memmap_array, # Pass the memmap object directly
         labels=np.array(final_channel_labels),
         x_coords=x_coords_sub,
         y_coords=y_coords_sub,
         z_coords=z_coords_sub,
     )
     
+    # Now that the final .npz file is saved, we can clean up the temporary file.
+    del memmap_array
     temp_filename.unlink()
     
     print("--- Subsampling Process Complete ---")
-    print(f"Final array shape: {final_timeseries.shape}")
-    print(f"Final array dtype: {final_timeseries.dtype}")
+    # We need to load the final file to get its shape for the printout
+    with np.load(output_file) as data:
+        print(f"Final array shape: {data['timeseries'].shape}")
+        print(f"Final array dtype: {data['timeseries'].dtype}")
 
 
 def verify_output(output_file: Path):

@@ -4,6 +4,7 @@
         "denorm",
         "EIGS",
         "hparams",
+        "patt",
         "pbar",
         "PREDS",
         "traj"
