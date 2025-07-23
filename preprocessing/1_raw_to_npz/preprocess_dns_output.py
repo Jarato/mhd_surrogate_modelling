@@ -123,6 +123,12 @@ def process_and_subsample(
     itemsize = np.dtype(input_dtype).itemsize
     coord_offset_count = nx + ny + nz
 
+    # --- Calculate expected file size based on parameters ---
+    expected_coord_bytes = coord_offset_count * itemsize
+    expected_channel_bytes = nz * num_input_channels * ny * nx * itemsize
+    total_expected_bytes = expected_coord_bytes + expected_channel_bytes
+    print(f"Calculated expected file size per timestep: {total_expected_bytes} bytes")
+
     print("--- Reading and subsampling coordinates ---")
     first_file_path = input_dir / f"{prefix}{time_indices[0]:06d}"
     with open(first_file_path, 'rb') as f:
@@ -147,6 +153,16 @@ def process_and_subsample(
         filename = input_dir / f"{prefix}{t:06d}"
         print(f"Processing file: {filename} -> Writing to timestep index {i}")
 
+        # --- File Size Verification ---
+        actual_bytes = filename.stat().st_size
+        if actual_bytes != total_expected_bytes:
+            print(f"\n--- WARNING: FILE SIZE MISMATCH ---")
+            print(f"File: {filename}")
+            print(f"Expected size based on parameters: {total_expected_bytes} bytes")
+            print(f"Actual size of file on disk:   {actual_bytes} bytes")
+            print(f"This may indicate data corruption or a mismatch with runParameters.txt.")
+            print(f"Continuing, but the output may be incorrect.")
+
         with open(filename, 'rb') as f:
             offset_bytes = coord_offset_count * itemsize
             channel_data_1d = np.fromfile(f, dtype=input_dtype, offset=offset_bytes)
@@ -168,27 +184,20 @@ def process_and_subsample(
             
             memmap_array[i] = transposed_timestep.astype(output_dtype)
             
-    # --- FIX ---
-    # Instead of deleting and reloading the memmap file, we pass the
-    # memmap object directly to np.savez_compressed. This avoids the
-    # allow_pickle error and is more efficient.
-    
     print(f"\nPackaging final data into {output_file}...")
     np.savez_compressed(
         output_file,
-        timeseries=memmap_array, # Pass the memmap object directly
+        timeseries=memmap_array,
         labels=np.array(final_channel_labels),
         x_coords=x_coords_sub,
         y_coords=y_coords_sub,
         z_coords=z_coords_sub,
     )
     
-    # Now that the final .npz file is saved, we can clean up the temporary file.
     del memmap_array
     temp_filename.unlink()
     
     print("--- Subsampling Process Complete ---")
-    # We need to load the final file to get its shape for the printout
     with np.load(output_file) as data:
         print(f"Final array shape: {data['timeseries'].shape}")
         print(f"Final array dtype: {data['timeseries'].dtype}")
