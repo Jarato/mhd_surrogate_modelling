@@ -3,6 +3,12 @@ import re
 from pathlib import Path
 import argparse
 from tqdm import tqdm
+import multiprocessing
+from functools import partial
+
+# --- Global variable for the memory-mapped array ---
+# This will be inherited by each worker process
+memmap_array = None
 
 # --- Helper Functions ---
 
@@ -58,9 +64,7 @@ def generate_mock_data(
 ):
     """
     Generates a mock dataset that mimics the Fortran binary output.
-    It creates time-invariant data on the Y and Z boundaries to test verification.
     """
-    # --- SAFETY CHECK ---
     if dir_path.exists() and any(dir_path.iterdir()):
         error_message = (
             f"\n--- SAFETY ABORT ---\n"
@@ -68,7 +72,7 @@ def generate_mock_data(
             f"To prevent overwriting real data, please clear this directory or set --generate-mock-data to False in the script.\n"
         )
         print(error_message)
-        raise SystemExit() # Stop the script entirely
+        raise SystemExit()
 
     print(f"--- Generating Mock Data in '{dir_path}' with channels: {source_labels} ---")
     dir_path.mkdir(parents=True, exist_ok=True)
@@ -105,6 +109,59 @@ def generate_mock_data(
     print("--- Mock data generation complete. ---\n")
 
 
+def init_worker(temp_filename, shape, dtype):
+    """
+    Initializer for each worker process. Opens the memory-mapped file.
+    """
+    global memmap_array
+    memmap_array = np.memmap(temp_filename, dtype=dtype, mode='r+', shape=shape)
+
+
+def process_single_file(
+    time_index_tuple,
+    # Static arguments are passed via functools.partial
+    input_dir, prefix, nx, ny, nz,
+    num_input_channels, itemsize, coord_offset_count,
+    input_dtype, output_dtype,
+    channel_indices_to_keep, y_indices, x_subsample_indices,
+    total_expected_bytes
+):
+    """
+    Worker function that processes a single timestep file.
+    """
+    i, t = time_index_tuple
+    filename = input_dir / f"{prefix}{t:06d}"
+
+    # --- File Size Verification ---
+    actual_bytes = filename.stat().st_size
+    if actual_bytes != total_expected_bytes:
+        # Use tqdm.write to print without breaking the progress bar
+        tqdm.write(f"\n--- WARNING: FILE SIZE MISMATCH ---")
+        tqdm.write(f"File: {filename}")
+        tqdm.write(f"Expected size: {format_bytes(total_expected_bytes)}, Actual size: {format_bytes(actual_bytes)}")
+        tqdm.write(f"Continuing, but the output may be incorrect.")
+
+    with open(filename, 'rb') as f:
+        offset_bytes = coord_offset_count * itemsize
+        channel_data_1d = np.fromfile(f, dtype=input_dtype, offset=offset_bytes)
+
+    try:
+        data_4d_physical = channel_data_1d.reshape((nz, num_input_channels, ny, nx))
+        data_4d_logical = data_4d_physical.transpose(1, 0, 2, 3)
+    except ValueError as e:
+        tqdm.write(f"Error reshaping data for {filename}. Check dimensions and source channel list.")
+        expected_elements = num_input_channels * nz * ny * nx
+        tqdm.write(f"Expected {expected_elements} elements, but read {len(channel_data_1d)}.")
+        raise e
+    
+    selected_channels_data = data_4d_logical[channel_indices_to_keep, :, :, :]
+    subsampled_timestep = selected_channels_data[:, :, y_indices, :][:, :, :, x_subsample_indices]
+    transposed_timestep = subsampled_timestep.transpose(3, 2, 1, 0)
+    
+    # Write directly to the shared memory-mapped array
+    memmap_array[i] = transposed_timestep.astype(output_dtype)
+
+
 def process_and_subsample(
     input_dir: Path,
     output_file: Path,
@@ -119,12 +176,12 @@ def process_and_subsample(
     num_input_channels: int,
     num_output_channels: int,
     final_channel_labels: list,
+    num_workers: int,
 ):
     """
-    The core function to read, subsample, and save the data using a
-    memory-mapped file to avoid RAM bottlenecks and converting to float32.
+    The core function to read, subsample, and save the data in parallel.
     """
-    print("--- Starting Subsampling Process (Memory-Safe, float32 output) ---")
+    print("--- Starting Subsampling Process (Parallel, Memory-Safe, float32 output) ---")
     
     x_subsample_indices = np.linspace(0, nx - 1, num_x_samples, dtype=int)
     
@@ -134,7 +191,6 @@ def process_and_subsample(
     itemsize = np.dtype(input_dtype).itemsize
     coord_offset_count = nx + ny + nz
 
-    # --- Calculate expected file size based on parameters ---
     expected_coord_bytes = coord_offset_count * itemsize
     expected_channel_bytes = nz * num_input_channels * ny * nx * itemsize
     total_expected_bytes = expected_coord_bytes + expected_channel_bytes
@@ -158,56 +214,39 @@ def process_and_subsample(
     temp_filename = output_file.with_suffix(output_file.suffix + ".tmp")
     
     print(f"Creating memory-mapped file at '{temp_filename}' with shape {final_shape} and dtype {output_dtype}")
-    memmap_array = np.memmap(temp_filename, dtype=output_dtype, mode='w+', shape=final_shape)
-    
-    for i, t in enumerate(tqdm(time_indices, desc="Processing files")):
-        filename = input_dir / f"{prefix}{t:06d}"
-        
-        # --- File Size Verification ---
-        actual_bytes = filename.stat().st_size
-        if actual_bytes != total_expected_bytes:
-            tqdm.write(f"\n--- WARNING: FILE SIZE MISMATCH ---")
-            tqdm.write(f"File: {filename}")
-            tqdm.write(f"Expected size based on parameters: {format_bytes(total_expected_bytes)}")
-            tqdm.write(f"Actual size of file on disk:   {format_bytes(actual_bytes)}")
-            tqdm.write(f"This may indicate data corruption or a mismatch with runParameters.txt.")
-            tqdm.write(f"Continuing, but the output may be incorrect.")
+    # Create the file on disk but don't hold it open in the main process
+    fp = np.memmap(temp_filename, dtype=output_dtype, mode='w+', shape=final_shape)
+    del fp # Close the file handle, the file remains on disk
 
-        with open(filename, 'rb') as f:
-            offset_bytes = coord_offset_count * itemsize
-            channel_data_1d = np.fromfile(f, dtype=input_dtype, offset=offset_bytes)
+    # --- Parallel Processing ---
+    worker_func = partial(
+        process_single_file,
+        input_dir=input_dir, prefix=prefix, nx=nx, ny=ny, nz=nz,
+        num_input_channels=num_input_channels, itemsize=itemsize, coord_offset_count=coord_offset_count,
+        input_dtype=input_dtype, output_dtype=output_dtype,
+        channel_indices_to_keep=channel_indices_to_keep, y_indices=y_indices, x_subsample_indices=x_subsample_indices,
+        total_expected_bytes=total_expected_bytes
+    )
 
-            try:
-                data_4d_physical = channel_data_1d.reshape((nz, num_input_channels, ny, nx))
-                data_4d_logical = data_4d_physical.transpose(1, 0, 2, 3)
-            except ValueError as e:
-                tqdm.write(f"Error reshaping data for {filename}. Check dimensions and source channel list.")
-                expected_elements = num_input_channels * nz * ny * nx
-                tqdm.write(f"Expected {expected_elements} elements, but read {len(channel_data_1d)}.")
-                del memmap_array
-                temp_filename.unlink(missing_ok=True)
-                raise e
-            
-            selected_channels_data = data_4d_logical[channel_indices_to_keep, :, :, :]
-            subsampled_timestep = selected_channels_data[:, :, y_indices, :][:, :, :, x_subsample_indices]
-            transposed_timestep = subsampled_timestep.transpose(3, 2, 1, 0)
-            
-            memmap_array[i] = transposed_timestep.astype(output_dtype)
-            
+    with multiprocessing.Pool(processes=num_workers, initializer=init_worker, initargs=(temp_filename, final_shape, output_dtype)) as pool:
+        # Use imap_unordered for efficiency, wrapped in tqdm for progress bar
+        list(tqdm(pool.imap_unordered(worker_func, enumerate(time_indices)), total=len(time_indices), desc="Processing files"))
+
     print(f"\nPackaging final data into {output_file}...")
+    # Re-open the now-populated memory-mapped file for saving
+    final_timeseries = np.memmap(temp_filename, dtype=output_dtype, mode='r', shape=final_shape)
     np.savez_compressed(
         output_file,
-        timeseries=memmap_array,
+        timeseries=final_timeseries,
         labels=np.array(final_channel_labels),
         x_coords=x_coords_sub,
         y_coords=y_coords_sub,
         z_coords=z_coords_sub,
     )
     
-    del memmap_array
+    del final_timeseries
     temp_filename.unlink()
     
-    # --- Calculate and print final size and reduction ---
     final_size_bytes = output_file.stat().st_size
     total_original_size_bytes = total_expected_bytes * len(time_indices)
     reduction_factor = total_original_size_bytes / final_size_bytes if final_size_bytes > 0 else float('inf')
@@ -225,7 +264,6 @@ def process_and_subsample(
 def verify_output(output_file: Path):
     """
     Loads the final .npz file and prints its contents to confirm success.
-    Includes a check for time-invariant boundary conditions.
     """
     print(f"\n--- Verifying Output File: {output_file} ---")
     if not output_file.exists():
@@ -284,30 +322,21 @@ def main():
         formatter_class=argparse.ArgumentDefaultsHelpFormatter
     )
 
-    # --- I/O Arguments ---
     parser.add_argument('--input-dir', type=Path, default=Path("./output/timeseries_data/"), help="Directory containing the input timeseries files.")
     parser.add_argument('--output-file', type=Path, default=Path("./output/subsampled_timeseries.npz"), help="Path for the final compressed .npz output file.")
     parser.add_argument('--meta-file-path', type=Path, default=Path("./output/timeseries_data/runParameters.txt"), help="Full path to the runParameters.txt metadata file.")
     parser.add_argument('--file-prefix', type=str, default="patt3d_vx3d_", help="The common prefix for the timeseries files.")
-
-    # --- Mock Data Arguments ---
     parser.add_argument('--generate-mock-data', action='store_true', help="If set, generate a local test dataset before running.")
-
-    # --- Channel Arguments ---
     parser.add_argument('--source-channel-labels', type=str, nargs='+', default=['vx', 'vy', 'vz', 'T'], help="Space-separated list of ALL channel labels in the source data order.")
     parser.add_argument('--channel-indices-to-keep', type=int, nargs='+', default=[0, 1, 2, 3], help="Space-separated list of channel indices to keep in the final output.")
-
-    # --- Timeseries Arguments ---
     parser.add_argument('--time-start', type=int, default=0, help="Starting time index to process.")
     parser.add_argument('--time-end', type=int, default=4, help="Ending time index to process (exclusive).")
-
-    # --- Subsampling Arguments ---
     parser.add_argument('--num-x-samples', type=int, default=32, help="Number of evenly spaced points to select along the x-axis.")
     parser.add_argument('--y-indices-to-keep', type=int, nargs='+', default=[3, 10, 17], help="Space-separated list of specific y-indices to keep.")
+    parser.add_argument('--num-workers', type=int, default=multiprocessing.cpu_count(), help="Number of parallel worker processes to use.")
 
     args = parser.parse_args()
 
-    # --- Execution Logic ---
     if args.generate_mock_data:
         print("GENERATE_MOCK_DATA is True. Generating mock data for testing.")
         mock_nx, mock_ny, mock_nz = 2301, 481, 121
@@ -344,6 +373,7 @@ def main():
         num_input_channels=num_input_channels,
         num_output_channels=num_output_channels,
         final_channel_labels=final_channel_labels,
+        num_workers=args.num_workers,
     )
 
     verify_output(args.output_file)
