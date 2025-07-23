@@ -5,6 +5,17 @@ import argparse
 
 # --- Helper Functions ---
 
+def format_bytes(size_bytes: int) -> str:
+    """Converts a size in bytes to a human-readable string (e.g., KB, MB, GB)."""
+    if size_bytes == 0:
+        return "0B"
+    size_name = ("B", "KB", "MB", "GB", "TB", "PB", "EB", "ZB", "YB")
+    i = int(np.floor(np.log(size_bytes) / np.log(1024)))
+    p = np.power(1024, i)
+    s = round(size_bytes / p, 2)
+    return f"{s} {size_name[i]}"
+
+
 def get_parameters_from_run_file(meta_filepath: Path):
     """
     Reads the runParameters.txt file to extract grid dimensions.
@@ -127,7 +138,7 @@ def process_and_subsample(
     expected_coord_bytes = coord_offset_count * itemsize
     expected_channel_bytes = nz * num_input_channels * ny * nx * itemsize
     total_expected_bytes = expected_coord_bytes + expected_channel_bytes
-    print(f"Calculated expected file size per timestep: {total_expected_bytes} bytes")
+    print(f"Calculated expected file size per timestep: {format_bytes(total_expected_bytes)}")
 
     print("--- Reading and subsampling coordinates ---")
     first_file_path = input_dir / f"{prefix}{time_indices[0]:06d}"
@@ -158,8 +169,8 @@ def process_and_subsample(
         if actual_bytes != total_expected_bytes:
             print(f"\n--- WARNING: FILE SIZE MISMATCH ---")
             print(f"File: {filename}")
-            print(f"Expected size based on parameters: {total_expected_bytes} bytes")
-            print(f"Actual size of file on disk:   {actual_bytes} bytes")
+            print(f"Expected size based on parameters: {format_bytes(total_expected_bytes)}")
+            print(f"Actual size of file on disk:   {format_bytes(actual_bytes)}")
             print(f"This may indicate data corruption or a mismatch with runParameters.txt.")
             print(f"Continuing, but the output may be incorrect.")
 
