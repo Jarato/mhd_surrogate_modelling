@@ -8,7 +8,7 @@ from tqdm import tqdm
 
 def format_bytes(size_bytes: int) -> str:
     """Converts a size in bytes to a human-readable string (e.g., KB, MB, GB)."""
-    if size_bytes == 0:
+    if size_bytes <= 0:
         return "0B"
     size_name = ("B", "KB", "MB", "GB", "TB", "PB", "EB", "ZB", "YB")
     i = int(np.floor(np.log(size_bytes) / np.log(1024)))
@@ -207,7 +207,16 @@ def process_and_subsample(
     del memmap_array
     temp_filename.unlink()
     
-    print("--- Subsampling Process Complete ---")
+    # --- Calculate and print final size and reduction ---
+    final_size_bytes = output_file.stat().st_size
+    total_original_size_bytes = total_expected_bytes * len(time_indices)
+    reduction_factor = total_original_size_bytes / final_size_bytes if final_size_bytes > 0 else float('inf')
+
+    print("\n--- Subsampling Process Complete ---")
+    print(f"Total original data processed: {format_bytes(total_original_size_bytes)}")
+    print(f"Final compressed output size:  {format_bytes(final_size_bytes)}")
+    print(f"Data size reduction factor:    {reduction_factor:.2f}x")
+    
     with np.load(output_file) as data:
         print(f"Final array shape: {data['timeseries'].shape}")
         print(f"Final array dtype: {data['timeseries'].dtype}")
