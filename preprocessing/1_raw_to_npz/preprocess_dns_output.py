@@ -153,15 +153,24 @@ def process_single_file(
         channel_data_1d = np.fromfile(f, dtype=input_dtype, offset=offset_bytes)
 
     try:
+        # --- OPTIMIZED DATA MANIPULATION ---
+        # 1. Reshape to the physical layout on disk: (z, channel, y, x)
         data_4d_physical = channel_data_1d.reshape((nz, num_input_channels, ny, nx))
-        data_4d_logical = data_4d_physical.transpose(1, 0, 2, 3)
+
+        # 2. Subsample all axes except X in one go.
+        subsampled_zy_ch = data_4d_physical[:, channel_indices_to_keep, y_indices, :]
+
+        # 3. Subsample the X-axis on the result.
+        subsampled_data = subsampled_zy_ch[:, :, :, x_subsample_indices]
+
+        # 4. Perform a single transpose to get the final C-style order: (x, y, z, channel)
+        #    Original axes in subsampled_data: (z:0, channel:1, y:2, x:3)
+        #    Target axes:                     (x:3, y:2, z:0, channel:1)
+        transposed_timestep = subsampled_data.transpose(3, 2, 0, 1)
+
     except ValueError as e:
         tqdm.write(f"ERROR: Failed to reshape data for {filename}. Check dimensions and source channel list.")
         raise e
-    
-    selected_channels_data = data_4d_logical[channel_indices_to_keep, :, :, :]
-    subsampled_timestep = selected_channels_data[:, :, y_indices, :][:, :, :, x_subsample_indices]
-    transposed_timestep = subsampled_timestep.transpose(3, 2, 1, 0)
     
     memmap_array[i] = transposed_timestep.astype(output_dtype)
 
