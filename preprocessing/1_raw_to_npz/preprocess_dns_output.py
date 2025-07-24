@@ -7,6 +7,7 @@ import multiprocessing
 from functools import partial
 import logging
 import sys
+from typing import List, Tuple
 
 # --- Global variable for the memory-mapped array ---
 # This will be inherited by each worker process
@@ -35,14 +36,12 @@ def format_bytes(size_bytes: int) -> str:
     return f"{s} {size_name[i]}"
 
 
-def get_parameters_from_run_file(meta_filepath: Path):
+def get_parameters_from_run_file(meta_filepath: Path) -> Tuple[int, int, int]:
     """
     Reads the runParameters.txt file to extract grid dimensions.
 
     Returns:
-        - nx (int): Number of points on the x-axis.
-        - ny (int): Number of points on the y-axis.
-        - nz (int): Number of points on the z-axis.
+        A tuple containing (nx, ny, nz) as the number of points on each axis.
     """
     logging.info(f"Reading parameters from '{meta_filepath}'...")
     params = {}
@@ -72,8 +71,8 @@ def generate_mock_data(
     nx_points: int,
     ny_points: int,
     nz_points: int,
-    source_labels: list,
-):
+    source_labels: List[str],
+) -> None:
     """
     Generates a mock dataset that mimics the Fortran binary output.
     """
@@ -118,7 +117,7 @@ def generate_mock_data(
     logging.info("Mock data generation complete.")
 
 
-def init_worker(temp_filename, shape, dtype):
+def init_worker(temp_filename: Path, shape: Tuple, dtype: np.dtype) -> None:
     """
     Initializer for each worker process. Opens the memory-mapped file.
     """
@@ -127,14 +126,14 @@ def init_worker(temp_filename, shape, dtype):
 
 
 def process_single_file(
-    time_index_tuple,
+    time_index_tuple: Tuple[int, int],
     # Static arguments are passed via functools.partial
-    input_dir, prefix, nx, ny, nz,
-    num_input_channels, itemsize, coord_offset_count,
-    input_dtype, output_dtype,
-    channel_indices_to_keep, y_indices, x_subsample_indices,
-    total_expected_bytes
-):
+    input_dir: Path, prefix: str, nx: int, ny: int, nz: int,
+    num_input_channels: int, itemsize: int, coord_offset_count: int,
+    input_dtype: np.dtype, output_dtype: np.dtype,
+    channel_indices_to_keep: List[int], y_indices: List[int], x_subsample_indices: np.ndarray,
+    total_expected_bytes: int
+) -> None:
     """
     Worker function that processes a single timestep file.
     """
@@ -153,7 +152,6 @@ def process_single_file(
         channel_data_1d = np.fromfile(f, dtype=input_dtype, offset=offset_bytes)
 
     try:
-        # --- ROBUST DATA MANIPULATION (Reverted to double transpose) ---
         # 1. Reshape to the physical layout on disk: (z, channel, y, x)
         data_4d_physical = channel_data_1d.reshape((nz, num_input_channels, ny, nx))
         
@@ -167,8 +165,8 @@ def process_single_file(
         subsampled_timestep = selected_channels_data[:, :, y_indices, :][:, :, :, x_subsample_indices]
         
         # 5. Perform a final transpose to get the C-style order: (x, y, z, channel)
-        #    Original axes in subsampled_timestep: (channel:0, z:1, y:2, x:3)
-        #    Target axes:                         (x:3, y:2, z:1, channel:0)
+        #    Current axes: (channel:0, z:1, y_sub:2, x_sub:3)
+        #    Target axes:  (x_sub:3, y_sub:2, z:1, channel:0)
         transposed_timestep = subsampled_timestep.transpose(3, 2, 1, 0)
 
     except ValueError as e:
@@ -187,13 +185,13 @@ def process_and_subsample(
     ny: int,
     nz: int,
     num_x_samples: int,
-    y_indices: list,
-    channel_indices_to_keep: list,
+    y_indices: List[int],
+    channel_indices_to_keep: List[int],
     num_input_channels: int,
     num_output_channels: int,
-    final_channel_labels: list,
+    final_channel_labels: List[str],
     num_workers: int,
-):
+) -> None:
     """
     The core function to read, subsample, and save the data in parallel.
     """
