@@ -5,12 +5,24 @@ import argparse
 from tqdm import tqdm
 import multiprocessing
 from functools import partial
+import logging
+import sys
 
 # --- Global variable for the memory-mapped array ---
 # This will be inherited by each worker process
 memmap_array = None
 
 # --- Helper Functions ---
+
+def setup_logging():
+    """Configures the logging for the script."""
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s [%(levelname)s] %(message)s",
+        handlers=[
+            logging.StreamHandler(sys.stdout)
+        ]
+    )
 
 def format_bytes(size_bytes: int) -> str:
     """Converts a size in bytes to a human-readable string (e.g., KB, MB, GB)."""
@@ -32,7 +44,7 @@ def get_parameters_from_run_file(meta_filepath: Path):
         - ny (int): Number of points on the y-axis.
         - nz (int): Number of points on the z-axis.
     """
-    print(f"--- Reading parameters from '{meta_filepath}' ---")
+    logging.info(f"Reading parameters from '{meta_filepath}'...")
     params = {}
     try:
         with open(meta_filepath, 'r') as f:
@@ -42,13 +54,13 @@ def get_parameters_from_run_file(meta_filepath: Path):
                     key, value = match_dim.groups()
                     params[key] = int(value) + 1
     except FileNotFoundError:
-        print(f"Error: Metadata file not found at '{meta_filepath}'")
+        logging.error(f"Metadata file not found at '{meta_filepath}'")
         raise
 
     if 'nX' not in params or 'nY' not in params or 'nZ' not in params:
         raise ValueError("Could not find nX, nY, or nZ in the metadata file.")
 
-    print(f"Dimensions found (points): Nx={params['nX']}, Ny={params['nY']}, Nz={params['nZ']}")
+    logging.info(f"Dimensions found (points): Nx={params['nX']}, Ny={params['nY']}, Nz={params['nZ']}")
     return params['nX'], params['nY'], params['nZ']
 
 
@@ -66,15 +78,13 @@ def generate_mock_data(
     Generates a mock dataset that mimics the Fortran binary output.
     """
     if dir_path.exists() and any(dir_path.iterdir()):
-        error_message = (
-            f"\n--- SAFETY ABORT ---\n"
-            f"Error: Mock data generation target directory '{dir_path}' is not empty.\n"
-            f"To prevent overwriting real data, please clear this directory or set --generate-mock-data to False in the script.\n"
+        logging.critical(
+            f"SAFETY ABORT: Mock data generation target directory '{dir_path}' is not empty. "
+            f"To prevent overwriting real data, please clear this directory or set --generate-mock-data to False."
         )
-        print(error_message)
         raise SystemExit()
 
-    print(f"--- Generating Mock Data in '{dir_path}' with channels: {source_labels} ---")
+    logging.info(f"Generating mock data in '{dir_path}' with channels: {source_labels}")
     dir_path.mkdir(parents=True, exist_ok=True)
 
     with open(meta_filepath, 'w') as f:
@@ -105,8 +115,7 @@ def generate_mock_data(
                     data_slice[:, -1] = time_independent_val
                     
                     f.write(data_slice.tobytes(order='F'))
-
-    print("--- Mock data generation complete. ---\n")
+    logging.info("Mock data generation complete.")
 
 
 def init_worker(temp_filename, shape, dtype):
@@ -132,14 +141,12 @@ def process_single_file(
     i, t = time_index_tuple
     filename = input_dir / f"{prefix}{t:06d}"
 
-    # --- File Size Verification ---
     actual_bytes = filename.stat().st_size
     if actual_bytes != total_expected_bytes:
-        # Use tqdm.write to print without breaking the progress bar
-        tqdm.write(f"\n--- WARNING: FILE SIZE MISMATCH ---")
-        tqdm.write(f"File: {filename}")
-        tqdm.write(f"Expected size: {format_bytes(total_expected_bytes)}, Actual size: {format_bytes(actual_bytes)}")
-        tqdm.write(f"Continuing, but the output may be incorrect.")
+        tqdm.write(
+            f"WARNING: FILE SIZE MISMATCH for {filename}. "
+            f"Expected: {format_bytes(total_expected_bytes)}, Got: {format_bytes(actual_bytes)}"
+        )
 
     with open(filename, 'rb') as f:
         offset_bytes = coord_offset_count * itemsize
@@ -149,16 +156,13 @@ def process_single_file(
         data_4d_physical = channel_data_1d.reshape((nz, num_input_channels, ny, nx))
         data_4d_logical = data_4d_physical.transpose(1, 0, 2, 3)
     except ValueError as e:
-        tqdm.write(f"Error reshaping data for {filename}. Check dimensions and source channel list.")
-        expected_elements = num_input_channels * nz * ny * nx
-        tqdm.write(f"Expected {expected_elements} elements, but read {len(channel_data_1d)}.")
+        tqdm.write(f"ERROR: Failed to reshape data for {filename}. Check dimensions and source channel list.")
         raise e
     
     selected_channels_data = data_4d_logical[channel_indices_to_keep, :, :, :]
     subsampled_timestep = selected_channels_data[:, :, y_indices, :][:, :, :, x_subsample_indices]
     transposed_timestep = subsampled_timestep.transpose(3, 2, 1, 0)
     
-    # Write directly to the shared memory-mapped array
     memmap_array[i] = transposed_timestep.astype(output_dtype)
 
 
@@ -181,7 +185,7 @@ def process_and_subsample(
     """
     The core function to read, subsample, and save the data in parallel.
     """
-    print("--- Starting Subsampling Process (Parallel, Memory-Safe, float32 output) ---")
+    logging.info("Starting subsampling process (Parallel, Memory-Safe, float32 output)...")
     
     x_subsample_indices = np.linspace(0, nx - 1, num_x_samples, dtype=int)
     
@@ -194,9 +198,9 @@ def process_and_subsample(
     expected_coord_bytes = coord_offset_count * itemsize
     expected_channel_bytes = nz * num_input_channels * ny * nx * itemsize
     total_expected_bytes = expected_coord_bytes + expected_channel_bytes
-    print(f"Calculated expected file size per timestep: {format_bytes(total_expected_bytes)}")
+    logging.info(f"Calculated expected file size per timestep: {format_bytes(total_expected_bytes)}")
 
-    print("--- Reading and subsampling coordinates ---")
+    logging.info("Reading and subsampling coordinates...")
     first_file_path = input_dir / f"{prefix}{time_indices[0]:06d}"
     with open(first_file_path, 'rb') as f:
         x_coords_full = np.fromfile(f, dtype=input_dtype, count=nx)
@@ -207,13 +211,13 @@ def process_and_subsample(
     y_coords_sub = y_coords_full[y_indices].astype(output_dtype)
     z_coords_sub = z_coords_full.astype(output_dtype)
 
-    print(f"Subsampled coordinate shapes: x={x_coords_sub.shape}, y={y_coords_sub.shape}, z={z_coords_sub.shape}")
+    logging.info(f"Subsampled coordinate shapes: x={x_coords_sub.shape}, y={y_coords_sub.shape}, z={z_coords_sub.shape}")
     
     final_shape = (len(time_indices), num_x_samples, len(y_indices), nz, num_output_channels)
     
     temp_filename = output_file.with_suffix(output_file.suffix + ".tmp")
     
-    print(f"Creating memory-mapped file at '{temp_filename}' with shape {final_shape} and dtype {output_dtype}")
+    logging.info(f"Creating memory-mapped file at '{temp_filename}' with shape {final_shape} and dtype {output_dtype}")
     fp = np.memmap(temp_filename, dtype=output_dtype, mode='w+', shape=final_shape)
     del fp
 
@@ -229,7 +233,7 @@ def process_and_subsample(
     with multiprocessing.Pool(processes=num_workers, initializer=init_worker, initargs=(temp_filename, final_shape, output_dtype)) as pool:
         list(tqdm(pool.imap_unordered(worker_func, enumerate(time_indices)), total=len(time_indices), desc="Processing files"))
 
-    print(f"\nPackaging final data into {output_file}...")
+    logging.info(f"Packaging final data into {output_file}...")
     final_timeseries = np.memmap(temp_filename, dtype=output_dtype, mode='r', shape=final_shape)
     np.savez_compressed(
         output_file,
@@ -247,28 +251,28 @@ def process_and_subsample(
     total_original_size_bytes = total_expected_bytes * len(time_indices)
     reduction_factor = total_original_size_bytes / final_size_bytes if final_size_bytes > 0 else float('inf')
 
-    print("\n--- Subsampling Process Complete ---")
-    print(f"Total original data processed: {format_bytes(total_original_size_bytes)}")
-    print(f"Final compressed output size:  {format_bytes(final_size_bytes)}")
-    print(f"Data size reduction factor:    {reduction_factor:.2f}x")
+    logging.info("Subsampling process complete.")
+    logging.info(f"Total original data processed: {format_bytes(total_original_size_bytes)}")
+    logging.info(f"Final compressed output size:  {format_bytes(final_size_bytes)}")
+    logging.info(f"Data size reduction factor:    {reduction_factor:.2f}x")
     
     with np.load(output_file) as data:
-        print(f"Final array shape: {data['timeseries'].shape}")
-        print(f"Final array dtype: {data['timeseries'].dtype}")
+        logging.info(f"Final array shape: {data['timeseries'].shape}")
+        logging.info(f"Final array dtype: {data['timeseries'].dtype}")
 
 
 def verify_output(output_file: Path):
     """
     Loads the final .npz file and prints its contents to confirm success.
     """
-    print(f"\n--- Verifying Output File: {output_file} ---")
+    logging.info(f"Verifying output file: {output_file}...")
     if not output_file.exists():
-        print("Error: Output file not found!")
+        logging.error("Output file not found!")
         return
 
     with np.load(output_file) as data:
-        print(f"Successfully loaded archive.")
-        print(f"Keys found in file: {list(data.keys())}")
+        logging.info("Successfully loaded archive.")
+        logging.info(f"Keys found in file: {list(data.keys())}")
 
         timeseries_data = data['timeseries']
         labels = data['labels']
@@ -276,17 +280,14 @@ def verify_output(output_file: Path):
         y_coords = data['y_coords']
         z_coords = data['z_coords']
 
-        print(f"\nShape of 'timeseries' array: {timeseries_data.shape}")
-        print(f"Data type of 'timeseries' array: {timeseries_data.dtype}")
-        print(f"Content of 'labels' array: {labels}")
-        print(f"Shape of 'x_coords' array: {x_coords.shape}")
-        print(f"Shape of 'y_coords' array: {y_coords.shape}")
-        print(f"Shape of 'z_coords' array: {z_coords.shape}")
+        logging.info(f"Shape of 'timeseries' array: {timeseries_data.shape}")
+        logging.info(f"Data type of 'timeseries' array: {timeseries_data.dtype}")
+        logging.info(f"Content of 'labels' array: {labels}")
+        logging.info(f"Shape of 'x_coords' array: {x_coords.shape}")
+        logging.info(f"Shape of 'y_coords' array: {y_coords.shape}")
+        logging.info(f"Shape of 'z_coords' array: {z_coords.shape}")
 
-        print("\nSample data (t=0, x=0, y=0, z=0):")
-        print(timeseries_data[0, 0, 0, 0, :])
-        
-        print("\n--- Verifying Boundary Conditions ---")
+        logging.info("Verifying boundary conditions...")
         all_boundaries_ok = True
         num_timesteps = timeseries_data.shape[0]
 
@@ -296,17 +297,17 @@ def verify_output(output_file: Path):
                 for t in range(1, num_timesteps):
                     current_step_slice = timeseries_data[t, :, :, z_boundary_idx, :]
                     if not np.allclose(first_step_slice, current_step_slice):
-                        print(f"FAILURE: Z-boundary at index {z_boundary_idx} is NOT constant across timesteps.")
+                        logging.error(f"FAILURE: Z-boundary at index {z_boundary_idx} is NOT constant across timesteps.")
                         all_boundaries_ok = False
                         break
                 if not all_boundaries_ok: break
 
             if all_boundaries_ok:
-                print("SUCCESS: Z boundaries are constant across all timesteps.")
+                logging.info("SUCCESS: Z boundaries are constant across all timesteps.")
         else:
-            print("SKIPPED: Boundary verification requires more than one timestep.")
+            logging.warning("SKIPPED: Boundary verification requires more than one timestep.")
 
-    print("--- Verification Complete ---")
+    logging.info("Verification complete.")
 
 
 def main():
@@ -318,44 +319,35 @@ def main():
         formatter_class=argparse.ArgumentDefaultsHelpFormatter
     )
 
-    # --- Dimension Arguments ---
     dim_group = parser.add_argument_group('Dimension Source (provide one method)')
     dim_group.add_argument('--meta-file-path', type=Path, default=None, help="Full path to the runParameters.txt metadata file.")
     dim_group.add_argument('--nx', type=int, default=None, help="Number of grid POINTS (not spaces) on the x-axis.")
     dim_group.add_argument('--ny', type=int, default=None, help="Number of grid POINTS (not spaces) on the y-axis.")
     dim_group.add_argument('--nz', type=int, default=None, help="Number of grid POINTS (not spaces) on the z-axis.")
 
-    # --- I/O Arguments ---
     parser.add_argument('--input-dir', type=Path, default=Path("./output/timeseries_data/"), help="Directory containing the input timeseries files.")
     parser.add_argument('--output-file', type=Path, default=Path("./output/subsampled_timeseries.npz"), help="Path for the final compressed .npz output file.")
     parser.add_argument('--file-prefix', type=str, default="patt3d_vx3d_", help="The common prefix for the timeseries files.")
-
-    # --- Mock Data Arguments ---
     parser.add_argument('--generate-mock-data', action='store_true', help="If set, generate a local test dataset before running.")
-
-    # --- Channel Arguments ---
     parser.add_argument('--source-channel-labels', type=str, nargs='+', default=['vx', 'vy', 'vz', 'T'], help="Space-separated list of ALL channel labels in the source data order.")
     parser.add_argument('--channel-indices-to-keep', type=int, nargs='+', default=[0, 1, 2, 3], help="Space-separated list of channel indices to keep in the final output.")
-
-    # --- Timeseries Arguments ---
     parser.add_argument('--time-start', type=int, default=0, help="Starting time index to process.")
     parser.add_argument('--time-end', type=int, default=4, help="Ending time index to process (exclusive).")
-
-    # --- Subsampling Arguments ---
     parser.add_argument('--num-x-samples', type=int, default=32, help="Number of evenly spaced points to select along the x-axis.")
     parser.add_argument('--y-indices-to-keep', type=int, nargs='+', default=[3, 10, 17], help="Space-separated list of specific y-indices to keep.")
     parser.add_argument('--num-workers', type=int, default=1, help="Number of parallel worker processes to use. Set to -1 to use all available cores.")
 
     args = parser.parse_args()
 
-    # --- Execution Logic ---
+    setup_logging()
+
     num_workers = args.num_workers
     if num_workers == -1:
         num_workers = multiprocessing.cpu_count()
-        print(f"Using all available cores: {num_workers}")
+        logging.info(f"Using all available cores: {num_workers}")
 
     if args.generate_mock_data:
-        print("GENERATE_MOCK_DATA is True. Generating mock data for testing.")
+        logging.info("GENERATE_MOCK_DATA is True. Generating mock data for testing.")
         mock_nx, mock_ny, mock_nz = 2301, 481, 121
         generate_mock_data(
             args.input_dir,
@@ -368,12 +360,10 @@ def main():
             source_labels=args.source_channel_labels,
         )
 
-    # --- Determine Grid Dimensions ---
     if args.nx is not None and args.ny is not None and args.nz is not None:
-        print(f"Using provided dimensions: Nx={args.nx}, Ny={args.ny}, Nz={args.nz}")
+        logging.info(f"Using provided dimensions: Nx={args.nx}, Ny={args.ny}, Nz={args.nz}")
         Nx, Ny, Nz = args.nx, args.ny, args.nz
     elif args.meta_file_path is not None:
-        print(f"Reading dimensions from meta file: {args.meta_file_path}")
         Nx, Ny, Nz = get_parameters_from_run_file(args.meta_file_path)
     else:
         parser.error("You must provide either --meta-file-path or all three of --nx, --ny, and --nz.")
@@ -382,7 +372,7 @@ def main():
     num_input_channels = len(args.source_channel_labels)
     num_output_channels = len(args.channel_indices_to_keep)
     
-    print(f"Channels selected for output: {final_channel_labels}")
+    logging.info(f"Channels selected for output: {final_channel_labels}")
 
     process_and_subsample(
         input_dir=args.input_dir,
