@@ -214,11 +214,9 @@ def process_and_subsample(
     temp_filename = output_file.with_suffix(output_file.suffix + ".tmp")
     
     print(f"Creating memory-mapped file at '{temp_filename}' with shape {final_shape} and dtype {output_dtype}")
-    # Create the file on disk but don't hold it open in the main process
     fp = np.memmap(temp_filename, dtype=output_dtype, mode='w+', shape=final_shape)
-    del fp # Close the file handle, the file remains on disk
+    del fp
 
-    # --- Parallel Processing ---
     worker_func = partial(
         process_single_file,
         input_dir=input_dir, prefix=prefix, nx=nx, ny=ny, nz=nz,
@@ -229,11 +227,9 @@ def process_and_subsample(
     )
 
     with multiprocessing.Pool(processes=num_workers, initializer=init_worker, initargs=(temp_filename, final_shape, output_dtype)) as pool:
-        # Use imap_unordered for efficiency, wrapped in tqdm for progress bar
         list(tqdm(pool.imap_unordered(worker_func, enumerate(time_indices)), total=len(time_indices), desc="Processing files"))
 
     print(f"\nPackaging final data into {output_file}...")
-    # Re-open the now-populated memory-mapped file for saving
     final_timeseries = np.memmap(temp_filename, dtype=output_dtype, mode='r', shape=final_shape)
     np.savez_compressed(
         output_file,
@@ -322,15 +318,30 @@ def main():
         formatter_class=argparse.ArgumentDefaultsHelpFormatter
     )
 
+    # --- Dimension Arguments ---
+    dim_group = parser.add_argument_group('Dimension Source (provide one method)')
+    dim_group.add_argument('--meta-file-path', type=Path, default=None, help="Full path to the runParameters.txt metadata file.")
+    dim_group.add_argument('--nx', type=int, default=None, help="Number of grid POINTS (not spaces) on the x-axis.")
+    dim_group.add_argument('--ny', type=int, default=None, help="Number of grid POINTS (not spaces) on the y-axis.")
+    dim_group.add_argument('--nz', type=int, default=None, help="Number of grid POINTS (not spaces) on the z-axis.")
+
+    # --- I/O Arguments ---
     parser.add_argument('--input-dir', type=Path, default=Path("./output/timeseries_data/"), help="Directory containing the input timeseries files.")
     parser.add_argument('--output-file', type=Path, default=Path("./output/subsampled_timeseries.npz"), help="Path for the final compressed .npz output file.")
-    parser.add_argument('--meta-file-path', type=Path, default=Path("./output/timeseries_data/runParameters.txt"), help="Full path to the runParameters.txt metadata file.")
     parser.add_argument('--file-prefix', type=str, default="patt3d_vx3d_", help="The common prefix for the timeseries files.")
+
+    # --- Mock Data Arguments ---
     parser.add_argument('--generate-mock-data', action='store_true', help="If set, generate a local test dataset before running.")
+
+    # --- Channel Arguments ---
     parser.add_argument('--source-channel-labels', type=str, nargs='+', default=['vx', 'vy', 'vz', 'T'], help="Space-separated list of ALL channel labels in the source data order.")
     parser.add_argument('--channel-indices-to-keep', type=int, nargs='+', default=[0, 1, 2, 3], help="Space-separated list of channel indices to keep in the final output.")
+
+    # --- Timeseries Arguments ---
     parser.add_argument('--time-start', type=int, default=0, help="Starting time index to process.")
     parser.add_argument('--time-end', type=int, default=4, help="Ending time index to process (exclusive).")
+
+    # --- Subsampling Arguments ---
     parser.add_argument('--num-x-samples', type=int, default=32, help="Number of evenly spaced points to select along the x-axis.")
     parser.add_argument('--y-indices-to-keep', type=int, nargs='+', default=[3, 10, 17], help="Space-separated list of specific y-indices to keep.")
     parser.add_argument('--num-workers', type=int, default=1, help="Number of parallel worker processes to use. Set to -1 to use all available cores.")
@@ -357,7 +368,15 @@ def main():
             source_labels=args.source_channel_labels,
         )
 
-    Nx, Ny, Nz = get_parameters_from_run_file(args.meta_file_path)
+    # --- Determine Grid Dimensions ---
+    if args.nx is not None and args.ny is not None and args.nz is not None:
+        print(f"Using provided dimensions: Nx={args.nx}, Ny={args.ny}, Nz={args.nz}")
+        Nx, Ny, Nz = args.nx, args.ny, args.nz
+    elif args.meta_file_path is not None:
+        print(f"Reading dimensions from meta file: {args.meta_file_path}")
+        Nx, Ny, Nz = get_parameters_from_run_file(args.meta_file_path)
+    else:
+        parser.error("You must provide either --meta-file-path or all three of --nx, --ny, and --nz.")
 
     final_channel_labels = [args.source_channel_labels[i] for i in args.channel_indices_to_keep]
     num_input_channels = len(args.source_channel_labels)
