@@ -1,18 +1,13 @@
 #!/bin/bash
 
 #==============================================================================
-# SLURM Directives
+# SLURM Directives for a Full Run on the TEST Partition
 #==============================================================================
-# This section contains the directives for the SLURM scheduler.
-# The '#' at the beginning is for comments, but '#SBATCH' is a special
-# directive that SLURM reads.
 
 # -- Job Name --
-# Specifies a name for your job. This is the name you'll see in the queue.
-#SBATCH --job-name=mhd_preprocess_medium_test
+#SBATCH --job-name=mhd_preprocess_prod_test
 
 # -- Output and Error Files --
-# Specifies where to save the standard output and error of your job.
 # The logs will be placed in a local 'output' directory.
 # %x is the job name, %j is the job ID.
 #SBATCH --output=./output/%x-%j.out
@@ -24,61 +19,48 @@
 #SBATCH --mail-user=michael.skowronek@tu-dortmund.de
 
 # -- Wall Clock Time --
-# Specifies the maximum time your job is allowed to run.
-# 30 minutes should be sufficient for this test.
+# The 'test' partition has a 30-minute maximum.
 #SBATCH --time=00:30:00
 
-# -- Resource Allocation for a Large, Memory-Bound Job --
-# This requests 18 CPU cores on a single node. We request more memory than
-# the default per-core to accommodate the large files.
+# -- Resource Allocation (Optimized for Test Partition) --
+# Requesting 14 CPU cores, the optimal number for an 80GB memory footprint.
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
-#SBATCH --cpus-per-task=16
+#SBATCH --cpus-per-task=14
 
 # -- Memory Request --
-# Requesting 90GB, which is a safe amount for 18 workers processing ~4GB files.
-#SBATCH --mem=75GB
+# Requesting 80GB, the empirically determined maximum for this job on the test partition.
+#SBATCH --mem=80G
 
 # -- Project Account --
-# Specifies which project account to charge the compute time to.
 #SBATCH --account=pn67la
 
 # -- Partition / Queue --
-# The 'micro' partition is appropriate for single-node, multi-core jobs.
-# The 'general' partition likely has a multi-node minimum requirement.
+# Using the 'test' partition for a fast production run.
 #SBATCH --partition=test
 
 # -- Job Environment --
-# This ensures the job starts with a clean, predictable environment.
+# Ensures the job starts with a clean, predictable environment.
 #SBATCH --export=NONE
 #SBATCH --get-user-env
 
 # -- Job Re-queue Policy --
-# This prevents the job from being automatically re-queued if the node fails.
+# Prevents the job from being automatically re-queued if the node fails.
 #SBATCH --no-requeue
 
 #==============================================================================
 # Job Execution
 #==============================================================================
-# This section contains the commands that will be executed on the compute node.
 
 echo "Job started on $(hostname) at $(date)"
 echo "SLURM assigned me ${SLURM_CPUS_PER_TASK} CPUs on ${SLURM_NODELIST}."
 
 # --- 1. Set up the Environment ---
 
-# -- Initialize Module System --
 source /etc/profile.d/modules.sh
-
-# -- Energy Aware Runtime (EAR) Environment Variable --
 export SLURM_EAR_LOAD_MPI_VERSION="intel"
-
-# -- Load Python Module --
 module load python/3.8.11-extended
-
-# -- Activate Virtual Environment (venv) --
 source $WORK/venvs/subsampling/bin/activate
-
 
 # --- 2. Run the Application ---
 cd $SLURM_SUBMIT_DIR
@@ -87,22 +69,21 @@ cd $SLURM_SUBMIT_DIR
 INPUT_DATA_DIR="/hppfs/work/pn67la/di97yic/01-Cold_Runs/01-Re16K_Ha325/"
 OUTPUT_FILE="/hppfs/work/pn67la/di97hev/output/01-Cold_Runs/01-Re16K_Ha325.npz"
 
-# --- Medium Test Run ---
-# Execute the Python script on 72 timesteps.
-# The number of workers is set to the number of CPUs allocated by SLURM.
-echo "Running Python script for a 72-timestep test..."
+# --- Production Run ---
+# Execute the Python script on all 575 timesteps.
+# The number of workers is set to the number of CPUs allocated by SLURM (14).
+echo "Running Python script for all 575 timesteps..."
 python preprocess_dns_output.py \
     --nx 2301 --ny 481 --nz 121 \
     --input-dir ${INPUT_DATA_DIR} \
     --output-file ${OUTPUT_FILE} \
     --time-start 0 \
-    --time-end 200 \
-    --num-workers 14 \
+    --time-end 575 \
+    --num-workers ${SLURM_CPUS_PER_TASK} \
     --source-channel-labels vx vy vz T \
     --channel-indices-to-keep 0 1 2 \
     --num-x-samples 24 \
     --y-indices-to-keep 10 55 80
-
 
 echo "Job finished at $(date)"
 
