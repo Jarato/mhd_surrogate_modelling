@@ -26,7 +26,7 @@
 # Requesting 14 CPU cores, the optimal number for an 80GB memory footprint.
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
-#SBATCH --cpus-per-task=14
+#SBATCH --cpus-per-task=13
 
 # -- Memory Request --
 # Requesting 80GB, the empirically determined maximum for this job on the test partition.
@@ -82,8 +82,8 @@ python preprocess_dns_output.py \
     --num-workers ${SLURM_CPUS_PER_TASK} \
     --source-channel-labels vx vy vz T \
     --channel-indices-to-keep 0 1 2 \
-    --num-x-samples 24 \
-    --y-indices-to-keep 10 55 80
+    --num-x-samples 32 \
+    --y-indices-to-keep 3 240 477
 
 echo "Job finished at $(date)"
 
