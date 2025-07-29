@@ -345,3 +345,64 @@ def plot_reconstruction_error_over_time(error_path: Path | str):
     fig.suptitle('Per-Channel Reconstruction Error', fontsize=20, y=0.99)
     plt.tight_layout(rect=[0, 0.03, 1, 0.96])
     plt.show()
+
+
+def plot_z_time_evolution(
+    data_path: Path | str,
+    channel: str,
+    x_index: int,
+    y_index: int,
+):
+    """
+    Loads a subsampled .npz file and plots the time evolution of a channel
+    along the z-axis for a specific (x, y) location.
+
+    Args:
+        data_path (Path | str): Path to the subsampled .npz file.
+        channel (str): The name of the channel to plot (e.g., 'vx').
+        x_index (int): The integer index for the x-dimension.
+        y_index (int): The integer index for the y-dimension.
+    """
+    data_path = Path(data_path)
+    if not data_path.exists():
+        logging.error(f"Data file not found at: {data_path}")
+        return
+
+    with np.load(data_path, allow_pickle=True) as data:
+        timeseries_data = data['timeseries']
+        labels = list(data['labels'])
+        x_coords = data['x_coords']
+        y_coords = data['y_coords']
+        z_coords = data['z_coords']
+
+    try:
+        channel_idx = labels.index(channel)
+    except ValueError:
+        logging.error(f"Channel '{channel}' not found. Available channels: {labels}")
+        return
+
+    # Select the data slice: shape will be (time, z)
+    data_slice = timeseries_data[:, x_index, y_index, :, channel_idx]
+
+    # --- Plotting ---
+    plt.style.use('seaborn-v0_8-whitegrid')
+    fig, ax = plt.subplots(figsize=(10, 6))
+
+    # Use pcolormesh for a good representation of the data grid
+    im = ax.pcolormesh(
+        range(data_slice.shape[0]),
+        z_coords,
+        data_slice.T, # Transpose to have time on x-axis, z on y-axis
+        shading='gouraud',
+        cmap='viridis',
+    )
+
+    fig.colorbar(im, ax=ax, label=f"Value of {channel}")
+    ax.set_title(
+        f"Time Evolution of '{channel}' along Z-axis\n"
+        f"at x={x_coords[x_index]:.2f} (idx={x_index}), y={y_coords[y_index]:.2f} (idx={y_index})"
+    )
+    ax.set_xlabel("Time Index")
+    ax.set_ylabel("Z Coordinate")
+    plt.tight_layout()
+    plt.show()
