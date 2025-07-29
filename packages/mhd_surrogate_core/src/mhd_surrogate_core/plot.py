@@ -356,12 +356,6 @@ def plot_z_time_evolution(
     """
     Loads a subsampled .npz file and plots the time evolution of a channel
     along the z-axis for a specific (x, y) location.
-
-    Args:
-        data_path (Path | str): Path to the subsampled .npz file.
-        channel (str): The name of the channel to plot (e.g., 'vx').
-        x_index (int): The integer index for the x-dimension.
-        y_index (int): The integer index for the y-dimension.
     """
     data_path = Path(data_path)
     if not data_path.exists():
@@ -388,7 +382,6 @@ def plot_z_time_evolution(
     plt.style.use('seaborn-v0_8-whitegrid')
     fig, ax = plt.subplots(figsize=(10, 6))
 
-    # Use pcolormesh for a good representation of the data grid
     im = ax.pcolormesh(
         range(data_slice.shape[0]),
         z_coords,
@@ -403,6 +396,66 @@ def plot_z_time_evolution(
         f"at x={x_coords[x_index]:.2f} (idx={x_index}), y={y_coords[y_index]:.2f} (idx={y_index})"
     )
     ax.set_xlabel("Time Index")
+    ax.set_ylabel("Z Coordinate")
+    plt.tight_layout()
+    plt.show()
+
+
+def plot_xz_slice(
+    data_path: Path | str,
+    channel: str,
+    y_index: int,
+    time_index: int,
+):
+    """
+    Loads a subsampled .npz file and plots a 2D slice in the x-z plane
+    for a specific channel, y-index, and time.
+
+    Args:
+        data_path (Path | str): Path to the subsampled .npz file.
+        channel (str): The name of the channel to plot (e.g., 'vx').
+        y_index (int): The integer index for the y-dimension.
+        time_index (int): The integer index for the time dimension.
+    """
+    data_path = Path(data_path)
+    if not data_path.exists():
+        logging.error(f"Data file not found at: {data_path}")
+        return
+
+    with np.load(data_path, allow_pickle=True) as data:
+        timeseries_data = data['timeseries']
+        labels = list(data['labels'])
+        x_coords = data['x_coords']
+        y_coords = data['y_coords']
+        z_coords = data['z_coords']
+
+    try:
+        channel_idx = labels.index(channel)
+    except ValueError:
+        logging.error(f"Channel '{channel}' not found. Available channels: {labels}")
+        return
+
+    # Select the data slice: shape will be (x, z)
+    data_slice = timeseries_data[time_index, :, y_index, :, channel_idx]
+
+    # --- Plotting ---
+    plt.style.use('seaborn-v0_8-whitegrid')
+    fig, ax = plt.subplots(figsize=(10, 6))
+
+    im = ax.pcolormesh(
+        x_coords,
+        z_coords,
+        data_slice.T, # Transpose to have x on x-axis, z on y-axis
+        shading='gouraud',
+        cmap='viridis',
+    )
+
+    fig.colorbar(im, ax=ax, label=f"Value of {channel}")
+    ax.set_title(
+        f"X-Z Slice of '{channel}'\n"
+        f"at time index {time_index}, y={y_coords[y_index]:.2f} (idx={y_index})"
+    )
+    ax.set_xlabel("X Coordinate")
     ax.set_ylabel("Z Coordinate")
     plt.tight_layout()
     plt.show()
