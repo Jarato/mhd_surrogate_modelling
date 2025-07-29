@@ -1,5 +1,7 @@
 # **3D Timeseries Data Subsampling Script**
 
+# !!OUTDATED!!
+
 This Python script is designed to preprocess and subsample large 3D timeseries datasets generated from Fortran-based simulations. It reads a series of binary files, performs spatial and channel-wise subsampling, and packages the result into a single, compressed NumPy (.npz) archive, ready for machine learning or analysis workflows.
 
 The script is optimized for very large datasets (terabyte-scale) by using memory-mapped files to keep RAM usage low and constant. It also supports parallel processing to significantly speed up execution on multi-core machines.
