@@ -193,7 +193,6 @@ def process_and_subsample(
     x_coords_sub = x_coords_full[x_subsample_indices].astype(output_dtype)
     y_coords_sub = y_coords_full[y_indices].astype(output_dtype)
     
-    # --- Handle Z-coordinates based on interpolation flag ---
     if interpolate_z:
         logging.info(f"Z-axis interpolation enabled. Creating uniform grid with {num_z_samples} points.")
         z_coords_final = np.linspace(z_coords_full.min(), z_coords_full.max(), num_z_samples).astype(output_dtype)
@@ -309,7 +308,7 @@ def main():
     Main function to parse arguments and run the subsampling process.
     """
     parser = argparse.ArgumentParser(
-        description="Subsample 3D timeseries data and optionally interpolate the Z-axis.",
+        description="Subsample 3D timeseries data from Fortran-style binary files.",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter
     )
 
@@ -346,6 +345,10 @@ def main():
     args = parser.parse_args()
 
     setup_logging()
+
+    # --- Input Validation ---
+    if args.time_start >= args.time_end:
+        parser.error(f"--time-start ({args.time_start}) must be less than --time-end ({args.time_end}).")
 
     num_workers = args.num_workers
     if num_workers == -1:
