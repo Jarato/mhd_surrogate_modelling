@@ -8,6 +8,7 @@ from functools import partial
 import logging
 import sys
 from typing import List, Tuple
+from scipy.interpolate import make_interp_spline
 
 # --- Global variable for the memory-mapped array ---
 # This will be inherited by each worker process
@@ -63,7 +64,8 @@ def generate_mock_data(
         with open(filename, 'wb') as f:
             x_coords = np.linspace(0, 1, nx_points, dtype=np.float64)
             y_coords = np.linspace(0, 1, ny_points, dtype=np.float64)
-            z_coords = np.linspace(0, 1, nz_points, dtype=np.float64)
+            # Create a non-uniform z-grid for a better interpolation test case
+            z_coords = np.geomspace(1, 10, nz_points, dtype=np.float64) - 1
             x_coords.tofile(f)
             y_coords.tofile(f)
             z_coords.tofile(f)
@@ -99,7 +101,9 @@ def process_single_file(
     num_input_channels: int, itemsize: int, coord_offset_count: int,
     input_dtype: np.dtype, output_dtype: np.dtype,
     channel_indices_to_keep: List[int], y_indices: List[int], x_subsample_indices: np.ndarray,
-    total_expected_bytes: int
+    total_expected_bytes: int,
+    z_coords_full: np.ndarray,
+    new_z_coords: np.ndarray,
 ) -> None:
     """
     Worker function that processes a single timestep file.
@@ -119,25 +123,25 @@ def process_single_file(
         channel_data_1d = np.fromfile(f, dtype=input_dtype, offset=offset_bytes)
 
     try:
-        # 1. Reshape to the physical layout on disk: (z, channel, y, x)
         data_4d_physical = channel_data_1d.reshape((nz, num_input_channels, ny, nx))
-        
-        # 2. Transpose to a convenient logical layout: (channel, z, y, x)
         data_4d_logical = data_4d_physical.transpose(1, 0, 2, 3)
-        
-        # 3. Select only the desired channels
         selected_channels_data = data_4d_logical[channel_indices_to_keep, :, :, :]
+        subsampled_spatial_data = selected_channels_data[:, :, y_indices, :][:, :, :, x_subsample_indices]
 
-        # 4. Subsample the spatial dimensions (Y and X) in chained operations
-        subsampled_timestep = selected_channels_data[:, :, y_indices, :][:, :, :, x_subsample_indices]
-        
-        # 5. Perform a final transpose to get the C-style order: (x, y, z, channel)
-        #    Current axes: (channel:0, z:1, y_sub:2, x_sub:3)
-        #    Target axes:  (x_sub:3, y_sub:2, z:1, channel:0)
-        transposed_timestep = subsampled_timestep.transpose(3, 2, 1, 0)
+        # --- Z-Interpolation Step ---
+        if new_z_coords is not None:
+            # The data to be interpolated has shape (channels, z, y, x)
+            # We need to interpolate along the z-axis (axis=1)
+            spline = make_interp_spline(z_coords_full, subsampled_spatial_data, k=1, axis=1)
+            interpolated_data = spline(new_z_coords)
+        else:
+            interpolated_data = subsampled_spatial_data
+
+        # Final transpose to get C-style order: (x, y, z, channel)
+        transposed_timestep = interpolated_data.transpose(3, 2, 1, 0)
 
     except ValueError as e:
-        tqdm.write(f"ERROR: Failed to reshape data for {filename}. Check dimensions and source channel list.")
+        tqdm.write(f"ERROR: Failed to reshape or process data for {filename}. Check dimensions and source channel list.")
         raise e
     
     memmap_array[i] = transposed_timestep.astype(output_dtype)
@@ -158,6 +162,8 @@ def process_and_subsample(
     num_output_channels: int,
     final_channel_labels: List[str],
     num_workers: int,
+    interpolate_z: bool,
+    num_z_samples: int,
 ) -> None:
     """
     The core function to read, subsample, and save the data in parallel.
@@ -177,7 +183,7 @@ def process_and_subsample(
     total_expected_bytes = expected_coord_bytes + expected_channel_bytes
     logging.info(f"Calculated expected file size per timestep: {format_bytes(total_expected_bytes)}")
 
-    logging.info("Reading and subsampling coordinates...")
+    logging.info("Reading coordinates from first file...")
     first_file_path = input_dir / f"{prefix}{time_indices[0]:06d}"
     with open(first_file_path, 'rb') as f:
         x_coords_full = np.fromfile(f, dtype=input_dtype, count=nx)
@@ -186,11 +192,20 @@ def process_and_subsample(
 
     x_coords_sub = x_coords_full[x_subsample_indices].astype(output_dtype)
     y_coords_sub = y_coords_full[y_indices].astype(output_dtype)
-    z_coords_sub = z_coords_full.astype(output_dtype)
-
-    logging.info(f"Subsampled coordinate shapes: x={x_coords_sub.shape}, y={y_coords_sub.shape}, z={z_coords_sub.shape}")
     
-    final_shape = (len(time_indices), num_x_samples, len(y_indices), nz, num_output_channels)
+    # --- Handle Z-coordinates based on interpolation flag ---
+    if interpolate_z:
+        logging.info(f"Z-axis interpolation enabled. Creating uniform grid with {num_z_samples} points.")
+        z_coords_final = np.linspace(z_coords_full.min(), z_coords_full.max(), num_z_samples).astype(output_dtype)
+        final_nz = num_z_samples
+    else:
+        logging.info("Z-axis interpolation disabled. Using original Z-grid.")
+        z_coords_final = z_coords_full.astype(output_dtype)
+        final_nz = nz
+
+    logging.info(f"Final coordinate shapes: x={x_coords_sub.shape}, y={y_coords_sub.shape}, z={z_coords_final.shape}")
+    
+    final_shape = (len(time_indices), num_x_samples, len(y_indices), final_nz, num_output_channels)
     
     temp_filename = output_file.with_suffix(output_file.suffix + ".tmp")
     
@@ -204,7 +219,9 @@ def process_and_subsample(
         num_input_channels=num_input_channels, itemsize=itemsize, coord_offset_count=coord_offset_count,
         input_dtype=input_dtype, output_dtype=output_dtype,
         channel_indices_to_keep=channel_indices_to_keep, y_indices=y_indices, x_subsample_indices=x_subsample_indices,
-        total_expected_bytes=total_expected_bytes
+        total_expected_bytes=total_expected_bytes,
+        z_coords_full=z_coords_full,
+        new_z_coords=z_coords_final if interpolate_z else None,
     )
 
     with multiprocessing.Pool(processes=num_workers, initializer=init_worker, initargs=(temp_filename, final_shape, output_dtype)) as pool:
@@ -218,7 +235,7 @@ def process_and_subsample(
         labels=np.array(final_channel_labels),
         x_coords=x_coords_sub,
         y_coords=y_coords_sub,
-        z_coords=z_coords_sub,
+        z_coords=z_coords_final,
     )
     
     del final_timeseries
@@ -292,7 +309,7 @@ def main():
     Main function to parse arguments and run the subsampling process.
     """
     parser = argparse.ArgumentParser(
-        description="Subsample 3D timeseries data from Fortran-style binary files.",
+        description="Subsample 3D timeseries data and optionally interpolate the Z-axis.",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter
     )
 
@@ -321,6 +338,10 @@ def main():
     parser.add_argument('--num-x-samples', type=int, default=32, help="Number of evenly spaced points to select along the x-axis.")
     parser.add_argument('--y-indices-to-keep', type=int, nargs='+', default=[3, 10, 17], help="Space-separated list of specific y-indices to keep.")
     parser.add_argument('--num-workers', type=int, default=1, help="Number of parallel worker processes to use. Set to -1 to use all available cores.")
+    
+    # --- Interpolation Arguments ---
+    parser.add_argument('--interpolate-z', action='store_true', help="If set, interpolate the Z-axis to a uniform grid.")
+    parser.add_argument('--num-z-samples', type=int, default=128, help="Number of points for the new uniform Z-grid (used only if --interpolate-z is set).")
 
     args = parser.parse_args()
 
@@ -367,6 +388,8 @@ def main():
         num_output_channels=num_output_channels,
         final_channel_labels=final_channel_labels,
         num_workers=num_workers,
+        interpolate_z=args.interpolate_z,
+        num_z_samples=args.num_z_samples,
     )
 
     verify_output(args.output_file)
