@@ -36,36 +36,8 @@ def format_bytes(size_bytes: int) -> str:
     return f"{s} {size_name[i]}"
 
 
-def get_parameters_from_run_file(meta_filepath: Path) -> Tuple[int, int, int]:
-    """
-    Reads the runParameters.txt file to extract grid dimensions.
-
-    Returns:
-        A tuple containing (nx, ny, nz) as the number of points on each axis.
-    """
-    logging.info(f"Reading parameters from '{meta_filepath}'...")
-    params = {}
-    try:
-        with open(meta_filepath, 'r') as f:
-            for line in f:
-                match_dim = re.match(r'^\s*(nX|nY|nZ)\s*:\s*(\d+)', line)
-                if match_dim:
-                    key, value = match_dim.groups()
-                    params[key] = int(value) + 1
-    except FileNotFoundError:
-        logging.error(f"Metadata file not found at '{meta_filepath}'")
-        raise
-
-    if 'nX' not in params or 'nY' not in params or 'nZ' not in params:
-        raise ValueError("Could not find nX, nY, or nZ in the metadata file.")
-
-    logging.info(f"Dimensions found (points): Nx={params['nX']}, Ny={params['nY']}, Nz={params['nZ']}")
-    return params['nX'], params['nY'], params['nZ']
-
-
 def generate_mock_data(
     dir_path: Path,
-    meta_filepath: Path,
     prefix: str,
     time_indices: range,
     nx_points: int,
@@ -85,11 +57,6 @@ def generate_mock_data(
 
     logging.info(f"Generating mock data in '{dir_path}' with channels: {source_labels}")
     dir_path.mkdir(parents=True, exist_ok=True)
-
-    with open(meta_filepath, 'w') as f:
-        f.write(f"nX: {nx_points - 1}\n")
-        f.write(f"nY: {ny_points - 1}\n")
-        f.write(f"nZ: {nz_points - 1}\n")
 
     for t in tqdm(time_indices, desc="Generating mock files"):
         filename = dir_path / f"{prefix}{t:06d}"
@@ -329,20 +296,28 @@ def main():
         formatter_class=argparse.ArgumentDefaultsHelpFormatter
     )
 
-    dim_group = parser.add_argument_group('Dimension Source (provide one method)')
-    dim_group.add_argument('--meta-file-path', type=Path, default=None, help="Full path to the runParameters.txt metadata file.")
-    dim_group.add_argument('--nx', type=int, default=None, help="Number of grid POINTS (not spaces) on the x-axis.")
-    dim_group.add_argument('--ny', type=int, default=None, help="Number of grid POINTS (not spaces) on the y-axis.")
-    dim_group.add_argument('--nz', type=int, default=None, help="Number of grid POINTS (not spaces) on the z-axis.")
+    # --- Dimension Arguments ---
+    parser.add_argument('--nx', type=int, required=True, help="Number of grid POINTS (not spaces) on the x-axis.")
+    parser.add_argument('--ny', type=int, required=True, help="Number of grid POINTS (not spaces) on the y-axis.")
+    parser.add_argument('--nz', type=int, required=True, help="Number of grid POINTS (not spaces) on the z-axis.")
 
+    # --- I/O Arguments ---
     parser.add_argument('--input-dir', type=Path, default=Path("./output/timeseries_data/"), help="Directory containing the input timeseries files.")
     parser.add_argument('--output-file', type=Path, default=Path("./output/subsampled_timeseries.npz"), help="Path for the final compressed .npz output file.")
     parser.add_argument('--file-prefix', type=str, default="patt3d_vx3d_", help="The common prefix for the timeseries files.")
+
+    # --- Mock Data Arguments ---
     parser.add_argument('--generate-mock-data', action='store_true', help="If set, generate a local test dataset before running.")
+
+    # --- Channel Arguments ---
     parser.add_argument('--source-channel-labels', type=str, nargs='+', default=['vx', 'vy', 'vz', 'T'], help="Space-separated list of ALL channel labels in the source data order.")
     parser.add_argument('--channel-indices-to-keep', type=int, nargs='+', default=[0, 1, 2, 3], help="Space-separated list of channel indices to keep in the final output.")
+
+    # --- Timeseries Arguments ---
     parser.add_argument('--time-start', type=int, default=0, help="Starting time index to process.")
     parser.add_argument('--time-end', type=int, default=4, help="Ending time index to process (exclusive).")
+
+    # --- Subsampling Arguments ---
     parser.add_argument('--num-x-samples', type=int, default=32, help="Number of evenly spaced points to select along the x-axis.")
     parser.add_argument('--y-indices-to-keep', type=int, nargs='+', default=[3, 10, 17], help="Space-separated list of specific y-indices to keep.")
     parser.add_argument('--num-workers', type=int, default=1, help="Number of parallel worker processes to use. Set to -1 to use all available cores.")
@@ -358,25 +333,18 @@ def main():
 
     if args.generate_mock_data:
         logging.info("GENERATE_MOCK_DATA is True. Generating mock data for testing.")
-        mock_nx, mock_ny, mock_nz = 2301, 481, 121
         generate_mock_data(
             args.input_dir,
-            args.meta_file_path,
             args.file_prefix,
             range(args.time_start, args.time_end),
-            mock_nx,
-            mock_ny,
-            mock_nz,
+            args.nx,
+            args.ny,
+            args.nz,
             source_labels=args.source_channel_labels,
         )
 
-    if args.nx is not None and args.ny is not None and args.nz is not None:
-        logging.info(f"Using provided dimensions: Nx={args.nx}, Ny={args.ny}, Nz={args.nz}")
-        Nx, Ny, Nz = args.nx, args.ny, args.nz
-    elif args.meta_file_path is not None:
-        Nx, Ny, Nz = get_parameters_from_run_file(args.meta_file_path)
-    else:
-        parser.error("You must provide either --meta-file-path or all three of --nx, --ny, and --nz.")
+    Nx, Ny, Nz = args.nx, args.ny, args.nz
+    logging.info(f"Using provided dimensions: Nx={Nx}, Ny={Ny}, Nz={Nz}")
 
     final_channel_labels = [args.source_channel_labels[i] for i in args.channel_indices_to_keep]
     num_input_channels = len(args.source_channel_labels)
