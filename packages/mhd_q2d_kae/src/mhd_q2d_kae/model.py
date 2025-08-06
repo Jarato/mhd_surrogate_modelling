@@ -71,6 +71,7 @@ class DecoderQ2D(nn.Module):
         y_dim: int,
         encoder_flattened_size: int,
         conv_output_shape: tuple[int, ...],
+        target_spatial_dims: tuple[int, int, int],
     ):
         super().__init__()
         self.latent_dim = latent_dim
@@ -78,6 +79,7 @@ class DecoderQ2D(nn.Module):
         self.y_dim = y_dim
         self.encoder_flattened_size = encoder_flattened_size
         self.conv_output_shape = conv_output_shape
+        self.target_spatial_dims = target_spatial_dims
 
         self.fc_network = nn.Linear(self.latent_dim, self.encoder_flattened_size)
 
@@ -104,6 +106,10 @@ class DecoderQ2D(nn.Module):
         B, _, X, Z = x.shape
         x = x.view(B, self.out_channels, self.y_dim, X, Z)
         x = x.permute(0, 1, 3, 2, 4)
+        
+        # Crop the output to the target size internally.
+        s_x, s_y, s_z = self.target_spatial_dims
+        x = x[:, :, :s_x, :s_y, :s_z]
         
         return x
 
@@ -141,6 +147,7 @@ class KoopmanAutoencoderQ2D(nn.Module):
             y_dim=y_dim,
             encoder_flattened_size=flattened_size,
             conv_output_shape=conv_output_shape,
+            target_spatial_dims=input_spatial_dims,
         )
 
         self.koopman_operator = nn.Linear(latent_dim, latent_dim, bias=False)
@@ -164,12 +171,6 @@ class KoopmanAutoencoderQ2D(nn.Module):
         z_t_plus_1_predicted = self.koopman_step(z_t)
         x_t_reconstructed = self.decode(z_t)
         x_t_plus_1_predicted = self.decode(z_t_plus_1_predicted)
-
-        # Crop the output to match the input size if necessary.
-        if x_t_reconstructed.shape != x_t.shape:
-            s_x, s_y, s_z = x_t.shape[2:]
-            x_t_reconstructed = x_t_reconstructed[:, :, :s_x, :s_y, :s_z]
-            x_t_plus_1_predicted = x_t_plus_1_predicted[:, :, :s_x, :s_y, :s_z]
 
         return OrderedDict(
             [
