@@ -9,10 +9,11 @@ def analyze_coordinates(
     nx: int,
     ny: int,
     nz: int,
+    ha: float = None,
 ):
     """
     Reads coordinate data from a single snapshot file and prints statistics,
-    including an analysis of the grid spacing.
+    including an analysis of the grid spacing and Hartmann layer.
     """
     if not snapshot_file.exists():
         print(f"ERROR: Snapshot file not found at '{snapshot_file}'")
@@ -64,6 +65,39 @@ def analyze_coordinates(
     print(f"  Std. Deviation:   {np.std(y_coords):.4f}")
     print_spacing_stats("Y-Axis", y_coords)
 
+    # --- Hartmann Layer Analysis (only if Ha is provided) ---
+    if ha is not None and len(y_coords) > 2:
+        print(f"  --- Hartmann Layer Analysis (Ha = {ha}) ---")
+        h = y_coords.max() - y_coords.min()
+        layer_thickness = h / ha
+        print(f"  System height (H):           {h:.4f}")
+        print(f"  Calculated layer thickness:  {layer_thickness:.6f}")
+
+        # Lower boundary
+        lower_layer_edge = y_coords.min() + layer_thickness
+        first_idx_outside_lower = np.searchsorted(y_coords, lower_layer_edge, side='right')
+        
+        print("\n  Lower Boundary (y=0):")
+        print(f"    First index outside layer: {first_idx_outside_lower}")
+        if first_idx_outside_lower > 0 and first_idx_outside_lower < len(y_coords):
+            transition_spacing = y_coords[first_idx_outside_lower] - y_coords[first_idx_outside_lower - 1]
+            print(f"    Spacing at transition:     {transition_spacing:.6f}")
+        outermost_spacing_lower = y_coords[1] - y_coords[0]
+        print(f"    Outermost spacing:         {outermost_spacing_lower:.6f}")
+
+        # Upper boundary
+        upper_layer_edge = y_coords.max() - layer_thickness
+        first_idx_inside_upper = np.searchsorted(y_coords, upper_layer_edge, side='left')
+        
+        print("\n  Upper Boundary (y=H):")
+        print(f"    First index outside layer: {first_idx_inside_upper}")
+        if first_idx_inside_upper > 0 and first_idx_inside_upper < len(y_coords):
+            transition_spacing = y_coords[first_idx_inside_upper] - y_coords[first_idx_inside_upper - 1]
+            print(f"    Spacing at transition:     {transition_spacing:.6f}")
+        outermost_spacing_upper = y_coords[-1] - y_coords[-2]
+        print(f"    Outermost spacing:         {outermost_spacing_upper:.6f}")
+
+
     print("\n--- Z-Axis Coordinate Statistics ---")
     print(f"  Number of points: {len(z_coords)}")
     print(f"  Min value:        {np.min(z_coords):.4f}")
@@ -85,10 +119,13 @@ def main():
     )
 
     # --- Required Arguments ---
-    parser.add_argument('snapshot_file', type=Path, help="Path to the single raw binary snapshot file to analyze.")
+    parser.add_argument('--snapshot-file', type=Path, required=True, help="Path to the single raw binary snapshot file to analyze.")
     parser.add_argument('--nx', type=int, required=True, help="Number of grid POINTS (not spaces) on the x-axis.")
     parser.add_argument('--ny', type=int, required=True, help="Number of grid POINTS (not spaces) on the y-axis.")
     parser.add_argument('--nz', type=int, required=True, help="Number of grid POINTS (not spaces) on the z-axis.")
+    
+    # --- Optional Arguments ---
+    parser.add_argument('--ha', type=float, default=None, help="Hartmann number (Ha) for layer analysis.")
 
     args = parser.parse_args()
 
@@ -99,6 +136,7 @@ def main():
         args.nx,
         args.ny,
         args.nz,
+        args.ha,
     )
 
 
