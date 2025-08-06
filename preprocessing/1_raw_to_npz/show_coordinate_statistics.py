@@ -87,12 +87,14 @@ def analyze_coordinates(
 
         # Upper boundary
         upper_layer_edge = y_coords.max() - layer_thickness
-        first_idx_inside_upper = np.searchsorted(y_coords, upper_layer_edge, side='left')
+        # Find the first index inside the layer, then subtract 1 to get the last index outside.
+        first_idx_outside_upper = np.searchsorted(y_coords, upper_layer_edge, side='left') - 1
         
         print("\n  Upper Boundary (y=H):")
-        print(f"    First index outside layer: {first_idx_inside_upper}")
-        if first_idx_inside_upper > 0 and first_idx_inside_upper < len(y_coords):
-            transition_spacing = y_coords[first_idx_inside_upper] - y_coords[first_idx_inside_upper - 1]
+        print(f"    First index outside layer: {first_idx_outside_upper}")
+        # The transition spacing is between this point and the *next* one (the first inside the layer)
+        if first_idx_outside_upper >= 0 and first_idx_outside_upper < len(y_coords) - 1:
+            transition_spacing = y_coords[first_idx_outside_upper + 1] - y_coords[first_idx_outside_upper]
             print(f"    Spacing at transition:     {transition_spacing:.6f}")
         outermost_spacing_upper = y_coords[-1] - y_coords[-2]
         print(f"    Outermost spacing:         {outermost_spacing_upper:.6f}")
