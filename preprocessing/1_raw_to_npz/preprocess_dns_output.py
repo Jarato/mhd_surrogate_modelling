@@ -155,7 +155,7 @@ def process_and_subsample(
     nx: int,
     ny: int,
     nz: int,
-    num_x_samples: int,
+    x_stride: int,
     y_indices: List[int],
     channel_indices_to_keep: List[int],
     num_input_channels: int,
@@ -170,7 +170,8 @@ def process_and_subsample(
     """
     logging.info("Starting subsampling process (Parallel, Memory-Safe, float32 output)...")
     
-    x_subsample_indices = np.linspace(0, nx - 1, num_x_samples, dtype=int)
+    x_subsample_indices = np.arange(0, nx, x_stride)
+    num_x_samples = len(x_subsample_indices)
     
     input_dtype = np.float64
     output_dtype = np.float32
@@ -334,7 +335,7 @@ def main():
     parser.add_argument('--time-end', type=int, default=4, help="Ending time index to process (exclusive).")
 
     # --- Subsampling Arguments ---
-    parser.add_argument('--num-x-samples', type=int, default=32, help="Number of evenly spaced points to select along the x-axis.")
+    parser.add_argument('--x-stride', type=int, default=1, help="Step size for subsampling the x-axis. 1 keeps all points, 2 keeps every second point, etc.")
     parser.add_argument('--y-indices-to-keep', type=int, nargs='+', default=[3, 10, 17], help="Space-separated list of specific y-indices to keep.")
     parser.add_argument('--num-workers', type=int, default=1, help="Number of parallel worker processes to use. Set to -1 to use all available cores.")
     
@@ -384,7 +385,7 @@ def main():
         nx=Nx,
         ny=Ny,
         nz=Nz,
-        num_x_samples=args.num_x_samples,
+        x_stride=args.x_stride,
         y_indices=args.y_indices_to_keep,
         channel_indices_to_keep=args.channel_indices_to_keep,
         num_input_channels=num_input_channels,
