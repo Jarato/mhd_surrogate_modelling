@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# experiments/study_1_param_sweep/train_kae.py
+# experiments/study_2_q2d_model/train.py
 
 import argparse
 import logging
@@ -15,7 +15,8 @@ from torch.utils.data import Subset
 from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
 
-from mhd_canonical_kae.model import KoopmanAutoencoder
+# --- Import the new Q2D model ---
+from mhd_q2d_kae.model import KoopmanAutoencoderQ2D
 from mhd_surrogate_core.data import MHDDataset
 
 logging.basicConfig(
@@ -25,7 +26,7 @@ logging.basicConfig(
 
 def parse_args():
     """Parse command-line arguments."""
-    parser = argparse.ArgumentParser(description="Train a Koopman Autoencoder.")
+    parser = argparse.ArgumentParser(description="Train a Quasi-2D Koopman Autoencoder.")
     # --- Data and I/O Arguments ---
     parser.add_argument("--data-path",type=str,required=True,help="Path to the pre-split train_val_set.npz.",)
     parser.add_argument("--norm-stats-path",type=str,required=True,help="Path to the normalization_stats.npz file.",)
@@ -85,20 +86,15 @@ def main():
     output_dir = Path(args.output_dir); output_dir.mkdir(parents=True, exist_ok=True)
     writer = SummaryWriter(log_dir=output_dir / "logs")
 
-    # --- THE FIX IS HERE (Part 1: Initialize tracking variables) ---
     start_epoch = 0
-    patience_counter = 0
-    # Track best overall total loss and its epoch
     best_val_loss = float("inf")
+    patience_counter = 0
     best_epoch = 0
-    # Track component losses from the best epoch
     losses_at_best_epoch = {}
-    # Track the independent best for each component loss
     best_component_losses = {
         "recon": float("inf"), "pred": float("inf"),
         "lin": float("inf"), "eig": float("inf"),
     }
-
     channels_used = args.channels
 
     if args.resume_from_checkpoint:
@@ -112,7 +108,7 @@ def main():
         train_indices, val_indices = checkpoint["train_indices"], checkpoint["val_indices"]
         train_dataset, val_dataset = Subset(full_dataset, train_indices), Subset(full_dataset, val_indices)
         
-        model = KoopmanAutoencoder(**model_config).to(device)
+        model = KoopmanAutoencoderQ2D(**model_config).to(device)
         model.load_state_dict(checkpoint["model_state_dict"])
         
         optimizer = Adam(model.parameters(), lr=args.lr)
@@ -134,7 +130,8 @@ def main():
         
         sample_x, _ = full_dataset[0]
         model_config = {"in_channels": sample_x.shape[-1], "latent_dim": args.latent_dim, "input_spatial_dims": sample_x.shape[:-1]}
-        model = KoopmanAutoencoder(**model_config).to(device)
+        
+        model = KoopmanAutoencoderQ2D(**model_config).to(device)
         optimizer = Adam(model.parameters(), lr=args.lr)
         scheduler = ReduceLROnPlateau(optimizer, 'min', factor=args.lr_factor, patience=args.lr_patience)
 
@@ -170,16 +167,12 @@ def main():
         for key in ["recon", "pred", "lin", "eig"]: writer.add_scalars(f"Loss_Components/{key}", {'train': avg_train_losses[key],'val': avg_val_losses[key]}, epoch)
         writer.add_scalar("Learning_Rate", optimizer.param_groups[0]['lr'], epoch)
 
-        # --- THE FIX IS HERE (Part 2: Update tracking logic) ---
-        # Track independent best component losses
         for key in best_component_losses:
             best_component_losses[key] = min(best_component_losses[key], avg_val_losses[key])
 
         if avg_val_losses["total"] < best_val_loss:
-            best_val_loss = avg_val_losses["total"]
-            patience_counter = 0
-            best_epoch = epoch + 1
-            losses_at_best_epoch = avg_val_losses # Store all component losses
+            best_val_loss, patience_counter, best_epoch = avg_val_losses["total"], 0, epoch + 1
+            losses_at_best_epoch = avg_val_losses
             best_model_path = output_dir / "best_model.pth"
             torch.save({'config': model_config, 'model_state_dict': model.state_dict(), 'channels_used': channels_used}, best_model_path)
             logging.info(f"New best model saved to {best_model_path} (Val Loss: {best_val_loss:.4f})")
@@ -191,7 +184,6 @@ def main():
         torch.save({"epoch": epoch, "config": model_config, "model_state_dict": model.state_dict(), "optimizer_state_dict": optimizer.state_dict(), "scheduler_state_dict": scheduler.state_dict(), "best_val_loss": best_val_loss, "patience_counter": patience_counter, "best_epoch": best_epoch, "train_indices": train_dataset.indices, "val_indices": val_dataset.indices, "channels_used": channels_used, "losses_at_best_epoch": losses_at_best_epoch, "best_component_losses": best_component_losses}, latest_checkpoint_path)
         if patience_counter >= args.patience: logging.info("Early stopping triggered."); break
 
-    # --- THE FIX IS HERE (Part 3: Update HParams logging) ---
     hparams = vars(args)
     hparams['channels'] = ",".join(channels_used) if channels_used is not None else "all"
     hparams.update({k: str(v) for k, v in hparams.items() if isinstance(v, Path) or k.endswith('_path')})
