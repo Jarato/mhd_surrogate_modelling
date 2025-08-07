@@ -356,6 +356,12 @@ def plot_z_time_evolution(
     """
     Loads a subsampled .npz file and plots the time evolution of a channel
     along the z-axis for a specific (x, y) location.
+
+    Args:
+        data_path (Path | str): Path to the subsampled .npz file.
+        channel (str): The name of the channel to plot (e.g., 'vx').
+        x_index (int): The integer index for the x-dimension.
+        y_index (int): The integer index for the y-dimension.
     """
     data_path = Path(data_path)
     if not data_path.exists():
@@ -382,6 +388,7 @@ def plot_z_time_evolution(
     plt.style.use('seaborn-v0_8-whitegrid')
     fig, ax = plt.subplots(figsize=(10, 6))
 
+    # Use pcolormesh for a good representation of the data grid
     im = ax.pcolormesh(
         range(data_slice.shape[0]),
         z_coords,
