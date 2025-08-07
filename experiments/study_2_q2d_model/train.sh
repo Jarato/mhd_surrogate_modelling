@@ -6,7 +6,7 @@
 
 # --- Configuration ---
 # This script should be run from the experiment directory, e.g.:
-# cd experiments/study_1_param_sweep
+# cd experiments/study_2_q2d_model
 # ./train.sh
 # For logging use:
 # ./train.sh 2>&1 | tee output/log.txt
@@ -16,12 +16,11 @@ DATA_PATH="/raid/skowronek/preprocessed_dns_output/01-Cold_Runs/01-Re16K_Ha325/i
 NORM_STATS_PATH="/raid/skowronek/preprocessed_dns_output/01-Cold_Runs/01-Re16K_Ha325/interp/prep2/normalization_stats.npz"
 
 # --- Hyperparameters to Sweep ---
-# To run a single test, just leave one value in each array.
 LEARNING_RATES=(1e-4)
-LATENT_DIMS=(1024)
+LATENT_DIMS=(2048)
 W_RECONS=(1.0)
 W_PREDS=(1.0)
-W_LINS=(10.0)
+W_LINS=(1.0 0.1 0.01)
 W_EIGS=(0.1)
 
 
@@ -39,6 +38,15 @@ for we in "${W_EIGS[@]}"; do
     BASE_OUTPUT_DIR="output"
     OUTPUT_DIR="${BASE_OUTPUT_DIR}/${RUN_NAME}"
     
+    # --- THE FIX IS HERE ---
+    # Check if the output directory for this run already exists.
+    if [ -d "${OUTPUT_DIR}" ]; then
+        echo "--------------------------------------------------"
+        echo "SKIPPING: Output directory already exists for run ${RUN_NAME}"
+        echo "--------------------------------------------------"
+        continue # Skip to the next iteration of the loop
+    fi
+    
     echo "--------------------------------------------------"
     echo "RUNNING: LR=${lr}, LD=${ld}, W_Recon=${wr}, W_Pred=${wp}, W_Lin=${wl}, W_Eig=${we}"
     echo "Outputting to: ${OUTPUT_DIR}"
@@ -54,19 +62,19 @@ for we in "${W_EIGS[@]}"; do
       --w-pred "${wp}" \
       --w-lin "${wl}" \
       --w-eig "${we}" \
-      --epochs 3 \
+      --epochs 128 \
       --patience 20 \
       --lr-patience 8 \
       --clip-grad-value 25.0 \
       --batch-size 226 \
       --lr-factor 0.1
-      
+
     if [ $? -ne 0 ]; then
       echo "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
       echo "ERROR: Training failed for run ${RUN_NAME}"
       echo "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
     fi
-    
+
 done
 done
 done
