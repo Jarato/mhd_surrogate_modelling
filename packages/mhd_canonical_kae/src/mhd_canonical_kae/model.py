@@ -119,7 +119,14 @@ class KoopmanAutoencoder(nn.Module):
         in_channels: int,
         latent_dim: int,
         input_spatial_dims: tuple[int, int, int],
+        **kwargs, # <-- THE FIX IS HERE
     ):
+        """
+        Initializes the model.
+        **kwargs is used to accept and ignore extra config parameters
+        like 'channels_used' that are not needed for model construction
+        but are useful for checkpointing.
+        """
         super().__init__()
         self.encoder = Encoder(in_channels, latent_dim)
         
