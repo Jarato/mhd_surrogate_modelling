@@ -9,13 +9,14 @@
 # cd experiments/study_1_param_sweep
 # ./run_sweep.sh
 # For logging use:
-# ./run_sweep.sh 2>&1 | tee <BASE_OUTPUT_DIR>/sweep_log.txt
+# ./run_sweep.sh 2>&1 | tee output/sweep_log.txt
 
 TRAIN_SCRIPT="train.py"
 DATA_PATH="/raid/skowronek/preprocessed_dns_output/01-Cold_Runs/01-Re16K_Ha325/interp/prep2/train_val_set.npz"
 NORM_STATS_PATH="/raid/skowronek/preprocessed_dns_output/01-Cold_Runs/01-Re16K_Ha325/interp/prep2/normalization_stats.npz"
 
 # --- Hyperparameters to Sweep ---
+# To run a single test, just leave one value in each array.
 LEARNING_RATES=(1e-4)
 LATENT_DIMS=(128 256)
 W_RECONS=(1.0)
