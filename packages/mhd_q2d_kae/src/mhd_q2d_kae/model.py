@@ -9,8 +9,7 @@ import torch.nn as nn
 
 class EncoderQ2D(nn.Module):
     """
-    A Quasi-2D CNN Encoder. It treats the Y-dimension as part of the channel
-    information and performs 2D convolutions on the X-Z plane.
+    A Quasi-2D CNN Encoder with a progressive linear bottleneck.
     """
 
     def __init__(
@@ -24,11 +23,8 @@ class EncoderQ2D(nn.Module):
         self.in_channels = in_channels
         self.y_dim = y_dim
 
-        # The effective number of channels for the 2D convolution
         effective_channels = self.in_channels * self.y_dim
 
-        # --- THE FIX IS HERE ---
-        # A more gradual and standard channel progression
         self.conv_network = nn.Sequential(
             nn.Conv2d(effective_channels, 32, kernel_size=3, stride=2, padding=1),
             nn.GELU(),
@@ -46,19 +42,15 @@ class EncoderQ2D(nn.Module):
         
         self.fc_network = nn.Sequential(
             nn.Flatten(),
-            # The Linear layer will be added dynamically.
+            # The Linear layers will be added dynamically.
         )
 
     def forward(
         self,
         x: torch.Tensor,
     ) -> torch.Tensor:
-        # Input shape: (B, C, X, Y, Z)
         B, C, X, Y, Z = x.shape
-        
-        # Reshape to (B, C*Y, X, Z) for 2D convolution
         x = x.permute(0, 1, 3, 2, 4).reshape(B, C * Y, X, Z)
-        
         x = self.conv_network(x)
         x = self.fc_network(x)
         return x
@@ -66,7 +58,7 @@ class EncoderQ2D(nn.Module):
 
 class DecoderQ2D(nn.Module):
     """
-    A Quasi-2D CNN Decoder, symmetric to the Encoder.
+    A Quasi-2D CNN Decoder with a progressive linear bottleneck.
     """
 
     def __init__(
@@ -86,7 +78,12 @@ class DecoderQ2D(nn.Module):
         self.conv_output_shape = conv_output_shape
         self.target_spatial_dims = target_spatial_dims
 
-        self.fc_network = nn.Linear(self.latent_dim, self.encoder_flattened_size)
+        # --- THE FIX IS HERE (Part 2: Symmetric progressive expansion) ---
+        self.fc_network = nn.Sequential(
+            nn.Linear(self.latent_dim, 4096),
+            nn.GELU(),
+            nn.Linear(4096, self.encoder_flattened_size),
+        )
 
         self.conv_transpose_network = nn.Sequential(
             nn.ConvTranspose2d(256, 128, kernel_size=3, stride=2, padding=1, output_padding=1),
@@ -110,12 +107,10 @@ class DecoderQ2D(nn.Module):
         x = x.view(-1, *self.conv_output_shape)
         x = self.conv_transpose_network(x)
         
-        # Reshape back to 5D tensor: (B, C*Y, X, Z) -> (B, C, Y, X, Z) -> (B, C, X, Y, Z)
         B, _, X, Z = x.shape
         x = x.view(B, self.out_channels, self.y_dim, X, Z)
         x = x.permute(0, 1, 3, 2, 4)
         
-        # Crop the output to the target size internally.
         s_x, s_y, s_z = self.target_spatial_dims
         x = x[:, :, :s_x, :s_y, :s_z]
         
@@ -146,7 +141,16 @@ class KoopmanAutoencoderQ2D(nn.Module):
             
             conv_output = self.encoder.conv_network(dummy_reshaped)
             flattened_size = conv_output.flatten(1).shape[1]
-            self.encoder.fc_network.add_module("1", nn.Linear(flattened_size, latent_dim))
+            
+            # --- THE FIX IS HERE (Part 1: Progressive linear compression) ---
+            self.encoder.fc_network.add_module(
+                "1", nn.Linear(flattened_size, 4096)
+            )
+            self.encoder.fc_network.add_module("2", nn.GELU())
+            self.encoder.fc_network.add_module(
+                "3", nn.Linear(4096, latent_dim)
+            )
+
             conv_output_shape = conv_output.shape[1:]
 
         self.decoder = DecoderQ2D(
