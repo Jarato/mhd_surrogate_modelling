@@ -1,16 +1,16 @@
-# pyproject.toml for the mhd_canonical_kae package
+# pyproject.toml for the mhd_q2d_kae package
 
 [build-system]
 requires = ["setuptools>=59.6.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "mhd_canonical_kae"
+name = "mhd_q2d_kae"
 version = "0.1.0"
 authors = [
   { name="Michael Skowronek", email="michael.skowronek.91@gmail.com" },
 ]
-description = "A Canonical Koopman Autoencoder (KAE) model for MHD surrogate modeling."
+description = "A Quasi-2D Koopman Autoencoder (KAE) model for MHD surrogate modeling."
 readme = "README.md"
 requires-python = ">=3.10"
 classifiers = [
@@ -21,27 +21,20 @@ classifiers = [
     "Topic :: Scientific/Engineering",
 ]
 
-# === Core Dependencies ===
-# These are packages that are absolutely required AND are not expected
-# to be pre-installed with a specific version.
+# The only required dependency is our own core package.
 dependencies = [
-    # We declare that this model package depends on our core package.
-    # Pip will find it because we will install both in editable mode.
-    "mhd_surrogate_core",
+    "mhd_surrogate_core", 
 ]
 
-
-# === Optional Dependencies ===
-# This is the key to solving your problem.
-# Packages listed here are NOT installed by default with `pip install .`.
-# This allows you to use the pre-installed, optimized versions on the cluster.
+# Optional dependencies document what is needed without forcing installation.
 [project.optional-dependencies]
 torch = [
     "torch",
+    "torchvision",
 ]
 dev = [
-    "numpy",
+    "numpy", # For cases where it's only a dev dependency
 ]
 
 [project.urls]
-"Homepage" = "https://github.com/MichaelSkowronek/mhd_surrogate_modelling"
+"Homepage" = "https://github.com/MichaelSkowronek/mhd_surogate_modelling"
