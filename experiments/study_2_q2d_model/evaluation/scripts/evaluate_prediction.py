@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# experiments/study_1_param_sweep/evaluate_prediction.py
+# experiments/study_2_q2d_model/evaluate_prediction.py
 
 import argparse
 import logging
@@ -10,12 +10,13 @@ import torch
 import torch.nn as nn
 from tqdm import tqdm
 
-from mhd_canonical_kae.model import KoopmanAutoencoder
+# --- THE FIX IS HERE (Part 1: Import the correct model) ---
+from mhd_q2d_kae.model import KoopmanAutoencoderQ2D
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="Evaluate a trained Koopman Autoencoder's prediction performance.")
+    parser = argparse.ArgumentParser(description="Evaluate a trained Q2D Koopman Autoencoder's prediction performance.")
     parser.add_argument("--model-path", type=str, required=True, help="Path to the saved model checkpoint (.pth file).")
     parser.add_argument("--test-data-path", type=str, required=True, help="Path to the contiguous test_set.npz file.")
     parser.add_argument("--norm-stats-path", type=str, required=True, help="Path to the normalization_stats.npz file.")
@@ -41,7 +42,8 @@ def main():
     channels_used = checkpoint.get('channels_used')
     
     logging.info(f"Re-creating model with saved config: {model_config}")
-    model = KoopmanAutoencoder(**model_config).to(device)
+    # --- THE FIX IS HERE (Part 2: Instantiate the correct model) ---
+    model = KoopmanAutoencoderQ2D(**model_config).to(device)
     model.load_state_dict(checkpoint['model_state_dict'])
     model.eval()
 
@@ -77,6 +79,7 @@ def main():
     loss_fn = nn.MSELoss(reduction='none')
     
     initial_state_original = test_tensor_cpu[0].unsqueeze(0)
+    # The permutation must match what the Q2D model expects: (B, C, X, Y, Z)
     current_state_norm = normalize(initial_state_original).permute(0, 4, 1, 2, 3)
 
     logging.info(f"Starting autoregressive rollout for {num_timesteps - 1} steps...")
@@ -86,6 +89,7 @@ def main():
             z_t = model.koopman_step(z_t)
             predicted_state_norm = model.decode(z_t)
             
+            # Permute back to (B, X, Y, Z, C) for denormalization and comparison
             predicted_state_denorm = denormalize(predicted_state_norm.permute(0, 2, 3, 4, 1))
             
             ground_truth_state = test_tensor_cpu[t+1].unsqueeze(0).to(device)
