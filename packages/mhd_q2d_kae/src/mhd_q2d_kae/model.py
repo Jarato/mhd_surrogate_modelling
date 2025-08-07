@@ -27,8 +27,13 @@ class EncoderQ2D(nn.Module):
         # The effective number of channels for the 2D convolution
         effective_channels = self.in_channels * self.y_dim
 
+        # --- THE FIX IS HERE ---
+        # A more gradual and standard channel progression
         self.conv_network = nn.Sequential(
-            nn.Conv2d(effective_channels, 64, kernel_size=3, stride=2, padding=1),
+            nn.Conv2d(effective_channels, 32, kernel_size=3, stride=2, padding=1),
+            nn.GELU(),
+            nn.BatchNorm2d(32),
+            nn.Conv2d(32, 64, kernel_size=3, stride=2, padding=1),
             nn.GELU(),
             nn.BatchNorm2d(64),
             nn.Conv2d(64, 128, kernel_size=3, stride=2, padding=1),
@@ -90,7 +95,10 @@ class DecoderQ2D(nn.Module):
             nn.ConvTranspose2d(128, 64, kernel_size=3, stride=2, padding=1, output_padding=1),
             nn.GELU(),
             nn.BatchNorm2d(64),
-            nn.ConvTranspose2d(64, self.out_channels * self.y_dim, kernel_size=3, stride=2, padding=1, output_padding=1),
+            nn.ConvTranspose2d(64, 32, kernel_size=3, stride=2, padding=1, output_padding=1),
+            nn.GELU(),
+            nn.BatchNorm2d(32),
+            nn.ConvTranspose2d(32, self.out_channels * self.y_dim, kernel_size=3, stride=2, padding=1, output_padding=1),
             nn.Tanh(),
         )
 
