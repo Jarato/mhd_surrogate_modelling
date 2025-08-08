@@ -134,7 +134,7 @@ def main():
             "in_channels": sample_x.shape[-1],
             "latent_dim": args.latent_dim,
             "input_spatial_dims": sample_x.shape[:-1],
-            "bottleneck_dim": args.bottleneck_dim, # <-- ADD NEW ARG
+            "bottleneck_dim": args.bottleneck_dim,
         }
         
         model = KoopmanAutoencoderQ2D(**model_config).to(device)
@@ -190,8 +190,16 @@ def main():
         torch.save({"epoch": epoch, "config": model_config, "model_state_dict": model.state_dict(), "optimizer_state_dict": optimizer.state_dict(), "scheduler_state_dict": scheduler.state_dict(), "best_val_loss": best_val_loss, "patience_counter": patience_counter, "best_epoch": best_epoch, "train_indices": train_dataset.indices, "val_indices": val_dataset.indices, "channels_used": channels_used, "losses_at_best_epoch": losses_at_best_epoch, "best_component_losses": best_component_losses}, latest_checkpoint_path)
         if patience_counter >= args.patience: logging.info("Early stopping triggered."); break
 
-    hparams = vars(args)
-    hparams['channels'] = ",".join(channels_used) if channels_used is not None else "all"
+    # --- THE FIX IS HERE ---
+    # Create the hparams dict from the definitive run parameters, not just args
+    hparams = {
+        **{k: v for k, v in vars(args).items() if k not in ['latent_dim', 'bottleneck_dim', 'channels']},
+        'latent_dim': model_config['latent_dim'],
+        'bottleneck_dim': model_config.get('bottleneck_dim', 4096), # Use default if not in config
+        'channels': ",".join(channels_used) if channels_used is not None else "all",
+    }
+
+    # Clean up path objects for logging
     hparams.update({k: str(v) for k, v in hparams.items() if isinstance(v, Path) or k.endswith('_path')})
     if hparams.get('resume_from_checkpoint'): hparams['resume_from_checkpoint'] = str(hparams['resume_from_checkpoint'])
     
