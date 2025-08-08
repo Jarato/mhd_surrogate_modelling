@@ -21,19 +21,19 @@ BASE_OUTPUT_DIR = Path("output")
 
 # --- Hyperparameter Grid ---
 # Define the parameter space for the grid search.
-# To test coupled parameters, we define them as a list of tuples.
 param_grid = {
     'lr': [1e-4],
-    'latent_dim_bottleneck_dim': [
-        (4096, 16384),
-        (8192, 32768),
-        # (16384, 65536),
+    # Coupled parameters are defined as a list of tuples.
+    # Each tuple is a complete set of (latent_dim, bottleneck_dim, batch_size).
+    'model_params': [
+        (1024, 4096, 226),
+        (2048, 8192, 226),
+        (4096, 16384, 226),
     ],
     'w_recon': [1.0],
     'w_pred': [1.0],
-    'w_lin': [10000],
+    'w_lin': [1.0, 10.0, 100.0],
     'w_eig': [0.1],
-    'batch_size': [226],
 }
 
 # --- Fixed Training Arguments ---
@@ -59,13 +59,21 @@ def main():
     for v in itertools.product(*values):
         config = dict(zip(keys, v))
         # Unpack the coupled parameters
-        config['latent_dim'], config['bottleneck_dim'] = config.pop('latent_dim_bottleneck_dim')
+        config['latent_dim'], config['bottleneck_dim'], config['batch_size'] = config.pop('model_params')
         run_configs.append(config)
 
     logging.info(f"Generated {len(run_configs)} unique hyperparameter configurations.")
 
     for i, config in enumerate(run_configs):
-        run_name_parts = [f"{key.split('_')[0]}{value}" for key, value in config.items()]
+        # Create a run name that includes all key swept parameters
+        run_name_parts = [
+            f"ld{config['latent_dim']}",
+            f"bd{config['bottleneck_dim']}",
+            f"wr{config['w_recon']}",
+            f"wp{config['w_pred']}",
+            f"wl{config['w_lin']}",
+            f"we{config['w_eig']}",
+        ]
         run_name = "_".join(run_name_parts)
         
         output_dir = BASE_OUTPUT_DIR / run_name
