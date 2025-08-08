@@ -1,0 +1,108 @@
+# -*- coding: utf-8 -*-
+# experiments/study_2_q2d_model/run_sweep.py
+
+import subprocess
+import itertools
+from pathlib import Path
+import logging
+
+# --- Configuration ---
+# This script should be run from the experiment directory, e.g.:
+# cd experiments/study_2_q2d_model
+# python run_sweep.py
+# For logging use:
+# python run_sweep.py | tee output/sweep_log.txt
+
+# --- Script and Data Paths ---
+TRAIN_SCRIPT = "train.py"
+DATA_PATH = "/raid/skowronek/preprocessed_dns_output/01-Cold_Runs/01-Re16K_Ha325/interp/prep2/train_val_set.npz"
+NORM_STATS_PATH = "/raid/skowronek/preprocessed_dns_output/01-Cold_Runs/01-Re16K_Ha325/interp/prep2/normalization_stats.npz"
+BASE_OUTPUT_DIR = Path("output")
+
+# --- Hyperparameter Grid ---
+# Define the parameter space for the grid search.
+# To test coupled parameters, we define them as a list of tuples.
+param_grid = {
+    'lr': [1e-4],
+    'latent_dim_bottleneck_dim': [
+        (4096, 16384),
+        (8192, 32768),
+        # (16384, 65536),
+    ],
+    'w_recon': [1.0],
+    'w_pred': [1.0],
+    'w_lin': [10000],
+    'w_eig': [0.1],
+    'batch_size': [226],
+}
+
+# --- Fixed Training Arguments ---
+# These arguments will be the same for all runs.
+fixed_args = {
+    "epochs": 128,
+    "patience": 20,
+    "lr_patience": 8,
+    "clip_grad_value": 0.2,
+    "lr_factor": 0.1,
+}
+
+
+def main():
+    """Main function to run the hyperparameter sweep."""
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
+    logging.info("Starting hyperparameter sweep...")
+
+    # Create a list of all hyperparameter combinations
+    keys, values = zip(*param_grid.items())
+    
+    run_configs = []
+    for v in itertools.product(*values):
+        config = dict(zip(keys, v))
+        # Unpack the coupled parameters
+        config['latent_dim'], config['bottleneck_dim'] = config.pop('latent_dim_bottleneck_dim')
+        run_configs.append(config)
+
+    logging.info(f"Generated {len(run_configs)} unique hyperparameter configurations.")
+
+    for i, config in enumerate(run_configs):
+        run_name_parts = [f"{key.split('_')[0]}{value}" for key, value in config.items()]
+        run_name = "_".join(run_name_parts)
+        
+        output_dir = BASE_OUTPUT_DIR / run_name
+
+        if output_dir.exists():
+            logging.info(f"--- SKIPPING Run {i+1}/{len(run_configs)}: {run_name} (directory exists) ---")
+            continue
+
+        logging.info(f"--- STARTING Run {i+1}/{len(run_configs)}: {run_name} ---")
+        
+        # Construct the command line arguments
+        cmd = [
+            "python",
+            TRAIN_SCRIPT,
+            "--data-path", DATA_PATH,
+            "--norm-stats-path", NORM_STATS_PATH,
+            "--output-dir", str(output_dir),
+        ]
+
+        # Add hyperparameters from the config
+        for key, value in config.items():
+            cmd.append(f"--{key}")
+            cmd.append(str(value))
+            
+        # Add fixed arguments
+        for key, value in fixed_args.items():
+            cmd.append(f"--{key}")
+            cmd.append(str(value))
+
+        # Execute the training script
+        try:
+            subprocess.run(cmd, check=True)
+        except subprocess.CalledProcessError as e:
+            logging.error(f"!!!!!! Run {run_name} failed with exit code {e.returncode} !!!!!!")
+
+    logging.info("Hyperparameter sweep finished.")
+
+
+if __name__ == "__main__":
+    main()
