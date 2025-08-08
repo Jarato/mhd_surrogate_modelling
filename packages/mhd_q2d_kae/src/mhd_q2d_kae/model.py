@@ -64,6 +64,7 @@ class DecoderQ2D(nn.Module):
     def __init__(
         self,
         latent_dim: int,
+        bottleneck_dim: int, # <-- NEW
         out_channels: int,
         y_dim: int,
         encoder_flattened_size: int,
@@ -78,11 +79,10 @@ class DecoderQ2D(nn.Module):
         self.conv_output_shape = conv_output_shape
         self.target_spatial_dims = target_spatial_dims
 
-        # --- THE FIX IS HERE (Part 2: Symmetric progressive expansion) ---
         self.fc_network = nn.Sequential(
-            nn.Linear(self.latent_dim, 4096),
+            nn.Linear(self.latent_dim, bottleneck_dim), # <-- Use new arg
             nn.GELU(),
-            nn.Linear(4096, self.encoder_flattened_size),
+            nn.Linear(bottleneck_dim, self.encoder_flattened_size), # <-- Use new arg
         )
 
         self.conv_transpose_network = nn.Sequential(
@@ -127,6 +127,7 @@ class KoopmanAutoencoderQ2D(nn.Module):
         in_channels: int,
         latent_dim: int,
         input_spatial_dims: tuple[int, int, int],
+        bottleneck_dim: int = 4096, # <-- NEW with default
         **kwargs,
     ):
         super().__init__()
@@ -142,19 +143,19 @@ class KoopmanAutoencoderQ2D(nn.Module):
             conv_output = self.encoder.conv_network(dummy_reshaped)
             flattened_size = conv_output.flatten(1).shape[1]
             
-            # --- THE FIX IS HERE (Part 1: Progressive linear compression) ---
             self.encoder.fc_network.add_module(
-                "1", nn.Linear(flattened_size, 4096)
+                "1", nn.Linear(flattened_size, bottleneck_dim) # <-- Use new arg
             )
             self.encoder.fc_network.add_module("2", nn.GELU())
             self.encoder.fc_network.add_module(
-                "3", nn.Linear(4096, latent_dim)
+                "3", nn.Linear(bottleneck_dim, latent_dim) # <-- Use new arg
             )
 
             conv_output_shape = conv_output.shape[1:]
 
         self.decoder = DecoderQ2D(
             latent_dim=latent_dim,
+            bottleneck_dim=bottleneck_dim, # <-- Pass to decoder
             out_channels=in_channels,
             y_dim=y_dim,
             encoder_flattened_size=flattened_size,
