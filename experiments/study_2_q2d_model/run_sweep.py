@@ -95,12 +95,14 @@ def main():
 
         # Add hyperparameters from the config
         for key, value in config.items():
-            cmd.append(f"--{key}")
+            # --- THE FIX IS HERE ---
+            # Convert python_style variable names to command-line-style arguments
+            cmd.append(f"--{key.replace('_', '-')}")
             cmd.append(str(value))
             
         # Add fixed arguments
         for key, value in fixed_args.items():
-            cmd.append(f"--{key}")
+            cmd.append(f"--{key.replace('_', '-')}")
             cmd.append(str(value))
 
         # Execute the training script
