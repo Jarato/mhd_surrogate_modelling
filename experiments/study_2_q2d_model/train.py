@@ -46,6 +46,7 @@ def parse_args():
 
     # --- Model and Loss Arguments ---
     parser.add_argument("--latent-dim", type=int, default=128, help="Dimension of the latent space.")
+    parser.add_argument("--bottleneck-dim", type=int, default=4096, help="Dimension of the intermediate bottleneck layer.")
     parser.add_argument("--w-recon", type=float, default=1.0, help="Weight for the reconstruction loss.")
     parser.add_argument("--w-pred", type=float, default=1.0, help="Weight for the prediction loss.")
     parser.add_argument("--w-lin", type=float, default=1.0, help="Weight for the latent linearity loss.")
@@ -129,7 +130,12 @@ def main():
         train_dataset, val_dataset = Subset(full_dataset, train_indices), Subset(full_dataset, val_indices)
         
         sample_x, _ = full_dataset[0]
-        model_config = {"in_channels": sample_x.shape[-1], "latent_dim": args.latent_dim, "input_spatial_dims": sample_x.shape[:-1]}
+        model_config = {
+            "in_channels": sample_x.shape[-1],
+            "latent_dim": args.latent_dim,
+            "input_spatial_dims": sample_x.shape[:-1],
+            "bottleneck_dim": args.bottleneck_dim, # <-- ADD NEW ARG
+        }
         
         model = KoopmanAutoencoderQ2D(**model_config).to(device)
         optimizer = Adam(model.parameters(), lr=args.lr)
