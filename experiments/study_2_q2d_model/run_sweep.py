@@ -28,20 +28,20 @@ param_grid = {
     'model_params': [
         (1024, 4096, 226),
         (2048, 8192, 226),
-        (4096, 16384, 226),
+        # (4096, 16384, 226),
     ],
     'w_recon': [1.0],
     'w_pred': [1.0],
-    'w_lin': [1.0, 10.0, 100.0],
+    'w_lin': [1.0, 10.0],
     'w_eig': [0.1],
 }
 
 # --- Fixed Training Arguments ---
 # These arguments will be the same for all runs.
 fixed_args = {
-    "epochs": 128,
-    "patience": 20,
-    "lr_patience": 8,
+    "epochs": 2,
+    "patience": 40,
+    "lr_patience": 10,
     "clip_grad_value": 0.2,
     "lr_factor": 0.1,
 }
