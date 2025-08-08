@@ -17,10 +17,10 @@ NORM_STATS_PATH="/raid/skowronek/preprocessed_dns_output/01-Cold_Runs/01-Re16K_H
 
 # --- Hyperparameters to Sweep ---
 LEARNING_RATES=(1e-4)
-LATENT_DIMS=(2048)
+LATENT_DIMS=(4096)
 W_RECONS=(1.0)
 W_PREDS=(1.0)
-W_LINS=(1.0 0.1 0.01)
+W_LINS=(1.0 10.0 100.0 1000.0)
 W_EIGS=(0.1)
 
 
@@ -65,7 +65,7 @@ for we in "${W_EIGS[@]}"; do
       --epochs 128 \
       --patience 20 \
       --lr-patience 8 \
-      --clip-grad-value 25.0 \
+      --clip-grad-value 0.2 \
       --batch-size 226 \
       --lr-factor 0.1
 
