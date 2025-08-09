@@ -5,6 +5,7 @@ import subprocess
 import itertools
 from pathlib import Path
 import logging
+import argparse
 
 # --- Configuration ---
 # This script should be run from the experiment directory, e.g.:
@@ -50,6 +51,15 @@ fixed_args = {
 
 def main():
     """Main function to run the hyperparameter sweep."""
+    # --- THE FIX IS HERE (Part 1: Add --resume argument) ---
+    parser = argparse.ArgumentParser(description="Run a hyperparameter sweep.")
+    parser.add_argument(
+        "--resume",
+        action="store_true",
+        help="If set, resume incomplete runs from the latest checkpoint instead of skipping them."
+    )
+    args = parser.parse_args()
+
     logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
     logging.info("Starting hyperparameter sweep...")
 
@@ -78,12 +88,20 @@ def main():
         run_name = "_".join(run_name_parts)
         
         output_dir = BASE_OUTPUT_DIR / run_name
+        latest_checkpoint_path = output_dir / "latest_checkpoint.pth"
 
+        # --- THE FIX IS HERE (Part 2: Resume logic) ---
+        resume_arg = None
         if output_dir.exists():
-            logging.info(f"--- SKIPPING Run {i+1}/{len(run_configs)}: {run_name} (directory exists) ---")
-            continue
+            if args.resume and latest_checkpoint_path.exists():
+                logging.info(f"--- RESUMING Run {i+1}/{len(run_configs)}: {run_name} ---")
+                resume_arg = str(latest_checkpoint_path)
+            else:
+                logging.info(f"--- SKIPPING Run {i+1}/{len(run_configs)}: {run_name} (directory exists) ---")
+                continue
+        else:
+             logging.info(f"--- STARTING Run {i+1}/{len(run_configs)}: {run_name} ---")
 
-        logging.info(f"--- STARTING Run {i+1}/{len(run_configs)}: {run_name} ---")
         
         # Construct the command line arguments
         cmd = [
@@ -93,11 +111,12 @@ def main():
             "--norm-stats-path", NORM_STATS_PATH,
             "--output-dir", str(output_dir),
         ]
+        
+        if resume_arg:
+            cmd.extend(["--resume-from-checkpoint", resume_arg])
 
         # Add hyperparameters from the config
         for key, value in config.items():
-            # --- THE FIX IS HERE ---
-            # Convert python_style variable names to command-line-style arguments
             cmd.append(f"--{key.replace('_', '-')}")
             cmd.append(str(value))
             
