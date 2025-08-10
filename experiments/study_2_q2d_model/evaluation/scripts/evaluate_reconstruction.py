@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# experiments/study_1_param_sweep/evaluate_reconstruction.py
+# experiments/study_2_q2d_model/evaluate_reconstruction.py
 
 import argparse
 import logging
@@ -10,12 +10,13 @@ import torch
 import torch.nn as nn
 from tqdm import tqdm
 
-from mhd_canonical_kae.model import KoopmanAutoencoder
+# --- THE FIX IS HERE (Part 1: Import the correct model) ---
+from mhd_q2d_kae.model import KoopmanAutoencoderQ2D
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="Evaluate a model's reconstruction performance.")
+    parser = argparse.ArgumentParser(description="Evaluate a Q2D model's reconstruction performance.")
     parser.add_argument("--model-path", type=str, required=True, help="Path to the saved model checkpoint (.pth file).")
     parser.add_argument("--test-data-path", type=str, required=True, help="Path to the contiguous test_set.npz file.")
     parser.add_argument("--norm-stats-path", type=str, required=True, help="Path to the normalization_stats.npz file.")
@@ -40,7 +41,8 @@ def main():
     channels_used = checkpoint.get('channels_used')
     
     logging.info(f"Re-creating model with saved config: {model_config}")
-    model = KoopmanAutoencoder(**model_config).to(device)
+    # --- THE FIX IS HERE (Part 2: Instantiate the correct model) ---
+    model = KoopmanAutoencoderQ2D(**model_config).to(device)
     model.load_state_dict(checkpoint['model_state_dict'])
     model.eval()
 
@@ -69,7 +71,6 @@ def main():
 
     # --- Evaluate Reconstruction Error ---
     num_timesteps, num_channels = full_timeseries.shape[0], len(channel_names)
-    # --- THE FIX IS HERE (Part 1: Store per-step error) ---
     per_step_channel_recon_error = np.zeros((num_timesteps, num_channels))
     loss_fn = nn.MSELoss(reduction='none')
     
@@ -82,18 +83,19 @@ def main():
             
             snapshot_tensor = torch.from_numpy(snapshot).float()
             snapshot_norm = normalize(snapshot_tensor)
+            # Permute to (B, C, X, Y, Z) for the Q2D model
             snapshot_norm = snapshot_norm.unsqueeze(0).permute(0, 4, 1, 2, 3)
             
             latent_vec = model.encode(snapshot_norm)
             recon_norm = model.decode(latent_vec)
             
+            # Permute back to (B, X, Y, Z, C) for denormalization
             recon_denorm = denormalize(recon_norm.permute(0, 2, 3, 4, 1)).squeeze(0)
             
             error_tensor = loss_fn(recon_denorm, snapshot_tensor.to(device))
             per_channel_mse = error_tensor.mean(dim=(0, 1, 2)).cpu().numpy()
             per_step_channel_recon_error[i, :] = per_channel_mse
 
-    # Average the error over all timesteps to get the final per-channel score
     avg_per_channel_recon_error = per_step_channel_recon_error.mean(axis=0)
     
     # --- Calculate R-squared Scores ---
@@ -110,7 +112,7 @@ def main():
     # --- Save and Log Results ---
     np.savez(
         output_path,
-        per_step_channel_recon_error=per_step_channel_recon_error, # <-- Save new metric
+        per_step_channel_recon_error=per_step_channel_recon_error,
         r_squared_per_channel=r_squared_per_channel,
         r_squared_total=r_squared_total,
         channel_names=channel_names,
