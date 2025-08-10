@@ -10,7 +10,6 @@ import torch
 import torch.nn as nn
 from tqdm import tqdm
 
-# --- THE FIX IS HERE (Part 1: Import the correct model) ---
 from mhd_q2d_kae.model import KoopmanAutoencoderQ2D
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
@@ -20,7 +19,7 @@ def parse_args():
     parser.add_argument("--model-path", type=str, required=True, help="Path to the saved model checkpoint (.pth file).")
     parser.add_argument("--test-data-path", type=str, required=True, help="Path to the contiguous test_set.npz file.")
     parser.add_argument("--norm-stats-path", type=str, required=True, help="Path to the normalization_stats.npz file.")
-    parser.add_argument("--output-path", type=str, default=None, help="Full path to save evaluation results (.npz file). Defaults to 'eval/prediction_rollout_error.npz' in the model's directory.")
+    parser.add_argument("--output-path", type=str, default=None, help="Full path to save evaluation results (.npz file). Defaults to 'eval/prediction_analysis.npz' in the model's directory.")
     return parser.parse_args()
 
 def main():
@@ -32,7 +31,7 @@ def main():
     if args.output_path:
         output_path = Path(args.output_path)
     else:
-        output_path = model_path.parent / "eval" / "prediction_rollout_error.npz"
+        output_path = model_path.parent / "eval" / "prediction_analysis.npz"
     
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -42,7 +41,6 @@ def main():
     channels_used = checkpoint.get('channels_used')
     
     logging.info(f"Re-creating model with saved config: {model_config}")
-    # --- THE FIX IS HERE (Part 2: Instantiate the correct model) ---
     model = KoopmanAutoencoderQ2D(**model_config).to(device)
     model.load_state_dict(checkpoint['model_state_dict'])
     model.eval()
@@ -73,55 +71,62 @@ def main():
     test_tensor_cpu = torch.from_numpy(full_timeseries[..., channel_indices] if channels_used else full_timeseries).float()
     logging.info(f"Test data loaded. Shape: {test_tensor_cpu.shape}")
 
-    # --- Autoregressive Rollout (Memory-Efficient) ---
-    num_timesteps, num_channels = test_tensor_cpu.shape[0], test_tensor_cpu.shape[-1]
-    per_step_channel_error = np.zeros((num_timesteps - 1, num_channels))
-    loss_fn = nn.MSELoss(reduction='none')
+    # --- Autoregressive Rollout ---
+    num_timesteps = test_tensor_cpu.shape[0]
+    predictions_denorm_cpu = []
     
     initial_state_original = test_tensor_cpu[0].unsqueeze(0)
-    # The permutation must match what the Q2D model expects: (B, C, X, Y, Z)
     current_state_norm = normalize(initial_state_original).permute(0, 4, 1, 2, 3)
 
     logging.info(f"Starting autoregressive rollout for {num_timesteps - 1} steps...")
     with torch.no_grad():
+        predictions_denorm_cpu.append(initial_state_original.squeeze(0))
         z_t = model.encode(current_state_norm)
+
         for t in tqdm(range(num_timesteps - 1), desc="Evaluating Rollout"):
             z_t = model.koopman_step(z_t)
             predicted_state_norm = model.decode(z_t)
             
-            # Permute back to (B, X, Y, Z, C) for denormalization and comparison
             predicted_state_denorm = denormalize(predicted_state_norm.permute(0, 2, 3, 4, 1))
-            
-            ground_truth_state = test_tensor_cpu[t+1].unsqueeze(0).to(device)
-            
-            error_tensor = loss_fn(predicted_state_denorm, ground_truth_state)
-            per_channel_mse = error_tensor.mean(dim=(0, 1, 2, 3)).cpu().numpy()
-            per_step_channel_error[t, :] = per_channel_mse
+            predictions_denorm_cpu.append(predicted_state_denorm.squeeze(0).cpu())
             
             current_state_norm = predicted_state_norm
     
-    logging.info("Rollout complete.")
+    predicted_timeseries = torch.stack(predictions_denorm_cpu)
+    logging.info(f"Rollout complete. Predicted timeseries shape: {predicted_timeseries.shape}")
 
     # --- Calculate Final Metrics ---
-    avg_rollout_mse_total = per_step_channel_error.mean()
+    loss_fn = nn.MSELoss(reduction='none')
+    error_tensor = loss_fn(predicted_timeseries, test_tensor_cpu)
+    
+    # Overall metrics
+    avg_rollout_mse_total = error_tensor.mean().item()
     variance_total = test_tensor_cpu.var().item()
     r_squared_total = 1 - (avg_rollout_mse_total / variance_total) if variance_total > 0 else 0.0
     
-    avg_mse_per_channel = per_step_channel_error.mean(axis=0)
-    r_squared_per_channel = np.zeros(num_channels)
-    for i in range(num_channels):
+    # Per-channel metrics
+    avg_mse_per_channel = error_tensor.mean(dim=(0, 1, 2, 3)).numpy()
+    r_squared_per_channel = np.zeros(len(channel_names))
+    for i in range(len(channel_names)):
         variance_channel = test_tensor_cpu[..., i].var().item()
         r_squared_per_channel[i] = 1 - (avg_mse_per_channel[i] / variance_channel) if variance_channel > 0 else 0.0
 
+    # Per-step, per-channel error
+    per_step_channel_error = error_tensor[1:].mean(dim=(1, 2, 3)).numpy()
+
+
     # --- Save All Results ---
+    difference_timeseries = predicted_timeseries - test_tensor_cpu
     np.savez(
         output_path,
-        per_step_channel_error=per_step_channel_error,
+        predicted_timeseries=predicted_timeseries.numpy(),
+        difference_timeseries=difference_timeseries.numpy(),
         channel_names=channel_names,
-        avg_rollout_mse_total=avg_rollout_mse_total,
         r_squared_total=r_squared_total,
+        r_squared_per_channel=r_squared_per_channel,
+        per_step_channel_error=per_step_channel_error,
+        avg_rollout_mse_total=avg_rollout_mse_total,
         avg_mse_per_channel=avg_mse_per_channel,
-        r_squared_per_channel=r_squared_per_channel
     )
     logging.info(f"All evaluation results saved to {output_path}")
 
