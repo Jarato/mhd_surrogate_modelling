@@ -142,7 +142,7 @@ def main():
 
     # --- Log Final Metrics ---
     logging.info("--- LATENT SPACE EVALUATION COMPLETE ---")
-    logging.info(f"Average Latent Space Rollout MSE: {avg_rollout_mse:.6f}")
+    logging.info(f"Average Latent Space Rollout MSE: {avg_rollout_mse:.6e}")
     logging.info(f"Latent Space R-squared (R²) Score: {r_squared_latent:.4f}")
 
 
