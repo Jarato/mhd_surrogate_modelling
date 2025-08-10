@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# experiments/study_1_param_sweep/evaluate_latent_space.py
+# experiments/study_2_q2d_model/evaluate_latent_space.py
 
 import argparse
 import logging
@@ -10,12 +10,13 @@ import torch
 import torch.nn as nn
 from tqdm import tqdm
 
-from mhd_canonical_kae.model import KoopmanAutoencoder
+# --- THE FIX IS HERE (Part 1: Import the correct model) ---
+from mhd_q2d_kae.model import KoopmanAutoencoderQ2D
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="Evaluate a trained model's latent space dynamics.")
+    parser = argparse.ArgumentParser(description="Evaluate a trained Q2D model's latent space dynamics.")
     parser.add_argument("--model-path", type=str, required=True, help="Path to the saved model checkpoint (.pth file).")
     parser.add_argument("--test-data-path", type=str, required=True, help="Path to the contiguous test_set.npz file.")
     parser.add_argument("--norm-stats-path", type=str, required=True, help="Path to the normalization_stats.npz file.")
@@ -40,7 +41,8 @@ def main():
     channels_used = checkpoint.get('channels_used')
     
     logging.info(f"Re-creating model with saved config: {model_config}")
-    model = KoopmanAutoencoder(**model_config).to(device)
+    # --- THE FIX IS HERE (Part 2: Instantiate the correct model) ---
+    model = KoopmanAutoencoderQ2D(**model_config).to(device)
     model.load_state_dict(checkpoint['model_state_dict'])
     model.eval()
 
@@ -74,6 +76,7 @@ def main():
             
             snapshot_tensor = torch.from_numpy(snapshot).float()
             snapshot_norm = normalize(snapshot_tensor)
+            # The Q2D model expects (B, C, X, Y, Z), so we permute from (D, H, W, C) -> (C, D, H, W)
             snapshot_norm = snapshot_norm.unsqueeze(0).permute(0, 4, 1, 2, 3).to(device)
             
             latent_vector = model.encode(snapshot_norm)
@@ -105,7 +108,6 @@ def main():
             W_inv = torch.linalg.inv(eigenvectors)
             true_projected_traj = (W_inv @ true_latent_trajectory.cfloat().T).T
             pred_projected_traj = (W_inv @ predicted_latent_trajectory.cfloat().T).T
-            # --- THE FIX IS HERE (Part 1: Calculate Initial Amplitudes) ---
             initial_mode_amplitudes = np.abs(true_projected_traj[0].numpy())
         except torch.linalg.LinAlgError:
             logging.error("Eigenvector matrix is singular; cannot perform projection.")
