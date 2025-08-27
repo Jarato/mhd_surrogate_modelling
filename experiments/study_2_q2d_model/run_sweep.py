@@ -49,6 +49,7 @@ fixed_args = {
     "lr_patience": 10,
     "clip_grad_value": 0.2,
     "lr_factor": 0.1,
+    "num_workers": 8, # <-- OPTIMIZATION: Added for faster data loading
 }
 
 
