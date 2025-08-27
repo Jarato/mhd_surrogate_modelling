@@ -58,18 +58,19 @@ class EncoderQ2D(nn.Module):
 
 class DecoderQ2D(nn.Module):
     """
-    A Quasi-2D CNN Decoder with a progressive linear bottleneck.
+    A Quasi-2D CNN Decoder with an optional progressive linear bottleneck.
     """
 
     def __init__(
         self,
         latent_dim: int,
-        bottleneck_dim: int, # <-- NEW
+        bottleneck_dim: int,
         out_channels: int,
         y_dim: int,
         encoder_flattened_size: int,
         conv_output_shape: tuple[int, ...],
         target_spatial_dims: tuple[int, int, int],
+        use_bottleneck: bool = True, # <-- NEW FLAG
     ):
         super().__init__()
         self.latent_dim = latent_dim
@@ -79,11 +80,19 @@ class DecoderQ2D(nn.Module):
         self.conv_output_shape = conv_output_shape
         self.target_spatial_dims = target_spatial_dims
 
-        self.fc_network = nn.Sequential(
-            nn.Linear(self.latent_dim, bottleneck_dim), # <-- Use new arg
-            nn.GELU(),
-            nn.Linear(bottleneck_dim, self.encoder_flattened_size), # <-- Use new arg
-        )
+        # --- Conditionally build the fully connected network ---
+        fc_layers = []
+        if use_bottleneck:
+            fc_layers.extend([
+                nn.Linear(self.latent_dim, bottleneck_dim),
+                nn.GELU(),
+                nn.Linear(bottleneck_dim, self.encoder_flattened_size),
+            ])
+        else:
+            fc_layers.append(
+                nn.Linear(self.latent_dim, self.encoder_flattened_size)
+            )
+        self.fc_network = nn.Sequential(*fc_layers)
 
         self.conv_transpose_network = nn.Sequential(
             nn.ConvTranspose2d(256, 128, kernel_size=3, stride=2, padding=1, output_padding=1),
@@ -127,10 +136,12 @@ class KoopmanAutoencoderQ2D(nn.Module):
         in_channels: int,
         latent_dim: int,
         input_spatial_dims: tuple[int, int, int],
-        bottleneck_dim: int = 4096, # <-- NEW with default
+        bottleneck_dim: int = 4096,
+        use_bottleneck: bool = True, # <-- NEW FLAG
         **kwargs,
     ):
         super().__init__()
+        self.use_bottleneck = use_bottleneck
         x_dim, y_dim, z_dim = input_spatial_dims
         
         self.encoder = EncoderQ2D(in_channels, y_dim, latent_dim)
@@ -143,24 +154,31 @@ class KoopmanAutoencoderQ2D(nn.Module):
             conv_output = self.encoder.conv_network(dummy_reshaped)
             flattened_size = conv_output.flatten(1).shape[1]
             
-            self.encoder.fc_network.add_module(
-                "1", nn.Linear(flattened_size, bottleneck_dim) # <-- Use new arg
-            )
-            self.encoder.fc_network.add_module("2", nn.GELU())
-            self.encoder.fc_network.add_module(
-                "3", nn.Linear(bottleneck_dim, latent_dim) # <-- Use new arg
-            )
+            # --- Conditionally add bottleneck layers to the encoder ---
+            if self.use_bottleneck:
+                self.encoder.fc_network.add_module(
+                    "1", nn.Linear(flattened_size, bottleneck_dim)
+                )
+                self.encoder.fc_network.add_module("2", nn.GELU())
+                self.encoder.fc_network.add_module(
+                    "3", nn.Linear(bottleneck_dim, latent_dim)
+                )
+            else:
+                self.encoder.fc_network.add_module(
+                    "1", nn.Linear(flattened_size, latent_dim)
+                )
 
             conv_output_shape = conv_output.shape[1:]
 
         self.decoder = DecoderQ2D(
             latent_dim=latent_dim,
-            bottleneck_dim=bottleneck_dim, # <-- Pass to decoder
+            bottleneck_dim=bottleneck_dim,
             out_channels=in_channels,
             y_dim=y_dim,
             encoder_flattened_size=flattened_size,
             conv_output_shape=conv_output_shape,
             target_spatial_dims=input_spatial_dims,
+            use_bottleneck=self.use_bottleneck, # <-- Pass flag to decoder
         )
 
         self.koopman_operator = nn.Linear(latent_dim, latent_dim, bias=False)

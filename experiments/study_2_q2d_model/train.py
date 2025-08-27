@@ -47,6 +47,11 @@ def parse_args():
     # --- Model and Loss Arguments ---
     parser.add_argument("--latent-dim", type=int, default=128, help="Dimension of the latent space.")
     parser.add_argument("--bottleneck-dim", type=int, default=4096, help="Dimension of the intermediate bottleneck layer.")
+    # --- NEW: Add boolean flag for using the bottleneck ---
+    parser.add_argument('--use-bottleneck', dest='use_bottleneck', action='store_true', help="Force the use of the bottleneck layer.")
+    parser.add_argument('--no-bottleneck', dest='use_bottleneck', action='store_false', help="Disable the bottleneck layer for a smaller model.")
+    parser.set_defaults(use_bottleneck=True)
+    
     parser.add_argument("--w-recon", type=float, default=1.0, help="Weight for the reconstruction loss.")
     parser.add_argument("--w-pred", type=float, default=1.0, help="Weight for the prediction loss.")
     parser.add_argument("--w-lin", type=float, default=1.0, help="Weight for the latent linearity loss.")
@@ -135,6 +140,7 @@ def main():
             "latent_dim": args.latent_dim,
             "input_spatial_dims": sample_x.shape[:-1],
             "bottleneck_dim": args.bottleneck_dim,
+            "use_bottleneck": args.use_bottleneck, # <-- Save flag to config
         }
         
         model = KoopmanAutoencoderQ2D(**model_config).to(device)
@@ -147,6 +153,8 @@ def main():
 
     loss_weights = {"recon": args.w_recon, "pred": args.w_pred, "lin": args.w_lin, "eig": args.w_eig}
     logging.info(f"Using loss weights: {loss_weights}")
+    logging.info(f"Model using bottleneck layer: {model_config.get('use_bottleneck', True)}")
+
 
     for epoch in range(start_epoch, args.epochs):
         model.train()
@@ -190,12 +198,12 @@ def main():
         torch.save({"epoch": epoch, "config": model_config, "model_state_dict": model.state_dict(), "optimizer_state_dict": optimizer.state_dict(), "scheduler_state_dict": scheduler.state_dict(), "best_val_loss": best_val_loss, "patience_counter": patience_counter, "best_epoch": best_epoch, "train_indices": train_dataset.indices, "val_indices": val_dataset.indices, "channels_used": channels_used, "losses_at_best_epoch": losses_at_best_epoch, "best_component_losses": best_component_losses}, latest_checkpoint_path)
         if patience_counter >= args.patience: logging.info("Early stopping triggered."); break
 
-    # --- THE FIX IS HERE ---
     # Create the hparams dict from the definitive run parameters, not just args
     hparams = {
-        **{k: v for k, v in vars(args).items() if k not in ['latent_dim', 'bottleneck_dim', 'channels']},
+        **{k: v for k, v in vars(args).items() if k not in ['latent_dim', 'bottleneck_dim', 'channels', 'use_bottleneck']},
         'latent_dim': model_config['latent_dim'],
-        'bottleneck_dim': model_config.get('bottleneck_dim', 4096), # Use default if not in config
+        'bottleneck_dim': model_config.get('bottleneck_dim', 4096),
+        'use_bottleneck': model_config.get('use_bottleneck', True), # <-- Log the final used value
         'channels': ",".join(channels_used) if channels_used is not None else "all",
     }
 
