@@ -36,7 +36,9 @@ def parse_args():
     # --- Training Arguments ---
     parser.add_argument("--epochs", type=int, default=128, help="Maximum number of training epochs.")
     parser.add_argument("--batch-size", type=int, default=8, help="Batch size.")
-    
+    # --- NEW: Add num_workers argument for DataLoader optimization ---
+    parser.add_argument("--num-workers", type=int, default=8, help="Number of worker processes for data loading.")
+
     # --- Optimizer and Scheduler Arguments ---
     parser.add_argument("--lr", type=float, default=1e-4, help="Initial learning rate.")
     parser.add_argument("--patience", type=int, default=20, help="Patience for early stopping.")
@@ -47,7 +49,6 @@ def parse_args():
     # --- Model and Loss Arguments ---
     parser.add_argument("--latent-dim", type=int, default=128, help="Dimension of the latent space.")
     parser.add_argument("--bottleneck-dim", type=int, default=4096, help="Dimension of the intermediate bottleneck layer.")
-    # --- NEW: Add boolean flag for using the bottleneck ---
     parser.add_argument('--use-bottleneck', dest='use_bottleneck', action='store_true', help="Force the use of the bottleneck layer.")
     parser.add_argument('--no-bottleneck', dest='use_bottleneck', action='store_false', help="Disable the bottleneck layer for a smaller model.")
     parser.set_defaults(use_bottleneck=True)
@@ -109,7 +110,7 @@ def main():
         channels_used = checkpoint.get("channels_used")
         logging.info(f"Resuming with channels from checkpoint: {channels_used}")
         
-        full_dataset = MHDDataset(file_path=args.data_path, norm_stats_path=args.norm_stats_path, channels_to_use=channels_used)
+        full_dataset = MHDDataset(file_path=args.data_path, norm_stats_path=args.norm_stats_path, channels_to_use=channels_used, process_safe_copy=True)
         
         train_indices, val_indices = checkpoint["train_indices"], checkpoint["val_indices"]
         train_dataset, val_dataset = Subset(full_dataset, train_indices), Subset(full_dataset, val_indices)
@@ -127,7 +128,7 @@ def main():
         losses_at_best_epoch = checkpoint.get("losses_at_best_epoch", {})
         best_component_losses = checkpoint.get("best_component_losses", best_component_losses)
     else:
-        full_dataset = MHDDataset(file_path=args.data_path, norm_stats_path=args.norm_stats_path, channels_to_use=args.channels)
+        full_dataset = MHDDataset(file_path=args.data_path, norm_stats_path=args.norm_stats_path, channels_to_use=args.channels, process_safe_copy=True)
         channels_used = full_dataset.channel_names
 
         stats = np.load(args.norm_stats_path)
@@ -140,16 +141,29 @@ def main():
             "latent_dim": args.latent_dim,
             "input_spatial_dims": sample_x.shape[:-1],
             "bottleneck_dim": args.bottleneck_dim,
-            "use_bottleneck": args.use_bottleneck, # <-- Save flag to config
+            "use_bottleneck": args.use_bottleneck,
         }
         
         model = KoopmanAutoencoderQ2D(**model_config).to(device)
         optimizer = Adam(model.parameters(), lr=args.lr)
         scheduler = ReduceLROnPlateau(optimizer, 'min', factor=args.lr_factor, patience=args.lr_patience)
 
-    train_dataloader = DataLoader(dataset=train_dataset, batch_size=args.batch_size, shuffle=True)
-    val_dataloader = DataLoader(dataset=val_dataset, batch_size=args.batch_size, shuffle=False)
-    logging.info(f"Data split: {len(train_dataset)} train, {len(val_dataset)} val.")
+    # --- OPTIMIZED: Use num_workers and pin_memory for faster data loading ---
+    train_dataloader = DataLoader(
+        dataset=train_dataset, 
+        batch_size=args.batch_size, 
+        shuffle=True, 
+        num_workers=args.num_workers, 
+        pin_memory=True
+    )
+    val_dataloader = DataLoader(
+        dataset=val_dataset, 
+        batch_size=args.batch_size, 
+        shuffle=False, 
+        num_workers=args.num_workers, 
+        pin_memory=True
+    )
+    logging.info(f"Data split: {len(train_dataset)} train, {len(val_dataset)} val. Using {args.num_workers} workers.")
 
     loss_weights = {"recon": args.w_recon, "pred": args.w_pred, "lin": args.w_lin, "eig": args.w_eig}
     logging.info(f"Using loss weights: {loss_weights}")
@@ -203,7 +217,7 @@ def main():
         **{k: v for k, v in vars(args).items() if k not in ['latent_dim', 'bottleneck_dim', 'channels', 'use_bottleneck']},
         'latent_dim': model_config['latent_dim'],
         'bottleneck_dim': model_config.get('bottleneck_dim', 4096),
-        'use_bottleneck': model_config.get('use_bottleneck', True), # <-- Log the final used value
+        'use_bottleneck': model_config.get('use_bottleneck', True),
         'channels': ",".join(channels_used) if channels_used is not None else "all",
     }
 
