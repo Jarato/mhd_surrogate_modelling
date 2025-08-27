@@ -25,12 +25,13 @@ BASE_OUTPUT_DIR = Path("/cephfs/users/skowronek/Documents/PhD/nuclear_fusion_coo
 param_grid = {
     'lr': [1e-4],
     # Coupled parameters are defined as a list of tuples.
-    # Each tuple is a complete set of (latent_dim, bottleneck_dim, batch_size).
+    # Each tuple is a complete set of (latent_dim, bottleneck_dim, use_bottleneck, batch_size).
     'model_params': [
-        (4096, 4096, 226),
-        # (1024, 4096, 226),
-        # (2048, 8192, 151),
-        # (4096, 16384, 16),
+        (4096, 4096, True, 226),
+        (8192, 4096, False, 151), # Example run without the bottleneck layer
+        # (1024, 4096, True, 226),
+        # (2048, 8192, True, 151),
+        # (4096, 16384, True, 16),
     ],
     'w_recon': [1.0],
     'w_pred': [1.0],
@@ -51,7 +52,6 @@ fixed_args = {
 
 def main():
     """Main function to run the hyperparameter sweep."""
-    # --- THE FIX IS HERE (Part 1: Add --resume argument) ---
     parser = argparse.ArgumentParser(description="Run a hyperparameter sweep.")
     parser.add_argument(
         "--resume",
@@ -70,7 +70,7 @@ def main():
     for v in itertools.product(*values):
         config = dict(zip(keys, v))
         # Unpack the coupled parameters
-        config['latent_dim'], config['bottleneck_dim'], config['batch_size'] = config.pop('model_params')
+        config['latent_dim'], config['bottleneck_dim'], config['use_bottleneck'], config['batch_size'] = config.pop('model_params')
         run_configs.append(config)
 
     logging.info(f"Generated {len(run_configs)} unique hyperparameter configurations.")
@@ -80,6 +80,7 @@ def main():
         run_name_parts = [
             f"ld{config['latent_dim']}",
             f"bd{config['bottleneck_dim']}",
+            f"bneck{config['use_bottleneck']}", # <-- Add bottleneck status to name
             f"wr{config['w_recon']}",
             f"wp{config['w_pred']}",
             f"wl{config['w_lin']}",
@@ -90,7 +91,6 @@ def main():
         output_dir = BASE_OUTPUT_DIR / run_name
         latest_checkpoint_path = output_dir / "latest_checkpoint.pth"
 
-        # --- THE FIX IS HERE (Part 2: Resume logic) ---
         resume_arg = None
         if output_dir.exists():
             if args.resume and latest_checkpoint_path.exists():
@@ -100,7 +100,7 @@ def main():
                 logging.info(f"--- SKIPPING Run {i+1}/{len(run_configs)}: {run_name} (directory exists) ---")
                 continue
         else:
-             logging.info(f"--- STARTING Run {i+1}/{len(run_configs)}: {run_name} ---")
+            logging.info(f"--- STARTING Run {i+1}/{len(run_configs)}: {run_name} ---")
 
         
         # Construct the command line arguments
@@ -117,8 +117,15 @@ def main():
 
         # Add hyperparameters from the config
         for key, value in config.items():
-            cmd.append(f"--{key.replace('_', '-')}")
-            cmd.append(str(value))
+            # Special handling for the boolean bottleneck flag
+            if key == 'use_bottleneck':
+                if value:
+                    cmd.append('--use-bottleneck')
+                else:
+                    cmd.append('--no-bottleneck')
+            else:
+                cmd.append(f"--{key.replace('_', '-')}")
+                cmd.append(str(value))
             
         # Add fixed arguments
         for key, value in fixed_args.items():
