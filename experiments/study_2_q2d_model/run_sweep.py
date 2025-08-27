@@ -18,7 +18,8 @@ import argparse
 TRAIN_SCRIPT = "train.py"
 DATA_PATH = "/raid/skowronek/preprocessed_dns_output/01-Cold_Runs/01-Re16K_Ha325/interp/prep2/train_val_set.npz"
 NORM_STATS_PATH = "/raid/skowronek/preprocessed_dns_output/01-Cold_Runs/01-Re16K_Ha325/interp/prep2/normalization_stats.npz"
-BASE_OUTPUT_DIR = Path("/cephfs/users/skowronek/Documents/PhD/nuclear_fusion_cooling/prediction/run_mhd_surrogate_modelling/experiments/study_2_q2d_model/output")
+# BASE_OUTPUT_DIR = Path("/cephfs/users/skowronek/Documents/PhD/nuclear_fusion_cooling/prediction/run_mhd_surrogate_modelling/experiments/study_2_q2d_model/output")
+BASE_OUTPUT_DIR = Path("/cephfs/users/skowronek/Documents/PhD/nuclear_fusion_cooling/prediction/run_mhd_surrogate_modelling/experiments/study_2_q2d_model/output/test/")
 
 # --- Hyperparameter Grid ---
 # Define the parameter space for the grid search.
@@ -27,22 +28,23 @@ param_grid = {
     # Coupled parameters are defined as a list of tuples.
     # Each tuple is a complete set of (latent_dim, bottleneck_dim, use_bottleneck, batch_size).
     'model_params': [
-        (4096, 4096, True, 226),
-        (8192, 4096, False, 151), # Example run without the bottleneck layer
-        # (1024, 4096, True, 226),
-        # (2048, 8192, True, 151),
-        # (4096, 16384, True, 16),
+        # (4096, 0, False, 226),
+        (8192, 0, False, 151),
+        # (16384, 0, False, 151),
+        # (32768, 0, False, 151),
+        # (65536, 0, False, 226),
     ],
     'w_recon': [1.0],
     'w_pred': [1.0],
-    'w_lin': [1000000.0, 10000000.0, 100000000.0, 1000000000.0],
+    'w_lin': [100000.0],
     'w_eig': [0.1],
 }
 
 # --- Fixed Training Arguments ---
 # These arguments will be the same for all runs.
 fixed_args = {
-    "epochs": 256,
+    # "epochs": 256,
+    "epochs": 2,
     "patience": 40,
     "lr_patience": 10,
     "clip_grad_value": 0.2,
