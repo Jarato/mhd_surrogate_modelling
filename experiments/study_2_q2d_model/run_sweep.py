@@ -28,11 +28,11 @@ param_grid = {
     # Coupled parameters are defined as a list of tuples.
     # Each tuple is a complete set of (latent_dim, bottleneck_dim, use_bottleneck, batch_size).
     'model_params': [
-        # (4096, 0, False, 226),
-        (8192, 0, False, 151),
-        # (16384, 0, False, 151),
-        # (32768, 0, False, 151),
-        # (65536, 0, False, 226),
+        # (4096, -1, False, 226),
+        # (8192, -1, False, 151),
+        (16384, 0, False, 1),
+        # (32768, -1, False, 151),
+        # (65536, -1, False, 226),
     ],
     'w_recon': [1.0],
     'w_pred': [1.0],
