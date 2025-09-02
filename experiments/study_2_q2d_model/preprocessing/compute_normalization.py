@@ -12,7 +12,7 @@ from torch.utils.data import random_split
 # We need to make sure the packages are importable.
 # This script should be run from the root of the project, e.g.:
 # python scripts/compute_normalization.py --data-path ...
-from mhd_surrogate_core.data import MHDDataset
+from mhd_q2d_kae.data import MHDDataset
 
 # Configure basic logging
 logging.basicConfig(

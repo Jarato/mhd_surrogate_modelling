@@ -17,7 +17,7 @@ from tqdm import tqdm
 
 # --- Import the new Q2D model ---
 from mhd_q2d_kae.model import KoopmanAutoencoderQ2D
-from mhd_surrogate_core.data import MHDDataset
+from mhd_q2d_kae.data import MHDDataset
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"

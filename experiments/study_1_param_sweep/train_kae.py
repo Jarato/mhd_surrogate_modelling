@@ -16,7 +16,7 @@ from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
 
 from mhd_canonical_kae.model import KoopmanAutoencoder
-from mhd_surrogate_core.data import MHDDataset
+from mhd_canonical_kae.data import MHDDataset
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
