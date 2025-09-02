@@ -258,6 +258,7 @@ def main():
     for epoch in range(start_epoch, args.epochs):
         model.train()
         epoch_train_losses = {"total": 0.0, "identity": 0.0, "forward": 0.0, "tc": 0.0, "backward": 0.0, "consistency": 0.0}
+        epoch_total_grad_norm = 0.0
         
         pbar = tqdm(train_dataloader, desc=f"Epoch {epoch+1}/{args.epochs}", leave=False)
         for data_list in pbar:
@@ -268,8 +269,13 @@ def main():
             
             optimizer.zero_grad()
             loss.backward()
+
             if args.clip_grad_value:
-                torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=args.clip_grad_value)
+                total_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=args.clip_grad_value).item()
+            else:
+                total_norm = sum(p.grad.data.norm(2).item()**2 for p in model.parameters() if p.grad is not None)**0.5
+            epoch_total_grad_norm += total_norm
+
             optimizer.step()
 
             for key in epoch_train_losses:
@@ -278,11 +284,13 @@ def main():
 
         # --- Logging and Validation ---
         avg_train_losses = {key: val / len(train_dataloader) for key, val in epoch_train_losses.items()}
+        avg_grad_norm = epoch_total_grad_norm / len(train_dataloader)
         avg_val_losses = validate_epoch(model, val_dataloader, gammas, epoch, args.epoch_trans, device)
         scheduler.step(avg_val_losses["total"])
 
         logging.info(f"Epoch [{epoch+1}/{args.epochs}] | Train Loss: {avg_train_losses['total']:.4f} | Val Loss: {avg_val_losses['total']:.4f}")
         writer.add_scalars("Loss/Total", {'train': avg_train_losses['total'], 'val': avg_val_losses['total']}, epoch)
+        writer.add_scalar("Gradient/Norm", avg_grad_norm, epoch)
         for key in avg_train_losses:
             if key != "total":
                 writer.add_scalars(f"Loss/{key}", {'train': avg_train_losses[key], 'val': avg_val_losses[key]}, epoch)
@@ -329,6 +337,44 @@ def main():
             logging.info("Early stopping triggered.")
             break
 
+    # --- HParam Logging ---
+    hparams = {
+        **{k: v for k, v in vars(args).items() if k not in [
+            'latent_dim', 'bottleneck_dim', 'channels', 'use_bottleneck',
+            'steps', 'steps_back', 'steps_tc'
+        ]},
+        'latent_dim': model_config['latent_dim'],
+        'bottleneck_dim': model_config.get('bottleneck_dim', 4096),
+        'use_bottleneck': model_config.get('use_bottleneck', True),
+        'steps': model_config['steps'],
+        'steps_back': model_config['steps_back'],
+        'steps_tc': model_config['steps_tc'],
+        'channels': ",".join(channels_used) if channels_used is not None else "all",
+    }
+    
+    # Clean up path objects for logging
+    for key, value in hparams.items():
+        if isinstance(value, Path):
+            hparams[key] = str(value)
+        elif key.endswith('_path') and value is not None:
+             hparams[key] = str(value)
+
+    if hparams.get('resume_from_checkpoint'):
+        hparams['resume_from_checkpoint'] = str(hparams['resume_from_checkpoint'])
+
+    final_metrics = {
+        'hparam/best_val_loss': best_val_loss,
+        'hparam/best_epoch': best_epoch,
+    }
+    
+    for key, value in losses_at_best_epoch.items():
+        final_metrics[f'hparam/{key}_at_best'] = value
+        
+    for key, value in best_component_losses.items():
+        final_metrics[f'hparam/best_{key}_loss'] = value
+
+    writer.add_hparams(hparams, final_metrics)
+    
     writer.close()
     logging.info("Training finished.")
 
