@@ -22,9 +22,7 @@ classifiers = [
 ]
 
 # The only required dependency is our own core package.
-dependencies = [
-    "mhd_surrogate_core", 
-]
+dependencies = []
 
 # Optional dependencies document what is needed without forcing installation.
 [project.optional-dependencies]
