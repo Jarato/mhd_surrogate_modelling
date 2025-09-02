@@ -24,11 +24,7 @@ classifiers = [
 # === Core Dependencies ===
 # These are packages that are absolutely required AND are not expected
 # to be pre-installed with a specific version.
-dependencies = [
-    # We declare that this model package depends on our core package.
-    # Pip will find it because we will install both in editable mode.
-    "mhd_surrogate_core",
-]
+dependencies = []
 
 
 # === Optional Dependencies ===
