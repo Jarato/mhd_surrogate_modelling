@@ -1,0 +1,40 @@
+# pyproject.toml for the mhd_q2d_kae package
+
+[build-system]
+requires = ["setuptools>=59.6.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mhd_q2d_kae"
+version = "0.1.0"
+authors = [
+  { name="Michael Skowronek", email="michael.skowronek.91@gmail.com" },
+]
+description = "A Quasi-2D Koopman Autoencoder (KAE) model for MHD surrogate modeling."
+readme = "README.md"
+requires-python = ">=3.10"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Intended Audience :: Science/Research",
+    "Topic :: Scientific/Engineering",
+]
+
+# The only required dependency is our own core package.
+dependencies = [
+    "mhd_surrogate_core", 
+]
+
+# Optional dependencies document what is needed without forcing installation.
+[project.optional-dependencies]
+torch = [
+    "torch",
+    "torchvision",
+]
+dev = [
+    "numpy", # For cases where it's only a dev dependency
+]
+
+[project.urls]
+"Homepage" = "https://github.com/MichaelSkowronek/mhd_surogate_modelling"
