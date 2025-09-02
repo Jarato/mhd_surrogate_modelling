@@ -123,11 +123,24 @@ def compute_loss_tckae(model, data_list, outputs, gammas, epoch, epoch_trans, de
         loss_dict["backward"] = loss_bwd.detach()
         total_loss += gammas["bwd"] * loss_bwd
 
-        # Consistency Loss
+        # --- Progressive Consistency Loss (from original paper's code) ---
         A = model.koopman_operator.weight
         B = model.koopman_operator_backward.weight
-        loss_consist = loss_fn(A @ B, torch.eye(A.shape[0], device=device)) + \
-                       loss_fn(B @ A, torch.eye(A.shape[0], device=device))
+        latent_dim = A.shape[0]
+        loss_consist = 0.0
+
+        for i in range(1, latent_dim + 1):
+            K_b_sub_1 = B[:i, :]
+            K_sub_1 = A[:, :i]
+            K_sub_2 = A[:i, :]
+            K_b_sub_2 = B[:, :i]
+            I_i = torch.eye(i, device=device)
+            
+            term1 = torch.sum((torch.mm(K_b_sub_1, K_sub_1) - I_i)**2)
+            term2 = torch.sum((torch.mm(K_sub_2, K_b_sub_2) - I_i)**2)
+            
+            loss_consist += (term1 + term2) / (2.0 * i)
+
         loss_dict["consistency"] = loss_consist.detach()
         total_loss += gammas["con"] * loss_consist
     else:
