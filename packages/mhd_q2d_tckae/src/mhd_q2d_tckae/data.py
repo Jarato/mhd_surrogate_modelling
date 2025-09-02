@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# mhd_surrogate_core/src/mhd_surrogate_core/data.py
+# packages/mhd_q2d_tckae/src/mhd_q2d_tckae/data.py
 
 import logging
 from pathlib import Path
@@ -14,15 +14,19 @@ logging.basicConfig(
 )
 
 
-class MHDDataset(Dataset):
+class tcKAEMHDDataset(Dataset):
     """
-    Custom PyTorch Dataset for loading and normalizing MHD simulation data.
-    Can select a subset of channels to use.
+    Custom PyTorch Dataset for the tcKAE model.
+
+    This dataset is specifically designed to provide sequences of timesteps
+    required for calculating the multi-step forward loss and temporal
+    consistency loss in the tcKAE algorithm.
     """
 
     def __init__(
         self,
         file_path: Path | str,
+        steps: int, # Number of future steps to return for each sample
         norm_stats_path: Path | str | None = None,
         channels_to_use: list[str] | None = None,
         process_safe_copy: bool = False,
@@ -34,15 +38,18 @@ class MHDDataset(Dataset):
 
         Args:
             file_path (Path | str): Path to the .npz data file.
+            steps (int): The number of future time steps to include in each sample.
+                         Each sample will have a total length of `steps + 1`.
             norm_stats_path (Path | str | None): Path to the normalization stats.
             channels_to_use (list[str] | None): List of channel names to use.
             process_safe_copy (bool): If True, explicitly creates a copy of the
-                data in __getitem__. This is slower but required for safe
-                multi-process data loading (num_workers > 0). Defaults to False.
-            timeseries_key (str): Key for the timeseries data.
-            label_key (str): Key for the channel names (labels).
+                data in __getitem__. Slower but required for safe multi-process
+                data loading (num_workers > 0). Defaults to False.
+            timeseries_key (str): Key for the timeseries data in the .npz file.
+            label_key (str): Key for the channel names (labels) in the .npz file.
         """
         self.file_path = Path(file_path)
+        self.steps = steps
         self.timeseries_key = timeseries_key
         self.label_key = label_key
         self.process_safe_copy = process_safe_copy
@@ -77,34 +84,43 @@ class MHDDataset(Dataset):
             self.range = self.max_vals - self.min_vals + 1e-8
 
     def __len__(self) -> int:
-        return self.data.shape[0] - 1
+        # The length is the total number of timesteps minus the number of steps
+        # needed for a full sequence.
+        return self.data.shape[0] - self.steps
 
     def _normalize(self, x: torch.Tensor) -> torch.Tensor:
         if self.min_vals is None: return x
-        return (x - self.min_vals) / self.range * 2.0 - 1.0
+        # Reshape for broadcasting: (C) -> (C, 1, 1, 1)
+        min_vals = self.min_vals.view(-1, 1, 1, 1)
+        range_vals = self.range.view(-1, 1, 1, 1)
+        return (x - min_vals) / range_vals * 2.0 - 1.0
 
     def _denormalize(self, x_norm: torch.Tensor) -> torch.Tensor:
         if self.min_vals is None: return x_norm
-        return (x_norm + 1.0) / 2.0 * self.range + self.min_vals
+        # Reshape for broadcasting
+        min_vals = self.min_vals.view(-1, 1, 1, 1)
+        range_vals = self.range.view(-1, 1, 1, 1)
+        return (x_norm + 1.0) / 2.0 * range_vals + min_vals
 
-    def __getitem__(
-        self,
-        idx: int,
-    ) -> tuple[
-        torch.Tensor,
-        torch.Tensor,
-    ]:
-        x_t_selected = self.data[idx]
-        x_t_plus_1_selected = self.data[idx + 1]
+    def __getitem__(self, idx: int) -> list[torch.Tensor]:
+        """
+        Returns a sequence of `steps + 1` consecutive timesteps.
+        """
+        # Select the sequence of data
+        sequence_data = self.data[idx : idx + self.steps + 1]
 
+        # Convert to tensors, handling the process-safe copy flag
         if self.process_safe_copy:
-            x_t = torch.from_numpy(x_t_selected.copy()).float()
-            x_t_plus_1 = torch.from_numpy(x_t_plus_1_selected.copy()).float()
+            sequence_tensors = [torch.from_numpy(item.copy()).float() for item in sequence_data]
         else:
-            x_t = torch.from_numpy(x_t_selected).float()
-            x_t_plus_1 = torch.from_numpy(x_t_plus_1_selected).float()
+            sequence_tensors = [torch.from_numpy(item).float() for item in sequence_data]
 
-        x_t = self._normalize(x_t)
-        x_t_plus_1 = self._normalize(x_t_plus_1)
+        # Permute and normalize each tensor in the sequence
+        # Original shape: (X, Y, Z, C). Target shape for model: (C, X, Y, Z)
+        processed_sequence = []
+        for tensor in sequence_tensors:
+            permuted_tensor = tensor.permute(3, 0, 1, 2)
+            normalized_tensor = self._normalize(permuted_tensor)
+            processed_sequence.append(normalized_tensor)
 
-        return x_t, x_t_plus_1
+        return processed_sequence
