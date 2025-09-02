@@ -6,6 +6,8 @@ from collections import OrderedDict
 import torch
 import torch.nn as nn
 
+# Your EncoderQ2D and DecoderQ2D classes are excellent and can be used directly.
+# I've copied them here for completeness within the new model file.
 
 class EncoderQ2D(nn.Module):
     """
@@ -70,7 +72,7 @@ class DecoderQ2D(nn.Module):
         encoder_flattened_size: int,
         conv_output_shape: tuple[int, ...],
         target_spatial_dims: tuple[int, int, int],
-        use_bottleneck: bool = True, # <-- NEW FLAG
+        use_bottleneck: bool = True,
     ):
         super().__init__()
         self.latent_dim = latent_dim
@@ -80,7 +82,6 @@ class DecoderQ2D(nn.Module):
         self.conv_output_shape = conv_output_shape
         self.target_spatial_dims = target_spatial_dims
 
-        # --- Conditionally build the fully connected network ---
         fc_layers = []
         if use_bottleneck:
             fc_layers.extend([
@@ -126,9 +127,10 @@ class DecoderQ2D(nn.Module):
         return x
 
 
-class KoopmanAutoencoderQ2D(nn.Module):
+class tcKoopmanAutoencoderQ2D(nn.Module):
     """
-    The main Quasi-2D Koopman Autoencoder model.
+    The main Temporally-Consistent Quasi-2D Koopman Autoencoder model.
+    This model integrates the tcKAE logic with the Q2D convolutional architecture.
     """
 
     def __init__(
@@ -136,12 +138,19 @@ class KoopmanAutoencoderQ2D(nn.Module):
         in_channels: int,
         latent_dim: int,
         input_spatial_dims: tuple[int, int, int],
+        steps: int,
+        steps_back: int,
+        steps_tc: int,
         bottleneck_dim: int = 4096,
-        use_bottleneck: bool = True, # <-- NEW FLAG
+        use_bottleneck: bool = True,
         **kwargs,
     ):
         super().__init__()
         self.use_bottleneck = use_bottleneck
+        self.steps = steps
+        self.steps_back = steps_back
+        self.steps_tc = steps_tc
+        
         x_dim, y_dim, z_dim = input_spatial_dims
         
         self.encoder = EncoderQ2D(in_channels, y_dim, latent_dim)
@@ -154,7 +163,6 @@ class KoopmanAutoencoderQ2D(nn.Module):
             conv_output = self.encoder.conv_network(dummy_reshaped)
             flattened_size = conv_output.flatten(1).shape[1]
             
-            # --- Conditionally add bottleneck layers to the encoder ---
             if self.use_bottleneck:
                 self.encoder.fc_network.add_module(
                     "1", nn.Linear(flattened_size, bottleneck_dim)
@@ -178,10 +186,14 @@ class KoopmanAutoencoderQ2D(nn.Module):
             encoder_flattened_size=flattened_size,
             conv_output_shape=conv_output_shape,
             target_spatial_dims=input_spatial_dims,
-            use_bottleneck=self.use_bottleneck, # <-- Pass flag to decoder
+            use_bottleneck=self.use_bottleneck,
         )
 
         self.koopman_operator = nn.Linear(latent_dim, latent_dim, bias=False)
+        
+        # Backward operator for consistency loss, as in cKAE/tcKAE paper's implementation
+        self.koopman_operator_backward = nn.Linear(latent_dim, latent_dim, bias=False)
+        self.koopman_operator_backward.weight.data = torch.pinverse(self.koopman_operator.weight.data.T)
 
     def encode(self, x: torch.Tensor) -> torch.Tensor:
         return self.encoder(x)
@@ -192,23 +204,60 @@ class KoopmanAutoencoderQ2D(nn.Module):
     def koopman_step(self, z: torch.Tensor) -> torch.Tensor:
         return self.koopman_operator(z)
 
+    def koopman_step_backward(self, z: torch.Tensor) -> torch.Tensor:
+        return self.koopman_operator_backward(z)
+
     def forward(
         self,
-        x_t: torch.Tensor,
-        x_t_plus_1: torch.Tensor,
-    ) -> dict[str, torch.Tensor]:
-        z_t = self.encode(x_t)
-        z_t_plus_1_encoded = self.encode(x_t_plus_1)
-        z_t_plus_1_predicted = self.koopman_step(z_t)
-        x_t_reconstructed = self.decode(z_t)
-        x_t_plus_1_predicted = self.decode(z_t_plus_1_predicted)
+        x: torch.Tensor,
+        mode: str = 'forward',
+    ) -> dict[str, list[torch.Tensor]]:
+        """
+        Performs the forward pass, generating multi-step predictions.
+        
+        Args:
+            x: Input tensor (batch of initial states).
+            mode: 'forward' or 'backward' to control prediction direction.
 
-        return OrderedDict(
-            [
-                ("z_t", z_t),
-                ("z_t_plus_1_encoded", z_t_plus_1_encoded),
-                ("z_t_plus_1_predicted", z_t_plus_1_predicted),
-                ("x_t_reconstructed", x_t_reconstructed),
-                ("x_t_plus_1_predicted", x_t_plus_1_predicted),
-            ]
-        )
+        Returns:
+            A dictionary containing lists of predicted states and latent states.
+        """
+        z = self.encode(x)
+        q = z.clone() # Use clone to avoid in-place modification issues
+
+        predicted_states = []
+        latent_states = []
+
+        if mode == 'forward':
+            # Determine the maximum number of steps to iterate
+            max_steps = max(self.steps, self.steps_tc)
+            for _ in range(max_steps):
+                q = self.koopman_step(q)
+                predicted_states.append(self.decode(q))
+                latent_states.append(q)
+            
+            # Also include the reconstruction of the original input
+            predicted_states.append(self.decode(z))
+            latent_states.append(z)
+
+            return {
+                "predicted_states": predicted_states,
+                "latent_states": latent_states
+            }
+
+        elif mode == 'backward':
+            for _ in range(self.steps_back):
+                q = self.koopman_step_backward(q)
+                predicted_states.append(self.decode(q))
+                latent_states.append(q)
+
+            predicted_states.append(self.decode(z))
+            latent_states.append(z)
+            
+            return {
+                "predicted_states_back": predicted_states,
+                "latent_states_back": latent_states,
+            }
+        
+        else:
+            raise ValueError(f"Unknown mode: {mode}")
