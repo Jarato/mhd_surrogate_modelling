@@ -1,0 +1,6 @@
+# requirements.txt for the study_2_q2d_model experiment
+# This file ONLY lists our local packages for editable installation.
+# It assumes all third-party libraries (numpy, torch, etc.) are
+# already present in the activated Python environment.
+-e ../../packages/mhd_surrogate_core
+-e ../../packages/mhd_q2d_tckae
