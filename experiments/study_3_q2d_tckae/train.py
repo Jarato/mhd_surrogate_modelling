@@ -31,14 +31,14 @@ def parse_args() -> argparse.Namespace:
         description="Train a Temporally-Consistent Quasi-2D Koopman Autoencoder."
     )
 
-    # --- Grouped Arguments for Clarity ---
     data_group = parser.add_argument_group("Data and I/O")
     data_group.add_argument("--data-path", type=str, required=True, help="Path to the pre-split train_val_set.npz.")
     data_group.add_argument("--norm-stats-path", type=str, required=True, help="Path to the normalization_stats.npz file.")
     data_group.add_argument("--persistent-dir", type=str, required=True, help="Required path for logs and best model (persistent storage).")
     data_group.add_argument("--scratch-dir", type=str, default=None, help="Optional path for frequent checkpoints (fast, temporary storage).")
     data_group.add_argument("--channels", nargs='+', default=None, help="List of channel names to use for training.")
-    data_group.add_argument("--resume-from-checkpoint", type=str, default=None, help="Path to a checkpoint to resume training.")
+    # --- NEW: Changed to a boolean flag ---
+    data_group.add_argument("--resume", action="store_true", help="Flag to resume training from the latest available checkpoint.")
     
     train_group = parser.add_argument_group("Training Parameters")
     train_group.add_argument("--checkpoint-save-freq", type=int, default=1, help="Frequency (in epochs) to save the latest checkpoint.")
@@ -79,6 +79,36 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def find_latest_checkpoint(persistent_dir: Path, scratch_dir: Path | None) -> Path | None:
+    """Finds the most recent checkpoint file between scratch and persistent dirs."""
+    persistent_ckpt = persistent_dir / "latest_checkpoint.pth"
+    scratch_ckpt = scratch_dir / "latest_checkpoint.pth" if scratch_dir else None
+
+    # Determine which checkpoints exist
+    persistent_exists = persistent_ckpt.exists()
+    scratch_exists = scratch_ckpt.exists() if scratch_dir else False
+
+    if not persistent_exists and not scratch_exists:
+        logging.warning("Resume requested, but no checkpoint found in persistent or scratch directories.")
+        return None
+
+    if scratch_exists and persistent_exists:
+        # If both exist, return the one with the later modification time
+        if scratch_ckpt.stat().st_mtime > persistent_ckpt.stat().st_mtime:
+            logging.info(f"Found newer checkpoint in scratch directory: {scratch_ckpt}")
+            return scratch_ckpt
+        else:
+            logging.info(f"Found newer or equal-age checkpoint in persistent directory: {persistent_ckpt}")
+            return persistent_ckpt
+    elif scratch_exists:
+        logging.info(f"Found checkpoint in scratch directory: {scratch_ckpt}")
+        return scratch_ckpt
+    else: # Only persistent exists
+        logging.info(f"Found checkpoint in persistent directory: {persistent_ckpt}")
+        return persistent_ckpt
+
+
+# ... (compute_loss_tckae and validate_epoch remain the same) ...
 def compute_loss_tckae(
     model: tcKoopmanAutoencoderQ2D,
     batch_of_blocks: torch.Tensor,
@@ -166,7 +196,6 @@ def validate_epoch(
 
     return {key: val / len(dataloader) for key, val in total_losses.items()}
 
-
 def main():
     """Main training and validation script."""
     args = parse_args()
@@ -182,16 +211,19 @@ def main():
         scratch_dir.mkdir(parents=True, exist_ok=True)
         logging.info(f"Fast, temporary checkpoints will be saved to: {scratch_dir}")
 
-    # --- Initialize Training State ---
+    # --- Initialize or Resume Training State ---
     start_epoch, best_val_loss, patience_counter, best_epoch = 0, float("inf"), 0, 0
     channels_used = args.channels
     losses_at_best_epoch = {}
     best_component_losses = {"identity": float("inf"), "forward": float("inf"), "tc": float("inf"), "backward": float("inf"), "consistency": float("inf")}
+    
+    resume_checkpoint_path = None
+    if args.resume:
+        resume_checkpoint_path = find_latest_checkpoint(persistent_dir, scratch_dir)
 
-    # --- Load from Checkpoint if Provided ---
-    if args.resume_from_checkpoint:
-        logging.info(f"Resuming training from {args.resume_from_checkpoint}")
-        checkpoint = torch.load(args.resume_from_checkpoint, map_location=DEVICE)
+    if resume_checkpoint_path:
+        logging.info(f"Resuming training from {resume_checkpoint_path}")
+        checkpoint = torch.load(resume_checkpoint_path, map_location=DEVICE)
         model_config = checkpoint["config"]
         channels_used = checkpoint.get("channels_used")
         full_dataset = tcKAEMHDDataset(
@@ -213,6 +245,9 @@ def main():
         best_component_losses = checkpoint.get("best_component_losses", best_component_losses)
     else:
         # --- Initialize a New Run ---
+        if args.resume:
+            logging.error("Resume flag was set, but no valid checkpoint was found. Starting a new run.")
+        
         full_dataset = tcKAEMHDDataset(
             file_path=args.data_path, steps=args.steps,
             sequence_length=args.sequence_length,
