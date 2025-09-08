@@ -306,15 +306,16 @@ def main():
         }
         
         # Save latest checkpoint based on the specified frequency
-        if (epoch + 1) % args.checkpoint_save_freq == 0 or epoch == args.epochs - 1:
+        is_last_epoch = (epoch == args.epochs - 1)
+        if (epoch + 1) % args.checkpoint_save_freq == 0 or is_last_epoch:
             save_dir = scratch_dir if scratch_dir else persistent_dir
             torch.save(checkpoint_data, save_dir / "latest_checkpoint.pth")
             logging.info(f"Saved latest checkpoint to {save_dir / 'latest_checkpoint.pth'}")
         
-        # Periodically save to persistent storage if using scratch
-        if scratch_dir and (epoch + 1) % args.persistent_save_freq == 0:
+        # Periodically or finally save to persistent storage if using scratch
+        if scratch_dir and ((epoch + 1) % args.persistent_save_freq == 0 or is_last_epoch):
             torch.save(checkpoint_data, persistent_dir / "latest_checkpoint.pth")
-            logging.info(f"Saved periodic persistent checkpoint to {persistent_dir / 'latest_checkpoint.pth'}")
+            logging.info(f"Saved persistent checkpoint to {persistent_dir / 'latest_checkpoint.pth'}")
 
         if patience_counter >= args.patience:
             logging.info("Early stopping triggered."); break
@@ -333,7 +334,7 @@ def main():
     if hparams.get('resume_from_checkpoint'): hparams['resume_from_checkpoint'] = str(hparams['resume_from_checkpoint'])
     final_metrics = {'hparam/best_val_loss': best_val_loss, 'hparam/best_epoch': best_epoch}
     for key, value in losses_at_best_epoch.items(): final_metrics[f'hparam/{key}_at_best'] = value
-    for key, value in best_component_losses.items(): final_metrics[f'hparam/{key}_loss'] = value
+    for key, value in best_component_losses.items(): final_metrics[f'hparam/best_{key}_loss'] = value
     writer.add_hparams(hparams, final_metrics)
     
     writer.close()
