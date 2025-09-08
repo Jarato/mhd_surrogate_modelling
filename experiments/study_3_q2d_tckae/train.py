@@ -367,23 +367,44 @@ def main():
             logging.info("Early stopping triggered.")
             break
 
-    # --- Final HParam Logging ---
+    # --- HParam Logging ---
     hparams = {
-        **{k: v for k, v in vars(args).items() if k not in ['channels']},
+        **{k: v for k, v in vars(args).items() if k not in [
+            'latent_dim', 'bottleneck_dim', 'channels', 'use_bottleneck',
+            'steps', 'steps_back', 'steps_tc'
+        ]},
+        'latent_dim': model_config['latent_dim'],
+        'bottleneck_dim': model_config.get('bottleneck_dim', 4096),
+        'use_bottleneck': model_config.get('use_bottleneck', True),
+        'steps': model_config['steps'],
+        'steps_back': model_config['steps_back'],
+        'steps_tc': model_config['steps_tc'],
         'channels': ",".join(channels_used) if channels_used is not None else "all",
     }
+    
+    # Clean up path objects for logging
     for key, value in hparams.items():
-        if isinstance(value, Path): hparams[key] = str(value)
+        if isinstance(value, Path):
+            hparams[key] = str(value)
+        elif key.endswith('_path') and value is not None:
+             hparams[key] = str(value)
+
     if hparams.get('resume_from_checkpoint'):
         hparams['resume_from_checkpoint'] = str(hparams['resume_from_checkpoint'])
 
-    final_metrics = { 'hparam/best_val_loss': best_val_loss, 'hparam/best_epoch': best_epoch }
+    final_metrics = {
+        'hparam/best_val_loss': best_val_loss,
+        'hparam/best_epoch': best_epoch,
+    }
+    
     for key, value in losses_at_best_epoch.items():
         final_metrics[f'hparam/{key}_at_best'] = value
+        
     for key, value in best_component_losses.items():
         final_metrics[f'hparam/best_{key}_loss'] = value
 
     writer.add_hparams(hparams, final_metrics)
+    
     writer.close()
     logging.info("Training finished.")
 
