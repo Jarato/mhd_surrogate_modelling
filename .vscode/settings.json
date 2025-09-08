@@ -5,9 +5,11 @@
         "denorm",
         "EIGS",
         "hparams",
+        "KAEMHD",
         "patt",
         "pbar",
         "PREDS",
+        "tckae",
         "traj"
     ]
 }
