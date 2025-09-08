@@ -91,21 +91,16 @@ def main():
             )
         else:
             run_name_parts.append("bwd_False")
-        
         run_name = "_".join(run_name_parts)
         
         persistent_dir = BASE_PERSISTENT_DIR / run_name
         scratch_dir = BASE_SCRATCH_DIR / run_name if BASE_SCRATCH_DIR else None
         
-        # Determine checkpoint path for resuming
-        checkpoint_dir = scratch_dir if scratch_dir else persistent_dir
-        latest_checkpoint_path = checkpoint_dir / "latest_checkpoint.pth"
-
-        resume_arg = None
+        should_resume = False
         if persistent_dir.exists():
-            if args.resume and latest_checkpoint_path.exists():
-                logging.info(f"--- RESUMING Run {i+1}/{len(run_configs)}: {run_name} ---")
-                resume_arg = str(latest_checkpoint_path)
+            if args.resume:
+                logging.info(f"--- ATTEMPTING TO RESUME Run {i+1}/{len(run_configs)}: {run_name} ---")
+                should_resume = True
             else:
                 logging.info(f"--- SKIPPING Run {i+1}/{len(run_configs)}: {run_name} (directory exists) ---")
                 continue
@@ -124,8 +119,8 @@ def main():
         if scratch_dir:
             cmd.extend(["--scratch-dir", str(scratch_dir)])
             
-        if resume_arg:
-            cmd.extend(["--resume-from-checkpoint", resume_arg])
+        if should_resume:
+            cmd.append("--resume")
 
         # Add hyperparameters from the config
         for key, value in config.items():
@@ -137,7 +132,6 @@ def main():
                 cmd.append(f"--{key.replace('_', '-')}")
                 cmd.append(str(value))
                 
-        # Add fixed arguments
         for key, value in fixed_args.items():
             cmd.append(f"--{key.replace('_', '-')}")
             cmd.append(str(value))
@@ -149,7 +143,6 @@ def main():
             logging.error(f"!!!!!! Run {run_name} failed with exit code {e.returncode} !!!!!!")
 
     logging.info("Hyperparameter sweep finished.")
-
 
 if __name__ == "__main__":
     main()
