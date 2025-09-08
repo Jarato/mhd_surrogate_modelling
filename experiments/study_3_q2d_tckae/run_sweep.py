@@ -19,8 +19,8 @@ NORM_STATS_PATH = "/raid/skowronek/preprocessed_dns_output/01-Cold_Runs/01-Re16K
 
 # Define the mandatory persistent directory and optional scratch directory
 # These will be the top-level directories for all sweep runs.
-BASE_PERSISTENT_DIR = Path("/cephfs/users/skowronek/Documents/PhD/nuclear_fusion_cooling/prediction/run_mhd_surrogate_modelling/experiments/study_3_q2d_tckae/output/")
-BASE_SCRATCH_DIR = Path("/scratch/users/skowronek/mhd_surrogate/study_3/") # Optional, can be None
+BASE_PERSISTENT_DIR = Path("/cephfs/users/skowronek/Documents/PhD/nuclear_fusion_cooling/prediction/mhd_surrogate_modelling/experiments/study_3_q2d_tckae/output/test/")
+BASE_SCRATCH_DIR = Path("/raid/skowronek/mhd_surrogate_modelling/experiments/study_3_q2d_tckae/output/test/")
 
 # --- Hyperparameter Grid ---
 # Define the parameter space for the grid search.
@@ -30,29 +30,29 @@ param_grid = {
     'bottleneck_dim': [4096],
     'use_bottleneck': [True],
     'batch_size': [4],
-    'sequence_length': [8, 16], # This is M
-    'steps': [15],              # This is K for forward dynamics
-    'steps_back': [15],         # K for backward dynamics
-    'steps_tc': [8],
+    'sequence_length': [4], # This is M
+    'steps': [4],              # This is K for forward dynamics
+    'steps_back': [4],         # K for backward dynamics
+    'steps_tc': [4],
     'gamma_identity': [1.0],
     'gamma_fwd': [1.0],
-    'gamma_tc': [0.1, 1.0],
+    'gamma_tc': [1.0],
     'gamma_bwd': [1.0],         # Used only if backward=True
     'gamma_con': [1e-4],        # Used only if backward=True
-    'backward': [False, True],  # Sweep between tcKAE and tcKAE+cKAE
+    'backward': [False],  # Sweep between tcKAE and tcKAE+cKAE
 }
 
 # --- Fixed Training Arguments ---
 # These arguments will be the same for all runs.
 fixed_args = {
-    "epochs": 200,
+    "epochs": 4,
     "patience": 40,
     "lr_patience": 10,
-    "clip_grad_value": 0.5,
+    "clip_grad_value": 1,
     "lr_factor": 0.1,
     "num_workers": 8,
-    "checkpoint_save_freq": 5,
-    "persistent_save_freq": 20,
+    "checkpoint_save_freq": 1,
+    "persistent_save_freq": 2,
 }
 
 
