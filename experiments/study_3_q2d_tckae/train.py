@@ -35,11 +35,15 @@ def parse_args() -> argparse.Namespace:
     data_group = parser.add_argument_group("Data and I/O")
     data_group.add_argument("--data-path", type=str, required=True, help="Path to the pre-split train_val_set.npz.")
     data_group.add_argument("--norm-stats-path", type=str, required=True, help="Path to the normalization_stats.npz file.")
-    data_group.add_argument("--output-dir", type=str, default="output_tckae", help="Directory to save the best model and logs.")
+    data_group.add_argument("--output-dir", type=str, default="output_tckae", help="Directory for logs and frequent checkpoints (fast storage).")
     data_group.add_argument("--channels", nargs='+', default=None, help="List of channel names to use for training.")
     data_group.add_argument("--resume-from-checkpoint", type=str, default=None, help="Path to a checkpoint to resume training.")
-
+    
+    # --- NEW: Persistent Storage Arguments ---
+    data_group.add_argument("--persistent-dir", type=str, default=None, help="Optional path for durable checkpoints (slow, persistent storage).")
     train_group = parser.add_argument_group("Training Parameters")
+    train_group.add_argument("--persistent-save-freq", type=int, default=10, help="Frequency (in epochs) to save a checkpoint to persistent storage.")
+
     train_group.add_argument("--epochs", type=int, default=200, help="Maximum number of training epochs.")
     train_group.add_argument("--batch-size", type=int, default=4, help="Number of independent blocks per batch.")
     train_group.add_argument("--num-workers", type=int, default=8, help="Number of worker processes for data loading.")
@@ -87,41 +91,30 @@ def compute_loss_tckae(
     loss_fn = nn.MSELoss()
     B, M, T, C, X, Y, Z = batch_of_blocks.shape
     
-    # --- Reshape for Vectorized Model Pass ---
-    # Combine Batch (B) and Sequence (M) dimensions for a single forward pass
-    # model_input shape: (B * M, C, X, Y, Z)
     model_input = batch_of_blocks[:, :, 0].reshape(B * M, C, X, Y, Z)
-    
-    # Prepare ground truth data_list where each element has shape (B * M, ...)
     data_list = [batch_of_blocks[:, :, t].reshape(B * M, C, X, Y, Z) for t in range(T)]
 
-    # --- Model Forward Pass ---
     outputs = model(model_input, mode='forward')
 
-    # --- Identity Loss ---
     loss_identity = loss_fn(outputs["predicted_states"][-1], data_list[0])
 
-    # --- Forward Prediction Loss ---
     loss_fwd = torch.tensor(0.0, device=DEVICE)
     for k in range(model.steps):
         loss_fwd = loss_fwd + loss_fn(outputs["predicted_states"][k], data_list[k + 1])
     loss_fwd = loss_fwd / model.steps
 
-    # --- Temporal Consistency Loss ---
     loss_tc = torch.tensor(0.0, device=DEVICE)
     if epoch >= epoch_trans and gammas["tc"] > 0:
         latent_preds = outputs["latent_states"]
         for q in range(1, model.steps_tc):
             loss_q = torch.tensor(0.0, device=DEVICE)
             for k in range(model.steps_tc - q):
-                # Reshape latent vectors to (B, M, latent_dim) to slice correctly
                 pred_k = latent_preds[k].view(B, M, -1)
                 pred_kq = latent_preds[k + q].view(B, M, -1)
                 loss_q = loss_q + loss_fn(pred_k[:, q:, :], pred_kq[:, :-q, :])
             loss_tc = loss_tc + loss_q / (model.steps_tc - q)
         loss_tc = loss_tc / (model.steps_tc - 1)
 
-    # --- Backward and Consistency Loss ---
     loss_bwd = torch.tensor(0.0, device=DEVICE)
     loss_consist = torch.tensor(0.0, device=DEVICE)
     if gammas["bwd"] > 0 or gammas["con"] > 0:
@@ -138,7 +131,6 @@ def compute_loss_tckae(
             term2 = torch.sum((torch.mm(A[:j, :], B[:, :j]) - I_j) ** 2)
             loss_consist = loss_consist + (term1 + term2) / (2.0 * j)
 
-    # --- Combine All Losses ---
     total_loss = (
         gammas["identity"] * loss_identity +
         gammas["fwd"] * loss_fwd +
@@ -148,12 +140,9 @@ def compute_loss_tckae(
     )
 
     loss_dict = {
-        "total": total_loss.detach(),
-        "identity": loss_identity.detach(),
-        "forward": loss_fwd.detach(),
-        "tc": loss_tc.detach(),
-        "backward": loss_bwd.detach(),
-        "consistency": loss_consist.detach(),
+        "total": total_loss.detach(), "identity": loss_identity.detach(),
+        "forward": loss_fwd.detach(), "tc": loss_tc.detach(),
+        "backward": loss_bwd.detach(), "consistency": loss_consist.detach(),
     }
     
     return total_loss, loss_dict
@@ -168,20 +157,14 @@ def validate_epoch(
 ) -> Dict[str, float]:
     """Computes validation loss for one epoch."""
     model.eval()
-    total_losses = {
-        "total": 0.0, "identity": 0.0, "forward": 0.0, "tc": 0.0,
-        "backward": 0.0, "consistency": 0.0
-    }
+    total_losses = {"total": 0.0, "identity": 0.0, "forward": 0.0, "tc": 0.0, "backward": 0.0, "consistency": 0.0}
     with torch.no_grad():
         for batch_of_blocks in dataloader:
             batch_of_blocks = batch_of_blocks.to(DEVICE)
-            _, loss_dict = compute_loss_tckae(
-                model, batch_of_blocks, gammas, epoch, epoch_trans
-            )
+            _, loss_dict = compute_loss_tckae(model, batch_of_blocks, gammas, epoch, epoch_trans)
             for key in total_losses:
                 total_losses[key] += loss_dict[key].item()
 
-    # Average over all batches in the validation set
     return {key: val / len(dataloader) for key, val in total_losses.items()}
 
 
@@ -195,17 +178,17 @@ def main():
     output_dir.mkdir(parents=True, exist_ok=True)
     writer = SummaryWriter(log_dir=output_dir / "logs")
 
+    # --- NEW: Setup Persistent Directory ---
+    persistent_dir = Path(args.persistent_dir) if args.persistent_dir else None
+    if persistent_dir:
+        persistent_dir.mkdir(parents=True, exist_ok=True)
+        logging.info(f"Persistent checkpoints will be saved to: {persistent_dir}")
+
     # --- Initialize Training State ---
-    start_epoch = 0
-    best_val_loss = float("inf")
-    patience_counter = 0
-    best_epoch = 0
+    start_epoch, best_val_loss, patience_counter, best_epoch = 0, float("inf"), 0, 0
     channels_used = args.channels
     losses_at_best_epoch = {}
-    best_component_losses = {
-        "identity": float("inf"), "forward": float("inf"), "tc": float("inf"),
-        "backward": float("inf"), "consistency": float("inf")
-    }
+    best_component_losses = {"identity": float("inf"), "forward": float("inf"), "tc": float("inf"), "backward": float("inf"), "consistency": float("inf")}
 
     # --- Load from Checkpoint if Provided ---
     if args.resume_from_checkpoint:
@@ -213,65 +196,41 @@ def main():
         checkpoint = torch.load(args.resume_from_checkpoint, map_location=DEVICE)
         model_config = checkpoint["config"]
         channels_used = checkpoint.get("channels_used")
-
         full_dataset = tcKAEMHDDataset(
-            file_path=args.data_path,
-            steps=model_config["steps"],
+            file_path=args.data_path, steps=model_config["steps"],
             sequence_length=model_config["sequence_length"],
-            norm_stats_path=args.norm_stats_path,
-            channels_to_use=channels_used,
+            norm_stats_path=args.norm_stats_path, channels_to_use=channels_used,
             process_safe_copy=(args.num_workers > 0),
         )
-        train_indices = checkpoint["train_indices"]
-        val_indices = checkpoint["val_indices"]
-        train_dataset = Subset(full_dataset, train_indices)
-        val_dataset = Subset(full_dataset, val_indices)
-
+        train_indices, val_indices = checkpoint["train_indices"], checkpoint["val_indices"]
+        train_dataset, val_dataset = Subset(full_dataset, train_indices), Subset(full_dataset, val_indices)
         model = tcKoopmanAutoencoderQ2D(**model_config).to(DEVICE)
         model.load_state_dict(checkpoint["model_state_dict"])
-        
         optimizer = Adam(model.parameters(), lr=args.lr)
         optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
-        
         scheduler = ReduceLROnPlateau(optimizer, 'min', factor=args.lr_factor, patience=args.lr_patience)
         scheduler.load_state_dict(checkpoint["scheduler_state_dict"])
-        
-        start_epoch = checkpoint["epoch"] + 1
-        best_val_loss = checkpoint["best_val_loss"]
-        patience_counter = checkpoint["patience_counter"]
-        best_epoch = checkpoint.get("best_epoch", 0)
+        start_epoch, best_val_loss, patience_counter, best_epoch = checkpoint["epoch"] + 1, checkpoint["best_val_loss"], checkpoint["patience_counter"], checkpoint.get("best_epoch", 0)
         losses_at_best_epoch = checkpoint.get("losses_at_best_epoch", {})
         best_component_losses = checkpoint.get("best_component_losses", best_component_losses)
-
     else:
         # --- Initialize a New Run ---
         full_dataset = tcKAEMHDDataset(
-            file_path=args.data_path,
-            steps=args.steps,
+            file_path=args.data_path, steps=args.steps,
             sequence_length=args.sequence_length,
-            norm_stats_path=args.norm_stats_path,
-            channels_to_use=args.channels,
+            norm_stats_path=args.norm_stats_path, channels_to_use=args.channels,
             process_safe_copy=(args.num_workers > 0),
         )
         channels_used = full_dataset.channel_names
-        
         stats = np.load(args.norm_stats_path)
         train_indices, val_indices = stats["train_indices"], stats["val_indices"]
-        train_dataset = Subset(full_dataset, train_indices)
-        val_dataset = Subset(full_dataset, val_indices)
-
-        sample_block = full_dataset[0]
-        sample_x = sample_block[0, 0]
-        
+        train_dataset, val_dataset = Subset(full_dataset, train_indices), Subset(full_dataset, val_indices)
+        sample_block, sample_x = full_dataset[0], sample_block[0, 0]
         model_config = {
-            "in_channels": sample_x.shape[0],
-            "latent_dim": args.latent_dim,
-            "input_spatial_dims": sample_x.shape[1:],
-            "steps": args.steps,
-            "steps_back": args.steps_back,
-            "steps_tc": args.steps_tc,
-            "sequence_length": args.sequence_length,
-            "bottleneck_dim": args.bottleneck_dim,
+            "in_channels": sample_x.shape[0], "latent_dim": args.latent_dim,
+            "input_spatial_dims": sample_x.shape[1:], "steps": args.steps,
+            "steps_back": args.steps_back, "steps_tc": args.steps_tc,
+            "sequence_length": args.sequence_length, "bottleneck_dim": args.bottleneck_dim,
             "use_bottleneck": args.use_bottleneck,
         }
         model = tcKoopmanAutoencoderQ2D(**model_config).to(DEVICE)
@@ -283,12 +242,7 @@ def main():
     val_dataloader = DataLoader(val_dataset, batch_size=args.batch_size, shuffle=False, num_workers=args.num_workers, pin_memory=True)
     logging.info(f"Data split: {len(train_dataset)} train, {len(val_dataset)} val.")
     
-    gammas = {
-        "identity": args.gamma_identity, "fwd": args.gamma_fwd,
-        "bwd": args.gamma_bwd if args.backward else 0.0,
-        "con": args.gamma_con if args.backward else 0.0,
-        "tc": args.gamma_tc,
-    }
+    gammas = {"identity": args.gamma_identity, "fwd": args.gamma_fwd, "bwd": args.gamma_bwd if args.backward else 0.0, "con": args.gamma_con if args.backward else 0.0, "tc": args.gamma_tc}
     logging.info(f"Using loss weights (gammas): {gammas}")
 
     # =========================================================================
@@ -296,39 +250,33 @@ def main():
     # =========================================================================
     for epoch in range(start_epoch, args.epochs):
         model.train()
-        epoch_losses = { "total": 0.0, "identity": 0.0, "forward": 0.0, "tc": 0.0, "backward": 0.0, "consistency": 0.0 }
+        epoch_losses = {"total": 0.0, "identity": 0.0, "forward": 0.0, "tc": 0.0, "backward": 0.0, "consistency": 0.0}
         epoch_grad_norm = 0.0
         
         pbar = tqdm(train_dataloader, desc=f"Epoch {epoch+1}/{args.epochs}", leave=True)
         for batch_of_blocks in pbar:
             batch_of_blocks = batch_of_blocks.to(DEVICE)
-            
             loss, loss_dict = compute_loss_tckae(model, batch_of_blocks, gammas, epoch, args.epoch_trans)
             
             optimizer.zero_grad()
             loss.backward()
-
             if args.clip_grad_value:
                 grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=args.clip_grad_value).item()
             else:
                 grad_norm = sum(p.grad.data.norm(2).item()**2 for p in model.parameters() if p.grad is not None)**0.5
-            
             optimizer.step()
 
-            # Accumulate losses and gradient norm for logging
             for key in epoch_losses:
                 epoch_losses[key] += loss_dict[key].item()
             epoch_grad_norm += grad_norm
             pbar.set_postfix(loss=loss.item())
 
-        # --- End of Epoch: Validation and Logging ---
         avg_train_losses = {key: val / len(train_dataloader) for key, val in epoch_losses.items()}
         avg_val_losses = validate_epoch(model, val_dataloader, gammas, epoch, args.epoch_trans)
         scheduler.step(avg_val_losses["total"])
 
         logging.info(f"Epoch [{epoch+1}/{args.epochs}] | Train Loss: {avg_train_losses['total']:.4f} | Val Loss: {avg_val_losses['total']:.4f}")
         
-        # --- TensorBoard Logging ---
         writer.add_scalars("Loss/Total", {'train': avg_train_losses['total'], 'val': avg_val_losses['total']}, epoch)
         writer.add_scalar("Gradient/Norm", epoch_grad_norm / len(train_dataloader), epoch)
         for key in avg_train_losses:
@@ -342,71 +290,47 @@ def main():
                  best_component_losses[key] = min(best_component_losses[key], avg_val_losses[key])
 
         if avg_val_losses["total"] < best_val_loss:
-            best_val_loss = avg_val_losses["total"]
-            patience_counter = 0
-            best_epoch = epoch + 1
+            best_val_loss, patience_counter, best_epoch = avg_val_losses["total"], 0, epoch + 1
             losses_at_best_epoch = avg_val_losses
-            torch.save({
-                'config': model_config, 
-                'model_state_dict': model.state_dict(),
-                'channels_used': channels_used
-            }, output_dir / "best_model.pth")
+            torch.save({'config': model_config, 'model_state_dict': model.state_dict(), 'channels_used': channels_used}, output_dir / "best_model.pth")
             logging.info(f"New best model saved (Val Loss: {best_val_loss:.4f})")
         else:
             patience_counter += 1
         
-        torch.save({
-            "epoch": epoch, "config": model_config,
-            "model_state_dict": model.state_dict(),
-            "optimizer_state_dict": optimizer.state_dict(),
-            "scheduler_state_dict": scheduler.state_dict(),
+        checkpoint_data = {
+            "epoch": epoch, "config": model_config, "model_state_dict": model.state_dict(),
+            "optimizer_state_dict": optimizer.state_dict(), "scheduler_state_dict": scheduler.state_dict(),
             "best_val_loss": best_val_loss, "patience_counter": patience_counter,
             "best_epoch": best_epoch, "losses_at_best_epoch": losses_at_best_epoch,
-            "best_component_losses": best_component_losses,
-            "train_indices": train_indices, "val_indices": val_indices,
-            "channels_used": channels_used,
-        }, output_dir / "latest_checkpoint.pth")
+            "best_component_losses": best_component_losses, "train_indices": train_indices,
+            "val_indices": val_indices, "channels_used": channels_used,
+        }
+        torch.save(checkpoint_data, output_dir / "latest_checkpoint.pth")
+        
+        # --- NEW: Save to persistent storage periodically ---
+        if persistent_dir and (epoch + 1) % args.persistent_save_freq == 0:
+            persistent_checkpoint_path = persistent_dir / "latest_checkpoint.pth"
+            torch.save(checkpoint_data, persistent_checkpoint_path)
+            logging.info(f"Saved persistent checkpoint to {persistent_checkpoint_path}")
 
         if patience_counter >= args.patience:
-            logging.info("Early stopping triggered.")
-            break
+            logging.info("Early stopping triggered."); break
 
-    # --- HParam Logging ---
+    # --- Final HParam Logging ---
     hparams = {
-        **{k: v for k, v in vars(args).items() if k not in [
-            'latent_dim', 'bottleneck_dim', 'channels', 'use_bottleneck',
-            'steps', 'steps_back', 'steps_tc'
-        ]},
-        'latent_dim': model_config['latent_dim'],
-        'bottleneck_dim': model_config.get('bottleneck_dim', 4096),
-        'use_bottleneck': model_config.get('use_bottleneck', True),
-        'steps': model_config['steps'],
-        'steps_back': model_config['steps_back'],
-        'steps_tc': model_config['steps_tc'],
+        **{k: v for k, v in vars(args).items() if k not in ['latent_dim', 'bottleneck_dim', 'channels', 'use_bottleneck','steps', 'steps_back', 'steps_tc']},
+        'latent_dim': model_config['latent_dim'], 'bottleneck_dim': model_config.get('bottleneck_dim', 4096),
+        'use_bottleneck': model_config.get('use_bottleneck', True), 'steps': model_config['steps'],
+        'steps_back': model_config['steps_back'], 'steps_tc': model_config['steps_tc'],
         'channels': ",".join(channels_used) if channels_used is not None else "all",
     }
-    
-    # Clean up path objects for logging
     for key, value in hparams.items():
-        if isinstance(value, Path):
-            hparams[key] = str(value)
-        elif key.endswith('_path') and value is not None:
-             hparams[key] = str(value)
-
-    if hparams.get('resume_from_checkpoint'):
-        hparams['resume_from_checkpoint'] = str(hparams['resume_from_checkpoint'])
-
-    final_metrics = {
-        'hparam/best_val_loss': best_val_loss,
-        'hparam/best_epoch': best_epoch,
-    }
-    
-    for key, value in losses_at_best_epoch.items():
-        final_metrics[f'hparam/{key}_at_best'] = value
-        
-    for key, value in best_component_losses.items():
-        final_metrics[f'hparam/best_{key}_loss'] = value
-
+        if isinstance(value, Path): hparams[key] = str(value)
+        elif key.endswith('_path') and value is not None: hparams[key] = str(value)
+    if hparams.get('resume_from_checkpoint'): hparams['resume_from_checkpoint'] = str(hparams['resume_from_checkpoint'])
+    final_metrics = {'hparam/best_val_loss': best_val_loss, 'hparam/best_epoch': best_epoch}
+    for key, value in losses_at_best_epoch.items(): final_metrics[f'hparam/{key}_at_best'] = value
+    for key, value in best_component_losses.items(): final_metrics[f'hparam/best_{key}_loss'] = value
     writer.add_hparams(hparams, final_metrics)
     
     writer.close()
