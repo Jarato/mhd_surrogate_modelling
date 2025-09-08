@@ -41,6 +41,7 @@ def parse_args() -> argparse.Namespace:
     data_group.add_argument("--resume-from-checkpoint", type=str, default=None, help="Path to a checkpoint to resume training.")
     
     train_group = parser.add_argument_group("Training Parameters")
+    train_group.add_argument("--checkpoint-save-freq", type=int, default=1, help="Frequency (in epochs) to save the latest checkpoint.")
     train_group.add_argument("--persistent-save-freq", type=int, default=10, help="Frequency (in epochs) to save a checkpoint to persistent storage if scratch-dir is used.")
     train_group.add_argument("--epochs", type=int, default=200, help="Maximum number of training epochs.")
     train_group.add_argument("--batch-size", type=int, default=4, help="Number of independent blocks per batch.")
@@ -304,9 +305,11 @@ def main():
             "val_indices": val_indices, "channels_used": channels_used,
         }
         
-        # Save latest checkpoint to scratch (fast) dir if available, otherwise to persistent
-        save_dir = scratch_dir if scratch_dir else persistent_dir
-        torch.save(checkpoint_data, save_dir / "latest_checkpoint.pth")
+        # Save latest checkpoint based on the specified frequency
+        if (epoch + 1) % args.checkpoint_save_freq == 0 or epoch == args.epochs - 1:
+            save_dir = scratch_dir if scratch_dir else persistent_dir
+            torch.save(checkpoint_data, save_dir / "latest_checkpoint.pth")
+            logging.info(f"Saved latest checkpoint to {save_dir / 'latest_checkpoint.pth'}")
         
         # Periodically save to persistent storage if using scratch
         if scratch_dir and (epoch + 1) % args.persistent_save_freq == 0:
@@ -330,7 +333,7 @@ def main():
     if hparams.get('resume_from_checkpoint'): hparams['resume_from_checkpoint'] = str(hparams['resume_from_checkpoint'])
     final_metrics = {'hparam/best_val_loss': best_val_loss, 'hparam/best_epoch': best_epoch}
     for key, value in losses_at_best_epoch.items(): final_metrics[f'hparam/{key}_at_best'] = value
-    for key, value in best_component_losses.items(): final_metrics[f'hparam/best_{key}_loss'] = value
+    for key, value in best_component_losses.items(): final_metrics[f'hparam/{key}_loss'] = value
     writer.add_hparams(hparams, final_metrics)
     
     writer.close()
