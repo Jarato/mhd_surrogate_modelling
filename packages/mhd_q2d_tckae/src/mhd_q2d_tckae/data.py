@@ -84,6 +84,11 @@ class tcKAEMHDDataset(Dataset):
         if self.min_vals is None: return x
         return (x - self.min_vals) / self.range * 2.0 - 1.0
 
+    def _denormalize(self, x_norm: torch.Tensor) -> torch.Tensor:
+        """Denormalizes a tensor from [-1, 1] back to the original data scale."""
+        if self.min_vals is None: return x_norm
+        return (x_norm + 1.0) / 2.0 * self.range + self.min_vals
+
     def __getitem__(self, idx: int) -> torch.Tensor:
         """
         Returns a single training sample: a block of M consecutive sequences.
