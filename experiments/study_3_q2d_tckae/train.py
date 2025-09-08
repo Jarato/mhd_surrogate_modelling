@@ -35,15 +35,13 @@ def parse_args() -> argparse.Namespace:
     data_group = parser.add_argument_group("Data and I/O")
     data_group.add_argument("--data-path", type=str, required=True, help="Path to the pre-split train_val_set.npz.")
     data_group.add_argument("--norm-stats-path", type=str, required=True, help="Path to the normalization_stats.npz file.")
-    data_group.add_argument("--output-dir", type=str, default="output_tckae", help="Directory for logs and frequent checkpoints (fast storage).")
+    data_group.add_argument("--persistent-dir", type=str, required=True, help="Required path for logs and best model (persistent storage).")
+    data_group.add_argument("--scratch-dir", type=str, default=None, help="Optional path for frequent checkpoints (fast, temporary storage).")
     data_group.add_argument("--channels", nargs='+', default=None, help="List of channel names to use for training.")
     data_group.add_argument("--resume-from-checkpoint", type=str, default=None, help="Path to a checkpoint to resume training.")
     
-    # --- NEW: Persistent Storage Arguments ---
-    data_group.add_argument("--persistent-dir", type=str, default=None, help="Optional path for durable checkpoints (slow, persistent storage).")
     train_group = parser.add_argument_group("Training Parameters")
-    train_group.add_argument("--persistent-save-freq", type=int, default=10, help="Frequency (in epochs) to save a checkpoint to persistent storage.")
-
+    train_group.add_argument("--persistent-save-freq", type=int, default=10, help="Frequency (in epochs) to save a checkpoint to persistent storage if scratch-dir is used.")
     train_group.add_argument("--epochs", type=int, default=200, help="Maximum number of training epochs.")
     train_group.add_argument("--batch-size", type=int, default=4, help="Number of independent blocks per batch.")
     train_group.add_argument("--num-workers", type=int, default=8, help="Number of worker processes for data loading.")
@@ -174,15 +172,14 @@ def main():
     logging.info(f"Using device: {DEVICE}")
 
     # --- Setup Directories and Logging ---
-    output_dir = Path(args.output_dir)
-    output_dir.mkdir(parents=True, exist_ok=True)
-    writer = SummaryWriter(log_dir=output_dir / "logs")
+    persistent_dir = Path(args.persistent_dir)
+    persistent_dir.mkdir(parents=True, exist_ok=True)
+    writer = SummaryWriter(log_dir=persistent_dir / "logs")
 
-    # --- NEW: Setup Persistent Directory ---
-    persistent_dir = Path(args.persistent_dir) if args.persistent_dir else None
-    if persistent_dir:
-        persistent_dir.mkdir(parents=True, exist_ok=True)
-        logging.info(f"Persistent checkpoints will be saved to: {persistent_dir}")
+    scratch_dir = Path(args.scratch_dir) if args.scratch_dir else None
+    if scratch_dir:
+        scratch_dir.mkdir(parents=True, exist_ok=True)
+        logging.info(f"Fast, temporary checkpoints will be saved to: {scratch_dir}")
 
     # --- Initialize Training State ---
     start_epoch, best_val_loss, patience_counter, best_epoch = 0, float("inf"), 0, 0
@@ -225,7 +222,8 @@ def main():
         stats = np.load(args.norm_stats_path)
         train_indices, val_indices = stats["train_indices"], stats["val_indices"]
         train_dataset, val_dataset = Subset(full_dataset, train_indices), Subset(full_dataset, val_indices)
-        sample_block, sample_x = full_dataset[0], sample_block[0, 0]
+        sample_block = full_dataset[0]
+        sample_x = sample_block[0, 0]
         model_config = {
             "in_channels": sample_x.shape[0], "latent_dim": args.latent_dim,
             "input_spatial_dims": sample_x.shape[1:], "steps": args.steps,
@@ -292,8 +290,8 @@ def main():
         if avg_val_losses["total"] < best_val_loss:
             best_val_loss, patience_counter, best_epoch = avg_val_losses["total"], 0, epoch + 1
             losses_at_best_epoch = avg_val_losses
-            torch.save({'config': model_config, 'model_state_dict': model.state_dict(), 'channels_used': channels_used}, output_dir / "best_model.pth")
-            logging.info(f"New best model saved (Val Loss: {best_val_loss:.4f})")
+            torch.save({'config': model_config, 'model_state_dict': model.state_dict(), 'channels_used': channels_used}, persistent_dir / "best_model.pth")
+            logging.info(f"New best model saved to persistent storage (Val Loss: {best_val_loss:.4f})")
         else:
             patience_counter += 1
         
@@ -305,13 +303,15 @@ def main():
             "best_component_losses": best_component_losses, "train_indices": train_indices,
             "val_indices": val_indices, "channels_used": channels_used,
         }
-        torch.save(checkpoint_data, output_dir / "latest_checkpoint.pth")
         
-        # --- NEW: Save to persistent storage periodically ---
-        if persistent_dir and (epoch + 1) % args.persistent_save_freq == 0:
-            persistent_checkpoint_path = persistent_dir / "latest_checkpoint.pth"
-            torch.save(checkpoint_data, persistent_checkpoint_path)
-            logging.info(f"Saved persistent checkpoint to {persistent_checkpoint_path}")
+        # Save latest checkpoint to scratch (fast) dir if available, otherwise to persistent
+        save_dir = scratch_dir if scratch_dir else persistent_dir
+        torch.save(checkpoint_data, save_dir / "latest_checkpoint.pth")
+        
+        # Periodically save to persistent storage if using scratch
+        if scratch_dir and (epoch + 1) % args.persistent_save_freq == 0:
+            torch.save(checkpoint_data, persistent_dir / "latest_checkpoint.pth")
+            logging.info(f"Saved periodic persistent checkpoint to {persistent_dir / 'latest_checkpoint.pth'}")
 
         if patience_counter >= args.patience:
             logging.info("Early stopping triggered."); break
