@@ -83,76 +83,80 @@ def compute_loss_tckae(
     epoch: int,
     epoch_trans: int,
 ) -> tuple[torch.Tensor, Dict[str, torch.Tensor]]:
-    """Computes the full tcKAE loss for a batch of sequence blocks."""
+    """Computes the full tcKAE loss for a batch of sequence blocks in a vectorized manner."""
     loss_fn = nn.MSELoss()
-    batch_size = batch_of_blocks.shape[0]
-    total_loss = torch.tensor(0.0, device=DEVICE, requires_grad=True)
-    loss_dict = {
-        "identity": 0.0, "forward": 0.0, "tc": 0.0,
-        "backward": 0.0, "consistency": 0.0
-    }
-
-    # Iterate over each independent block in the batch
-    for i in range(batch_size):
-        block = batch_of_blocks[i]  # Shape: (M, steps+1, C, X, Y, Z)
-        data_list = [block[:, k] for k in range(block.shape[1])] # List of M-sized tensors
-
-        # --- Model Forward Pass ---
-        outputs = model(data_list[0], mode='forward')
-
-        # --- Identity Loss ---
-        loss_identity = loss_fn(outputs["predicted_states"][-1], data_list[0])
-        total_loss = total_loss + gammas["identity"] * loss_identity
-        loss_dict["identity"] += loss_identity.detach()
-
-        # --- Forward Prediction Loss ---
-        loss_fwd = torch.tensor(0.0, device=DEVICE)
-        for k in range(model.steps):
-            loss_fwd = loss_fwd + loss_fn(outputs["predicted_states"][k], data_list[k + 1])
-        loss_fwd = loss_fwd / model.steps
-        total_loss = total_loss + gammas["fwd"] * loss_fwd
-        loss_dict["forward"] += loss_fwd.detach()
-
-        # --- Temporal Consistency Loss ---
-        if epoch >= epoch_trans and gammas["tc"] > 0:
-            loss_tc = torch.tensor(0.0, device=DEVICE)
-            latent_preds = outputs["latent_states"]
-            for q in range(1, model.steps_tc):
-                loss_q = torch.tensor(0.0, device=DEVICE)
-                for k in range(model.steps_tc - q):
-                    loss_q = loss_q + loss_fn(latent_preds[k][q:], latent_preds[k + q][:-q])
-                loss_tc = loss_tc + loss_q / (model.steps_tc - q)
-            loss_tc = loss_tc / (model.steps_tc - 1)
-            total_loss = total_loss + gammas["tc"] * loss_tc
-            loss_dict["tc"] += loss_tc.detach()
-
-        # --- Backward and Consistency Loss ---
-        if gammas["bwd"] > 0 or gammas["con"] > 0:
-            back_outputs = model(data_list[-1], mode='backward')
-            loss_bwd = torch.tensor(0.0, device=DEVICE)
-            for k in range(model.steps_back):
-                loss_bwd = loss_bwd + loss_fn(back_outputs["predicted_states_back"][k], data_list[-(k + 2)])
-            loss_bwd = loss_bwd / model.steps_back
-            total_loss = total_loss + gammas["bwd"] * loss_bwd
-            loss_dict["backward"] += loss_bwd.detach()
-
-            A = model.koopman_operator.weight
-            B = model.koopman_operator_backward.weight
-            loss_consist = torch.tensor(0.0, device=DEVICE)
-            for j in range(1, model.latent_dim + 1):
-                I_j = torch.eye(j, device=DEVICE)
-                term1 = torch.sum((torch.mm(B[:j, :], A[:, :j]) - I_j) ** 2)
-                term2 = torch.sum((torch.mm(A[:j, :], B[:, :j]) - I_j) ** 2)
-                loss_consist = loss_consist + (term1 + term2) / (2.0 * j)
-            total_loss = total_loss + gammas["con"] * loss_consist
-            loss_dict["consistency"] += loss_consist.detach()
-
-    # Average the losses over the batch size
-    final_loss = total_loss / batch_size
-    final_loss_dict = {key: val / batch_size for key, val in loss_dict.items()}
-    final_loss_dict["total"] = final_loss.detach()
+    B, M, T, C, X, Y, Z = batch_of_blocks.shape
     
-    return final_loss, final_loss_dict
+    # --- Reshape for Vectorized Model Pass ---
+    # Combine Batch (B) and Sequence (M) dimensions for a single forward pass
+    # model_input shape: (B * M, C, X, Y, Z)
+    model_input = batch_of_blocks[:, :, 0].reshape(B * M, C, X, Y, Z)
+    
+    # Prepare ground truth data_list where each element has shape (B * M, ...)
+    data_list = [batch_of_blocks[:, :, t].reshape(B * M, C, X, Y, Z) for t in range(T)]
+
+    # --- Model Forward Pass ---
+    outputs = model(model_input, mode='forward')
+
+    # --- Identity Loss ---
+    loss_identity = loss_fn(outputs["predicted_states"][-1], data_list[0])
+
+    # --- Forward Prediction Loss ---
+    loss_fwd = torch.tensor(0.0, device=DEVICE)
+    for k in range(model.steps):
+        loss_fwd = loss_fwd + loss_fn(outputs["predicted_states"][k], data_list[k + 1])
+    loss_fwd = loss_fwd / model.steps
+
+    # --- Temporal Consistency Loss ---
+    loss_tc = torch.tensor(0.0, device=DEVICE)
+    if epoch >= epoch_trans and gammas["tc"] > 0:
+        latent_preds = outputs["latent_states"]
+        for q in range(1, model.steps_tc):
+            loss_q = torch.tensor(0.0, device=DEVICE)
+            for k in range(model.steps_tc - q):
+                # Reshape latent vectors to (B, M, latent_dim) to slice correctly
+                pred_k = latent_preds[k].view(B, M, -1)
+                pred_kq = latent_preds[k + q].view(B, M, -1)
+                loss_q = loss_q + loss_fn(pred_k[:, q:, :], pred_kq[:, :-q, :])
+            loss_tc = loss_tc + loss_q / (model.steps_tc - q)
+        loss_tc = loss_tc / (model.steps_tc - 1)
+
+    # --- Backward and Consistency Loss ---
+    loss_bwd = torch.tensor(0.0, device=DEVICE)
+    loss_consist = torch.tensor(0.0, device=DEVICE)
+    if gammas["bwd"] > 0 or gammas["con"] > 0:
+        back_outputs = model(data_list[-1], mode='backward')
+        for k in range(model.steps_back):
+            loss_bwd = loss_bwd + loss_fn(back_outputs["predicted_states_back"][k], data_list[-(k + 2)])
+        loss_bwd = loss_bwd / model.steps_back
+
+        A = model.koopman_operator.weight
+        B = model.koopman_operator_backward.weight
+        for j in range(1, model.latent_dim + 1):
+            I_j = torch.eye(j, device=DEVICE)
+            term1 = torch.sum((torch.mm(B[:j, :], A[:, :j]) - I_j) ** 2)
+            term2 = torch.sum((torch.mm(A[:j, :], B[:, :j]) - I_j) ** 2)
+            loss_consist = loss_consist + (term1 + term2) / (2.0 * j)
+
+    # --- Combine All Losses ---
+    total_loss = (
+        gammas["identity"] * loss_identity +
+        gammas["fwd"] * loss_fwd +
+        gammas["tc"] * loss_tc +
+        gammas["bwd"] * loss_bwd +
+        gammas["con"] * loss_consist
+    )
+
+    loss_dict = {
+        "total": total_loss.detach(),
+        "identity": loss_identity.detach(),
+        "forward": loss_fwd.detach(),
+        "tc": loss_tc.detach(),
+        "backward": loss_bwd.detach(),
+        "consistency": loss_consist.detach(),
+    }
+    
+    return total_loss, loss_dict
 
 
 def validate_epoch(
