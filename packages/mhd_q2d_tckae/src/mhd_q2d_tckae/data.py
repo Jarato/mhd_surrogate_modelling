@@ -60,7 +60,6 @@ class tcKAEMHDDataset(Dataset):
             self.range = self.max_vals - self.min_vals + 1e-8
 
     def __len__(self) -> int:
-        # This length is relative to the subset of indices it will be used with
         return self.data.shape[0]
 
     def _normalize(self, x: torch.Tensor) -> torch.Tensor:
@@ -91,7 +90,6 @@ class tcKAEMHDDataset(Dataset):
 class RolloutMHDDataset(Dataset):
     """
     Simpler Dataset for validation/testing via auto-regressive rollout.
-    Each sample is a single sequence of timesteps.
     """
     def __init__(
         self,
@@ -129,7 +127,6 @@ class RolloutMHDDataset(Dataset):
             self.range = self.max_vals - self.min_vals + 1e-8
 
     def __len__(self) -> int:
-        # This length is relative to the subset of indices it will be used with
         return self.data.shape[0]
 
     def _normalize(self, x: torch.Tensor) -> torch.Tensor:

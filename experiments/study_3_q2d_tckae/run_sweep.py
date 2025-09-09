@@ -30,33 +30,33 @@ BASE_SCRATCH_DIR = None
 # Define the parameter space for the grid search.
 param_grid = {
     'lr': [1e-4],
-    'latent_dim': [256],
+    'latent_dim': [128],
     'bottleneck_dim': [4096],
-    'use_bottleneck': [True],
+    'use_bottleneck': [False],
     'batch_size': [1],
     'validation_batch_size': [1],
-    'sequence_length': [4], # This is M
-    'steps': [4],              # This is K for forward dynamics
-    'steps_back': [4],         # K for backward dynamics
-    'steps_tc': [4],
+    'sequence_length': [2], # This is M - Reduced from 4 to 2 to lower memory usage
+    'steps': [2],              # This is K for forward dynamics
+    'steps_back': [2],         # K for backward dynamics
+    'steps_tc': [2],
     'gamma_identity': [1.0],
     'gamma_fwd': [1.0],
     'gamma_tc': [1.0],
     'gamma_bwd': [1.0],         # Used only if backward=True
     'gamma_con': [1e-4],        # Used only if backward=True
-    'backward': [True],  # Sweep between tcKAE and tcKAE+cKAE
+    'backward': [False],  # Sweep between tcKAE and tcKAE+cKAE
 }
 
 # --- Fixed Training Arguments ---
 # These arguments will be the same for all runs.
 fixed_args = {
-    "epochs": 3,
+    "epochs": 2,
     "patience": 40,
     "lr_patience": 10,
     "clip_grad_value": 1,
     "lr_factor": 0.1,
-    "num_workers": 2,
-    "validation_num_workers": 2,
+    "num_workers": 0,
+    "validation_num_workers": 0,
     "checkpoint_save_freq": 32,
     "persistent_save_freq": 1024,
     "validation_rollout_steps": 64,

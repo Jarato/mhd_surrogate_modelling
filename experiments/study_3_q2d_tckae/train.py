@@ -51,6 +51,7 @@ def parse_args() -> argparse.Namespace:
     train_group.add_argument("--validation-num-workers", type=int, default=None, help="Number of workers for validation. Defaults to num-workers if not set.")
     train_group.add_argument("--validation-rollout-steps", type=int, default=50, help="Number of auto-regressive steps for validation.")
 
+    # ... (rest of argparse remains the same) ...
     optim_group = parser.add_argument_group("Optimizer and Scheduler")
     optim_group.add_argument("--lr", type=float, default=1e-4, help="Initial learning rate.")
     optim_group.add_argument("--patience", type=int, default=20, help="Patience for early stopping.")
@@ -139,6 +140,7 @@ def setup_data_and_stats(args: argparse.Namespace) -> Dict[str, Any]:
 
 
 def find_latest_checkpoint(persistent_dir: Path, scratch_dir: Path | None) -> Path | None:
+    # ... function remains the same ...
     persistent_ckpt = persistent_dir / "latest_checkpoint.pth"
     scratch_ckpt = scratch_dir / "latest_checkpoint.pth" if scratch_dir else None
     persistent_exists, scratch_exists = persistent_ckpt.exists(), scratch_ckpt.exists() if scratch_dir else False
@@ -154,6 +156,7 @@ def compute_loss_tckae(
     epoch: int,
     epoch_trans: int,
 ) -> tuple[torch.Tensor, Dict[str, torch.Tensor]]:
+    # ... function remains the same ...
     loss_fn = nn.MSELoss()
     B, M, T, C, X, Y, Z = batch_of_blocks.shape
     model_input = batch_of_blocks[:, :, 0].reshape(B * M, C, X, Y, Z)
@@ -193,6 +196,7 @@ def compute_loss_tckae(
     return total_loss, loss_dict
 
 def validate_epoch_rollout(model: tcKoopmanAutoencoderQ2D, dataloader: DataLoader, rollout_steps: int) -> Dict[str, float]:
+    # ... function remains the same ...
     model.eval()
     loss_fn = nn.MSELoss()
     total_rollout_loss = 0.0
@@ -211,7 +215,7 @@ def validate_epoch_rollout(model: tcKoopmanAutoencoderQ2D, dataloader: DataLoade
     return {"total": total_rollout_loss / len(dataloader)}
 
 def main():
-    """Main training and validation script."""
+    # ... main function logic remains the same up to data loading ...
     args = parse_args()
     logging.info(f"Using device: {DEVICE}")
 
@@ -227,6 +231,7 @@ def main():
     resume_checkpoint_path = find_latest_checkpoint(persistent_dir, scratch_dir) if args.resume else None
 
     if resume_checkpoint_path:
+        # ... resume logic ...
         logging.info(f"Resuming training from {resume_checkpoint_path}")
         checkpoint = torch.load(resume_checkpoint_path, map_location=DEVICE)
         model_config = checkpoint["config"]
