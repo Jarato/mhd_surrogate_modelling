@@ -15,7 +15,7 @@ from torch.utils.data import DataLoader, Subset
 from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
 
-from mhd_q2d_tckae.data import tcKAEMHDDataset
+from mhd_q2d_tckae.data import tcKAEMHDDataset, RolloutMHDDataset
 from mhd_q2d_tckae.model import tcKoopmanAutoencoderQ2D
 
 # --- Basic Setup ---
@@ -160,7 +160,7 @@ def validate_epoch_rollout(
     rollout_steps: int,
 ) -> Dict[str, float]:
     """
-    Computes validation loss via auto-regressive rollout, which is a more
+    Computes validation loss via auto-regressive rollout. This is a more
     realistic measure of forecasting performance.
     """
     model.eval()
@@ -168,25 +168,21 @@ def validate_epoch_rollout(
     total_rollout_loss = 0.0
 
     with torch.no_grad():
-        for batch_of_blocks in dataloader:
-            batch_of_blocks = batch_of_blocks.to(DEVICE)
-            B, M, T, C, X, Y, Z = batch_of_blocks.shape
+        for batch_sequence in dataloader:
+            batch_sequence = batch_sequence.to(DEVICE)
+            # batch_sequence shape: (B, T, C, X, Y, Z)
+            
+            # --- Prepare Initial Conditions and Ground Truth ---
+            initial_conditions = batch_sequence[:, 0]
+            ground_truth = batch_sequence[:, 1:]
 
-            if T < rollout_steps + 1:
-                continue
-
-            initial_conditions = batch_of_blocks[:, :, 0].reshape(B * M, C, X, Y, Z)
-            ground_truth = [
-                batch_of_blocks[:, :, t].reshape(B * M, C, X, Y, Z)
-                for t in range(1, rollout_steps + 1)
-            ]
-
+            # --- Perform Auto-Regressive Rollout ---
             z_k = model.encode(initial_conditions)
             batch_rollout_loss = 0.0
             for k in range(rollout_steps):
                 z_k = model.koopman_step(z_k)
                 x_k_pred = model.decode(z_k)
-                batch_rollout_loss += loss_fn(x_k_pred, ground_truth[k])
+                batch_rollout_loss += loss_fn(x_k_pred, ground_truth[:, k])
             
             total_rollout_loss += (batch_rollout_loss / rollout_steps).item()
 
@@ -218,14 +214,23 @@ def main():
         checkpoint = torch.load(resume_checkpoint_path, map_location=DEVICE)
         model_config = checkpoint["config"]
         channels_used = checkpoint.get("channels_used")
-        full_dataset = tcKAEMHDDataset(
+        # --- Datasets are now different for train and val ---
+        train_dataset_full = tcKAEMHDDataset(
             file_path=args.data_path, steps=model_config["steps"],
             sequence_length=model_config["sequence_length"],
             norm_stats_path=args.norm_stats_path, channels_to_use=channels_used,
             process_safe_copy=(args.num_workers > 0),
         )
+        val_dataset_full = RolloutMHDDataset(
+            file_path=args.data_path,
+            rollout_steps=args.validation_rollout_steps,
+            norm_stats_path=args.norm_stats_path,
+            channels_to_use=channels_used,
+            process_safe_copy=(args.num_workers > 0),
+        )
         train_indices, val_indices = checkpoint["train_indices"], checkpoint["val_indices"]
-        train_dataset, val_dataset = Subset(full_dataset, train_indices), Subset(full_dataset, val_indices)
+        train_dataset, val_dataset = Subset(train_dataset_full, train_indices), Subset(val_dataset_full, val_indices)
+        
         model = tcKoopmanAutoencoderQ2D(**model_config).to(DEVICE)
         model.load_state_dict(checkpoint["model_state_dict"])
         optimizer = Adam(model.parameters(), lr=args.lr)
@@ -236,17 +241,28 @@ def main():
         losses_at_best_epoch = checkpoint.get("losses_at_best_epoch", {})
     else:
         if args.resume: logging.error("Resume flag was set, but no valid checkpoint was found. Starting a new run.")
-        full_dataset = tcKAEMHDDataset(
+        # --- Datasets are now different for train and val ---
+        train_dataset_full = tcKAEMHDDataset(
             file_path=args.data_path, steps=args.steps,
             sequence_length=args.sequence_length,
             norm_stats_path=args.norm_stats_path, channels_to_use=args.channels,
             process_safe_copy=(args.num_workers > 0),
         )
-        channels_used = full_dataset.channel_names
+        val_dataset_full = RolloutMHDDataset(
+            file_path=args.data_path,
+            rollout_steps=args.validation_rollout_steps,
+            norm_stats_path=args.norm_stats_path,
+            channels_to_use=args.channels,
+            process_safe_copy=(args.num_workers > 0),
+        )
+        channels_used = train_dataset_full.channel_names
+        
         stats = np.load(args.norm_stats_path)
         train_indices, val_indices = stats["train_indices"], stats["val_indices"]
-        train_dataset, val_dataset = Subset(full_dataset, train_indices), Subset(full_dataset, val_indices)
-        sample_block = full_dataset[0]
+        train_dataset = Subset(train_dataset_full, train_indices)
+        val_dataset = Subset(val_dataset_full, val_indices)
+        
+        sample_block = train_dataset_full[0]
         sample_x = sample_block[0, 0]
         model_config = {
             "in_channels": sample_x.shape[0], "latent_dim": args.latent_dim,
