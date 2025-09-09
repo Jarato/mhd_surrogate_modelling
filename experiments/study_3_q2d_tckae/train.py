@@ -83,32 +83,14 @@ def find_latest_checkpoint(persistent_dir: Path, scratch_dir: Path | None) -> Pa
     """Finds the most recent checkpoint file between scratch and persistent dirs."""
     persistent_ckpt = persistent_dir / "latest_checkpoint.pth"
     scratch_ckpt = scratch_dir / "latest_checkpoint.pth" if scratch_dir else None
-
-    # Determine which checkpoints exist
-    persistent_exists = persistent_ckpt.exists()
-    scratch_exists = scratch_ckpt.exists() if scratch_dir else False
-
+    persistent_exists, scratch_exists = persistent_ckpt.exists(), scratch_ckpt.exists() if scratch_dir else False
     if not persistent_exists and not scratch_exists:
-        logging.warning("Resume requested, but no checkpoint found in persistent or scratch directories.")
         return None
-
     if scratch_exists and persistent_exists:
-        # If both exist, return the one with the later modification time
-        if scratch_ckpt.stat().st_mtime > persistent_ckpt.stat().st_mtime:
-            logging.info(f"Found newer checkpoint in scratch directory: {scratch_ckpt}")
-            return scratch_ckpt
-        else:
-            logging.info(f"Found newer or equal-age checkpoint in persistent directory: {persistent_ckpt}")
-            return persistent_ckpt
-    elif scratch_exists:
-        logging.info(f"Found checkpoint in scratch directory: {scratch_ckpt}")
-        return scratch_ckpt
-    else: # Only persistent exists
-        logging.info(f"Found checkpoint in persistent directory: {persistent_ckpt}")
-        return persistent_ckpt
+        return scratch_ckpt if scratch_ckpt.stat().st_mtime > persistent_ckpt.stat().st_mtime else persistent_ckpt
+    return scratch_ckpt if scratch_exists else persistent_ckpt
 
 
-# ... (compute_loss_tckae and validate_epoch remain the same) ...
 def compute_loss_tckae(
     model: tcKoopmanAutoencoderQ2D,
     batch_of_blocks: torch.Tensor,
@@ -161,19 +143,14 @@ def compute_loss_tckae(
             loss_consist = loss_consist + (term1 + term2) / (2.0 * j)
 
     total_loss = (
-        gammas["identity"] * loss_identity +
-        gammas["fwd"] * loss_fwd +
-        gammas["tc"] * loss_tc +
-        gammas["bwd"] * loss_bwd +
-        gammas["con"] * loss_consist
+        gammas["identity"] * loss_identity + gammas["fwd"] * loss_fwd +
+        gammas["tc"] * loss_tc + gammas["bwd"] * loss_bwd + gammas["con"] * loss_consist
     )
-
     loss_dict = {
         "total": total_loss.detach(), "identity": loss_identity.detach(),
         "forward": loss_fwd.detach(), "tc": loss_tc.detach(),
         "backward": loss_bwd.detach(), "consistency": loss_consist.detach(),
     }
-    
     return total_loss, loss_dict
 
 
@@ -195,20 +172,15 @@ def validate_epoch_rollout(
             batch_of_blocks = batch_of_blocks.to(DEVICE)
             B, M, T, C, X, Y, Z = batch_of_blocks.shape
 
-            # Ensure we have enough ground truth data for the rollout
             if T < rollout_steps + 1:
                 continue
 
-            # --- Prepare Initial Conditions and Ground Truth ---
-            # Initial conditions for all sequences in the batch
             initial_conditions = batch_of_blocks[:, :, 0].reshape(B * M, C, X, Y, Z)
-            # Ground truth trajectory for comparison
             ground_truth = [
                 batch_of_blocks[:, :, t].reshape(B * M, C, X, Y, Z)
                 for t in range(1, rollout_steps + 1)
             ]
 
-            # --- Perform Auto-Regressive Rollout ---
             z_k = model.encode(initial_conditions)
             batch_rollout_loss = 0.0
             for k in range(rollout_steps):
@@ -218,9 +190,7 @@ def validate_epoch_rollout(
             
             total_rollout_loss += (batch_rollout_loss / rollout_steps).item()
 
-    # Average over all batches
     avg_rollout_loss = total_rollout_loss / len(dataloader)
-    # Return in a dictionary for consistency with training loss logging
     return {"total": avg_rollout_loss}
 
 
@@ -229,7 +199,6 @@ def main():
     args = parse_args()
     logging.info(f"Using device: {DEVICE}")
 
-    # --- Setup Directories and Logging ---
     persistent_dir = Path(args.persistent_dir)
     persistent_dir.mkdir(parents=True, exist_ok=True)
     writer = SummaryWriter(log_dir=persistent_dir / "logs")
@@ -237,13 +206,10 @@ def main():
     scratch_dir = Path(args.scratch_dir) if args.scratch_dir else None
     if scratch_dir:
         scratch_dir.mkdir(parents=True, exist_ok=True)
-        logging.info(f"Fast, temporary checkpoints will be saved to: {scratch_dir}")
 
-    # --- Initialize or Resume Training State ---
     start_epoch, best_val_loss, patience_counter, best_epoch = 0, float("inf"), 0, 0
     channels_used = args.channels
     losses_at_best_epoch = {}
-    best_component_losses = {"identity": float("inf"), "forward": float("inf"), "tc": float("inf"), "backward": float("inf"), "consistency": float("inf")}
     
     resume_checkpoint_path = find_latest_checkpoint(persistent_dir, scratch_dir) if args.resume else None
 
@@ -268,7 +234,6 @@ def main():
         scheduler.load_state_dict(checkpoint["scheduler_state_dict"])
         start_epoch, best_val_loss, patience_counter, best_epoch = checkpoint["epoch"] + 1, checkpoint["best_val_loss"], checkpoint["patience_counter"], checkpoint.get("best_epoch", 0)
         losses_at_best_epoch = checkpoint.get("losses_at_best_epoch", {})
-        best_component_losses = checkpoint.get("best_component_losses", best_component_losses)
     else:
         if args.resume: logging.error("Resume flag was set, but no valid checkpoint was found. Starting a new run.")
         full_dataset = tcKAEMHDDataset(
@@ -294,13 +259,11 @@ def main():
         optimizer = Adam(model.parameters(), lr=args.lr)
         scheduler = ReduceLROnPlateau(optimizer, 'min', factor=args.lr_factor, patience=args.lr_patience)
 
-    # --- DataLoaders ---
     train_dataloader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True, num_workers=args.num_workers, pin_memory=True)
     val_dataloader = DataLoader(val_dataset, batch_size=args.batch_size, shuffle=False, num_workers=args.num_workers, pin_memory=True)
     logging.info(f"Data split: {len(train_dataset)} train, {len(val_dataset)} val.")
     
     gammas = {"identity": args.gamma_identity, "fwd": args.gamma_fwd, "bwd": args.gamma_bwd if args.backward else 0.0, "con": args.gamma_con if args.backward else 0.0, "tc": args.gamma_tc}
-    logging.info(f"Using loss weights (gammas): {gammas}")
 
     # =========================================================================
     # --- TRAINING LOOP ---
@@ -314,17 +277,13 @@ def main():
         for batch_of_blocks in pbar:
             batch_of_blocks = batch_of_blocks.to(DEVICE)
             loss, loss_dict = compute_loss_tckae(model, batch_of_blocks, gammas, epoch, args.epoch_trans)
-            
-            optimizer.zero_grad()
-            loss.backward()
+            optimizer.zero_grad(); loss.backward()
             if args.clip_grad_value:
                 grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=args.clip_grad_value).item()
             else:
                 grad_norm = sum(p.grad.data.norm(2).item()**2 for p in model.parameters() if p.grad is not None)**0.5
             optimizer.step()
-
-            for key in epoch_losses:
-                epoch_losses[key] += loss_dict[key].item()
+            for key in epoch_losses: epoch_losses[key] += loss_dict[key].item()
             epoch_grad_norm += grad_norm
             pbar.set_postfix(loss=loss.item())
 
@@ -342,25 +301,21 @@ def main():
         
         if avg_val_losses["total"] < best_val_loss:
             best_val_loss, patience_counter, best_epoch = avg_val_losses["total"], 0, epoch + 1
-            losses_at_best_epoch = avg_val_losses # Store the simple rollout loss
+            losses_at_best_epoch = avg_val_losses
             torch.save({'config': model_config, 'model_state_dict': model.state_dict(), 'channels_used': channels_used}, persistent_dir / "best_model.pth")
             logging.info(f"New best model saved to persistent storage (Val Rollout Loss: {best_val_loss:.4f})")
         else:
             patience_counter += 1
         
-        checkpoint_data = {"epoch": epoch, "config": model_config, "model_state_dict": model.state_dict(), "optimizer_state_dict": optimizer.state_dict(), "scheduler_state_dict": scheduler.state_dict(), "best_val_loss": best_val_loss, "patience_counter": patience_counter, "best_epoch": best_epoch, "losses_at_best_epoch": losses_at_best_epoch, "best_component_losses": best_component_losses, "train_indices": train_indices, "val_indices": val_indices, "channels_used": channels_used}
+        checkpoint_data = {"epoch": epoch, "config": model_config, "model_state_dict": model.state_dict(), "optimizer_state_dict": optimizer.state_dict(), "scheduler_state_dict": scheduler.state_dict(), "best_val_loss": best_val_loss, "patience_counter": patience_counter, "best_epoch": best_epoch, "losses_at_best_epoch": losses_at_best_epoch, "train_indices": train_indices, "val_indices": val_indices, "channels_used": channels_used}
         
-        # Save latest checkpoint based on the specified frequency
         is_last_epoch = (epoch == args.epochs - 1)
         if (epoch + 1) % args.checkpoint_save_freq == 0 or is_last_epoch:
             save_dir = scratch_dir if scratch_dir else persistent_dir
             torch.save(checkpoint_data, save_dir / "latest_checkpoint.pth")
-            logging.info(f"Saved latest checkpoint to {save_dir / 'latest_checkpoint.pth'}")
         
-        # Periodically or finally save to persistent storage if using scratch
         if scratch_dir and ((epoch + 1) % args.persistent_save_freq == 0 or is_last_epoch):
             torch.save(checkpoint_data, persistent_dir / "latest_checkpoint.pth")
-            logging.info(f"Saved persistent checkpoint to {persistent_dir / 'latest_checkpoint.pth'}")
 
         if patience_counter >= args.patience:
             logging.info("Early stopping triggered."); break
@@ -373,7 +328,6 @@ def main():
     if hparams.get('resume_from_checkpoint'): hparams['resume_from_checkpoint'] = str(hparams['resume_from_checkpoint'])
     final_metrics = {'hparam/best_val_loss': best_val_loss, 'hparam/best_epoch': best_epoch}
     for key, value in losses_at_best_epoch.items(): final_metrics[f'hparam/{key}_at_best'] = value
-    for key, value in best_component_losses.items(): final_metrics[f'hparam/best_{key}_loss'] = value
     writer.add_hparams(hparams, final_metrics)
     
     writer.close()
