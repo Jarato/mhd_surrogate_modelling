@@ -90,27 +90,23 @@ def setup_data_and_stats(args: argparse.Namespace) -> Dict[str, Any]:
         timeseries = data["timeseries"]
         all_channel_names = list(data["labels"])
 
-    # --- Temporal Train/Validation Split ---
     total_timesteps = timeseries.shape[0]
     val_size = int(total_timesteps * args.val_split)
     train_size = total_timesteps - val_size
     
     train_data_raw = timeseries[:train_size]
     
-    # --- Compute Normalization Stats on Training Set ONLY ---
     logging.info(f"Computing normalization stats on {train_size} training timesteps.")
     min_vals = np.min(train_data_raw, axis=(0, 1, 2, 3))
     max_vals = np.max(train_data_raw, axis=(0, 1, 2, 3))
     norm_stats = {"min_vals": min_vals, "max_vals": max_vals}
 
-    # --- Generate Valid Starting Indices ---
     train_block_len = args.sequence_length + args.steps
     val_seq_len = args.validation_rollout_steps + 1
     
     train_indices = np.arange(0, train_size - train_block_len + 1)
     val_indices = np.arange(train_size, total_timesteps - val_seq_len + 1)
     
-    # --- Create Datasets ---
     process_safe = args.num_workers > 0
     val_process_safe = (args.validation_num_workers if args.validation_num_workers is not None else args.num_workers) > 0
 
@@ -131,6 +127,9 @@ def setup_data_and_stats(args: argparse.Namespace) -> Dict[str, Any]:
         "train_dataset": Subset(train_dataset_full, train_indices),
         "val_dataset": Subset(val_dataset_full, val_indices),
         "channels_used": train_dataset_full.channel_names,
+        "full_train_dataset": train_dataset_full, # Pass this for getting sample shape
+        "train_indices" : train_indices,
+        "val_indices": val_indices,
     }
 
 
@@ -261,6 +260,7 @@ def main():
         data_setup = setup_data_and_stats(args)
         train_dataset, val_dataset = data_setup["train_dataset"], data_setup["val_dataset"]
         channels_used = data_setup["channels_used"]
+        train_indices, val_indices = data_setup["train_indices"], data_setup["val_indices"]
         
         checkpoint = torch.load(resume_checkpoint_path, map_location=DEVICE)
         model_config = checkpoint["config"]
@@ -279,8 +279,11 @@ def main():
         data_setup = setup_data_and_stats(args)
         train_dataset, val_dataset = data_setup["train_dataset"], data_setup["val_dataset"]
         channels_used = data_setup["channels_used"]
-
-        sample_x = train_dataset.dataset.data[0, 0] # Get a sample for shape info
+        train_indices, val_indices = data_setup["train_indices"], data_setup["val_indices"]
+        
+        # --- CORRECT WAY to get sample shape ---
+        sample_block = data_setup["full_train_dataset"][0]
+        sample_x = sample_block[0, 0]
         
         model_config = {
             "in_channels": sample_x.shape[0], "latent_dim": args.latent_dim,
@@ -305,7 +308,6 @@ def main():
 
     # --- TRAINING LOOP ---
     for epoch in range(start_epoch, args.epochs):
-        # ... (training loop remains the same) ...
         model.train()
         epoch_losses = {"total": 0.0, "identity": 0.0, "forward": 0.0, "tc": 0.0, "backward": 0.0, "consistency": 0.0}
         epoch_grad_norm = 0.0
@@ -344,7 +346,7 @@ def main():
         else:
             patience_counter += 1
         
-        checkpoint_data = {"epoch": epoch, "config": model_config, "model_state_dict": model.state_dict(), "optimizer_state_dict": optimizer.state_dict(), "scheduler_state_dict": scheduler.state_dict(), "best_val_loss": best_val_loss, "patience_counter": patience_counter, "best_epoch": best_epoch, "losses_at_best_epoch": losses_at_best_epoch}
+        checkpoint_data = {"epoch": epoch, "config": model_config, "model_state_dict": model.state_dict(), "optimizer_state_dict": optimizer.state_dict(), "scheduler_state_dict": scheduler.state_dict(), "best_val_loss": best_val_loss, "patience_counter": patience_counter, "best_epoch": best_epoch, "losses_at_best_epoch": losses_at_best_epoch, "train_indices": train_indices, "val_indices": val_indices, "channels_used": channels_used}
         
         is_last_epoch = (epoch == args.epochs - 1)
         if (epoch + 1) % args.checkpoint_save_freq == 0 or is_last_epoch:
@@ -362,7 +364,7 @@ def main():
     for key, value in hparams.items():
         if isinstance(value, Path): hparams[key] = str(value)
         elif key.endswith('_path') and value is not None: hparams[key] = str(value)
-    if hparams.get('resume_from_checkpoint'): hparams['resume_from_checkpoint'] = str(hparams['resume_from_checkpoint'])
+    if hparams.get('resume_from_checkpoint'): hparams[key] = str(hparams['resume_from_checkpoint'])
     final_metrics = {'hparam/best_val_loss': best_val_loss, 'hparam/best_epoch': best_epoch}
     for key, value in losses_at_best_epoch.items(): final_metrics[f'hparam/{key}_at_best'] = value
     writer.add_hparams(hparams, final_metrics)
