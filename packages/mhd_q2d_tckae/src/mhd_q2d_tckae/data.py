@@ -3,115 +3,145 @@
 
 import logging
 from pathlib import Path
+
+import numpy as np
 import torch
 from torch.utils.data import Dataset
-import numpy as np
+from numpy.lib.stride_tricks import as_strided
 
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(levelname)s - %(message)s",
 )
 
+
 class tcKAEMHDDataset(Dataset):
     """
-    Custom PyTorch Dataset for loading MHD data in blocks for tcKAE.
-    Each sample is a block of M consecutive sequences of length (steps+1).
+    Custom Dataset for tcKAE training.
+    Each sample is a block of M consecutive sequences, each of length K+1.
     """
 
     def __init__(
         self,
         file_path: Path | str,
-        steps: int,
-        sequence_length: int, # This is 'M' from the paper
+        sequence_length: int,  # M
+        steps: int,            # K
         norm_stats_path: Path | str | None = None,
         channels_to_use: list[str] | None = None,
         process_safe_copy: bool = False,
-        timeseries_key: str = "timeseries",
-        label_key: str = "labels",
     ):
-        """
-        Initializes the dataset.
-
-        Args:
-            file_path (Path | str): Path to the .npz data file.
-            steps (int): The number of future steps to predict (K in paper).
-            sequence_length (int): The number of consecutive sequences per sample (M in paper).
-            norm_stats_path (Path | str | None): Path to normalization stats.
-            channels_to_use (list[str] | None): List of channel names.
-            process_safe_copy (bool): Flag for multi-process data loading.
-        """
-        self.file_path = Path(file_path)
+        self.sequence_length = sequence_length
         self.steps = steps
-        self.sequence_length = sequence_length # M
         self.process_safe_copy = process_safe_copy
-
-        with np.load(self.file_path, allow_pickle=True) as loaded_data:
-            full_timeseries_data = loaded_data[timeseries_key]
-            self.all_channel_names = list(loaded_data[label_key])
+        
+        with np.load(file_path, allow_pickle=True) as data:
+            full_timeseries = data["timeseries"]
+            self.all_channel_names = list(data["labels"])
 
         if channels_to_use:
-            channel_indices = [self.all_channel_names.index(name) for name in channels_to_use]
-            self.data = full_timeseries_data[..., channel_indices]
+            indices = [self.all_channel_names.index(name) for name in channels_to_use]
+            self.data = full_timeseries[..., indices]
             self.channel_names = channels_to_use
         else:
-            self.data = full_timeseries_data
+            self.data = full_timeseries
             self.channel_names = self.all_channel_names
 
         self.min_vals, self.max_vals, self.range = None, None, None
         if norm_stats_path:
             stats = np.load(norm_stats_path)
-            all_min_vals = torch.from_numpy(stats['min_vals']).float()
-            all_max_vals = torch.from_numpy(stats['max_vals']).float()
-            
+            all_min = torch.from_numpy(stats['min_vals']).float()
+            all_max = torch.from_numpy(stats['max_vals']).float()
             if channels_to_use:
-                channel_indices = [self.all_channel_names.index(name) for name in channels_to_use]
-                self.min_vals = all_min_vals[channel_indices]
-                self.max_vals = all_max_vals[channel_indices]
+                indices = [self.all_channel_names.index(name) for name in channels_to_use]
+                self.min_vals = all_min[indices].view(1, -1, 1, 1, 1)
+                self.max_vals = all_max[indices].view(1, -1, 1, 1, 1)
             else:
-                self.min_vals = all_min_vals
-                self.max_vals = all_max_vals
-
-            # Reshape for broadcasting: (C, 1, 1, 1)
-            self.min_vals = self.min_vals.view(-1, 1, 1, 1)
-            self.max_vals = self.max_vals.view(-1, 1, 1, 1)
+                self.min_vals = all_min.view(1, -1, 1, 1, 1)
+                self.max_vals = all_max.view(1, -1, 1, 1, 1)
             self.range = self.max_vals - self.min_vals + 1e-8
 
     def __len__(self) -> int:
-        # The number of possible starting points for a full block
-        return self.data.shape[0] - self.steps - self.sequence_length
+        return self.data.shape[0] - (self.sequence_length + self.steps) + 1
+
+    def _normalize(self, x: torch.Tensor) -> torch.Tensor:
+        if self.min_vals is None: return x
+        return (x - self.min_vals) / self.range * 2.0 - 1.0
+    
+    def _denormalize(self, x_norm: torch.Tensor) -> torch.Tensor:
+        if self.min_vals is None: return x_norm
+        return (x_norm + 1.0) / 2.0 * self.range + self.min_vals
+
+    def __getitem__(self, idx: int) -> torch.Tensor:
+        block_len = self.sequence_length + self.steps
+        snapshots = self.data[idx : idx + block_len]
+        if self.process_safe_copy:
+            snapshots = snapshots.copy()
+
+        seq_len = self.steps + 1
+        num_seq = self.sequence_length
+        
+        shape = (num_seq, seq_len) + snapshots.shape[1:]
+        strides = (snapshots.strides[0],) + snapshots.strides
+        sequences = as_strided(snapshots, shape=shape, strides=strides)
+        
+        tensor_block = torch.from_numpy(sequences.copy()).float().permute(0, 1, 5, 2, 3, 4)
+        return self._normalize(tensor_block)
+
+
+class RolloutMHDDataset(Dataset):
+    """
+    Simpler Dataset for validation/testing via auto-regressive rollout.
+    Each sample is a single sequence of timesteps.
+    """
+    def __init__(
+        self,
+        file_path: Path | str,
+        rollout_steps: int,
+        norm_stats_path: Path | str | None = None,
+        channels_to_use: list[str] | None = None,
+        process_safe_copy: bool = False,
+    ):
+        self.rollout_steps = rollout_steps
+        self.process_safe_copy = process_safe_copy
+        
+        with np.load(file_path, allow_pickle=True) as data:
+            full_timeseries = data["timeseries"]
+            self.all_channel_names = list(data["labels"])
+
+        if channels_to_use:
+            indices = [self.all_channel_names.index(name) for name in channels_to_use]
+            self.data = full_timeseries[..., indices]
+            self.channel_names = channels_to_use
+        else:
+            self.data = full_timeseries
+            self.channel_names = self.all_channel_names
+
+        self.min_vals, self.max_vals, self.range = None, None, None
+        if norm_stats_path:
+            stats = np.load(norm_stats_path)
+            all_min = torch.from_numpy(stats['min_vals']).float()
+            all_max = torch.from_numpy(stats['max_vals']).float()
+            if channels_to_use:
+                indices = [self.all_channel_names.index(name) for name in channels_to_use]
+                self.min_vals = all_min[indices].view(1, -1, 1, 1, 1)
+                self.max_vals = all_max[indices].view(1, -1, 1, 1, 1)
+            else:
+                self.min_vals = all_min.view(1, -1, 1, 1, 1)
+                self.max_vals = all_max.view(1, -1, 1, 1, 1)
+            self.range = self.max_vals - self.min_vals + 1e-8
+
+    def __len__(self) -> int:
+        return self.data.shape[0] - self.rollout_steps
 
     def _normalize(self, x: torch.Tensor) -> torch.Tensor:
         if self.min_vals is None: return x
         return (x - self.min_vals) / self.range * 2.0 - 1.0
 
-    def _denormalize(self, x_norm: torch.Tensor) -> torch.Tensor:
-        """Denormalizes a tensor from [-1, 1] back to the original data scale."""
-        if self.min_vals is None: return x_norm
-        return (x_norm + 1.0) / 2.0 * self.range + self.min_vals
-
     def __getitem__(self, idx: int) -> torch.Tensor:
-        """
-        Returns a single training sample: a block of M consecutive sequences.
-        Shape: (M, steps+1, C, X, Y, Z)
-        """
-        # A block contains M sequences, each of length (steps+1)
-        # Total snapshots needed = M + steps
-        block_end = idx + self.sequence_length + self.steps
-        snapshots = self.data[idx:block_end]
-
+        sequence = self.data[idx : idx + self.rollout_steps + 1]
         if self.process_safe_copy:
-            snapshots = snapshots.copy()
+            sequence = sequence.copy()
 
-        # Create the sequences by striding over the snapshots
-        sequences = np.lib.stride_tricks.as_strided(
-            snapshots,
-            shape=(self.sequence_length, self.steps + 1, *snapshots.shape[1:]),
-            strides=(snapshots.strides[0], *snapshots.strides)
-        )
-        
-        sequences_tensor = torch.from_numpy(sequences.copy()).float()
-        # Permute from (M, steps+1, X, Y, Z, C) to (M, steps+1, C, X, Y, Z)
-        sequences_tensor = sequences_tensor.permute(0, 1, 5, 2, 3, 4)
-        
-        return self._normalize(sequences_tensor)
+        tensor_seq = torch.from_numpy(sequence).float().permute(0, 4, 1, 2, 3)
+        return self._normalize(tensor_seq)
 
