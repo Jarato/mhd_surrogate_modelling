@@ -46,6 +46,7 @@ def parse_args() -> argparse.Namespace:
     train_group.add_argument("--batch-size", type=int, default=4, help="Number of independent blocks per batch for training.")
     train_group.add_argument("--validation-batch-size", type=int, default=None, help="Batch size for validation. Defaults to training batch size if not set.")
     train_group.add_argument("--num-workers", type=int, default=8, help="Number of worker processes for data loading.")
+    train_group.add_argument("--validation-num-workers", type=int, default=None, help="Number of workers for validation. Defaults to num-workers if not set.")
     train_group.add_argument("--validation-rollout-steps", type=int, default=50, help="Number of auto-regressive steps for validation.")
 
     optim_group = parser.add_argument_group("Optimizer and Scheduler")
@@ -161,8 +162,7 @@ def validate_epoch_rollout(
     rollout_steps: int,
 ) -> Dict[str, float]:
     """
-    Computes validation loss via auto-regressive rollout. This is a more
-    realistic measure of forecasting performance.
+    Computes validation loss via auto-regressive rollout.
     """
     model.eval()
     loss_fn = nn.MSELoss()
@@ -223,7 +223,7 @@ def main():
             rollout_steps=args.validation_rollout_steps,
             norm_stats_path=args.norm_stats_path,
             channels_to_use=channels_used,
-            process_safe_copy=(args.num_workers > 0),
+            process_safe_copy=(args.validation_num_workers > 0 if args.validation_num_workers is not None else args.num_workers > 0),
         )
         train_indices, val_indices = checkpoint["train_indices"], checkpoint["val_indices"]
         train_dataset, val_dataset = Subset(train_dataset_full, train_indices), Subset(val_dataset_full, val_indices)
@@ -249,7 +249,7 @@ def main():
             rollout_steps=args.validation_rollout_steps,
             norm_stats_path=args.norm_stats_path,
             channels_to_use=args.channels,
-            process_safe_copy=(args.num_workers > 0),
+            process_safe_copy=(args.validation_num_workers > 0 if args.validation_num_workers is not None else args.num_workers > 0),
         )
         channels_used = train_dataset_full.channel_names
         
@@ -273,8 +273,10 @@ def main():
 
     # --- DataLoaders ---
     val_batch_size = args.validation_batch_size if args.validation_batch_size else args.batch_size
+    val_num_workers = args.validation_num_workers if args.validation_num_workers is not None else args.num_workers
+
     train_dataloader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True, num_workers=args.num_workers, pin_memory=True)
-    val_dataloader = DataLoader(val_dataset, batch_size=val_batch_size, shuffle=False, num_workers=args.num_workers, pin_memory=True)
+    val_dataloader = DataLoader(val_dataset, batch_size=val_batch_size, shuffle=False, num_workers=val_num_workers, pin_memory=True)
     logging.info(f"Data split: {len(train_dataset)} train, {len(val_dataset)} val.")
     
     gammas = {"identity": args.gamma_identity, "fwd": args.gamma_fwd, "bwd": args.gamma_bwd if args.backward else 0.0, "con": args.gamma_con if args.backward else 0.0, "tc": args.gamma_tc}
