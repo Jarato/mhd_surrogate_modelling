@@ -29,8 +29,8 @@ param_grid = {
     'latent_dim': [256],
     'bottleneck_dim': [4096],
     'use_bottleneck': [True],
-    'batch_size': [4],
-    'validation_batch_size': [1],
+    'batch_size': [8],
+    'validation_batch_size': [8],
     'sequence_length': [4], # This is M
     'steps': [4],              # This is K for forward dynamics
     'steps_back': [4],         # K for backward dynamics
@@ -52,7 +52,7 @@ fixed_args = {
     "clip_grad_value": 1,
     "lr_factor": 0.1,
     "num_workers": 8,
-    "validation_num_workers": 8,
+    "validation_num_workers": 2,
     "checkpoint_save_freq": 32,
     "persistent_save_freq": 1024,
     "validation_rollout_steps": 64,
