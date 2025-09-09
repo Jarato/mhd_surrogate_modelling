@@ -192,7 +192,8 @@ def validate_epoch_rollout(model: tcKoopmanAutoencoderQ2D, dataloader: DataLoade
     loss_fn = nn.MSELoss()
     total_rollout_loss = 0.0
     with torch.no_grad():
-        for batch_sequence in dataloader:
+        pbar_val = tqdm(dataloader, desc="Validation Rollout", leave=False)
+        for batch_sequence in pbar_val:
             batch_sequence = batch_sequence.to(DEVICE)
             initial_conditions, ground_truth = batch_sequence[:, 0], batch_sequence[:, 1:]
             z_k = model.encode(initial_conditions)
@@ -224,7 +225,6 @@ def main():
         logging.info(f"Resuming training from {resume_checkpoint_path}")
         checkpoint = torch.load(resume_checkpoint_path, map_location=DEVICE)
         model_config = checkpoint["config"]
-        # On resume, use the saved norm_stats and indices
         norm_stats = checkpoint["norm_stats"]
         train_indices, val_indices = checkpoint["train_indices"], checkpoint["val_indices"]
         
