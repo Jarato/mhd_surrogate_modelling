@@ -2,6 +2,7 @@
 # packages/mhd_q2d_tckae/src/mhd_q2d_tckae/model.py
 
 from collections import OrderedDict
+from typing import Any, Dict, List
 
 import torch
 import torch.nn as nn
@@ -144,7 +145,6 @@ class tcKoopmanAutoencoderQ2D(nn.Module):
         self.steps = steps
         self.steps_back = steps_back
         self.steps_tc = steps_tc
-        # --- FIX: Store latent_dim as an attribute ---
         self.latent_dim = latent_dim
         
         x_dim, y_dim, z_dim = input_spatial_dims
@@ -186,11 +186,8 @@ class tcKoopmanAutoencoderQ2D(nn.Module):
         )
 
         self.koopman_operator = nn.Linear(latent_dim, latent_dim, bias=False)
-        
-        # Backward operator for consistency loss, as in cKAE/tcKAE paper's implementation
         self.koopman_operator_backward = nn.Linear(latent_dim, latent_dim, bias=False)
         
-        # Initialize backward operator as pseudo-inverse of forward
         with torch.no_grad():
             self.koopman_operator_backward.weight.data = torch.pinverse(
                 self.koopman_operator.weight.data.t()
@@ -212,7 +209,7 @@ class tcKoopmanAutoencoderQ2D(nn.Module):
         self,
         x: torch.Tensor,
         mode: str = 'forward',
-    ) -> dict[str, list[torch.Tensor]]:
+    ) -> Dict[str, List[torch.Tensor]]:
         """
         Performs a multi-step forward or backward pass.
         
@@ -241,14 +238,12 @@ class tcKoopmanAutoencoderQ2D(nn.Module):
         predicted_states = []
         latent_states = []
         
-        # Iteratively apply the Koopman operator
         z_k = z
         for _ in range(max_steps):
             z_k = op(z_k)
             latent_states.append(z_k)
             predicted_states.append(self.decode(z_k))
             
-        # Add the reconstruction of the initial state for the identity loss
         predicted_states.append(self.decode(z))
         
         return {state_key: predicted_states, latent_key: latent_states}
