@@ -43,7 +43,8 @@ def parse_args() -> argparse.Namespace:
     train_group.add_argument("--checkpoint-save-freq", type=int, default=1, help="Frequency (in epochs) to save the latest checkpoint.")
     train_group.add_argument("--persistent-save-freq", type=int, default=10, help="Frequency (in epochs) to save a checkpoint to persistent storage if scratch-dir is used.")
     train_group.add_argument("--epochs", type=int, default=200, help="Maximum number of training epochs.")
-    train_group.add_argument("--batch-size", type=int, default=4, help="Number of independent blocks per batch.")
+    train_group.add_argument("--batch-size", type=int, default=4, help="Number of independent blocks per batch for training.")
+    train_group.add_argument("--validation-batch-size", type=int, default=None, help="Batch size for validation. Defaults to training batch size if not set.")
     train_group.add_argument("--num-workers", type=int, default=8, help="Number of worker processes for data loading.")
     train_group.add_argument("--validation-rollout-steps", type=int, default=50, help="Number of auto-regressive steps for validation.")
 
@@ -170,13 +171,10 @@ def validate_epoch_rollout(
     with torch.no_grad():
         for batch_sequence in dataloader:
             batch_sequence = batch_sequence.to(DEVICE)
-            # batch_sequence shape: (B, T, C, X, Y, Z)
             
-            # --- Prepare Initial Conditions and Ground Truth ---
             initial_conditions = batch_sequence[:, 0]
             ground_truth = batch_sequence[:, 1:]
 
-            # --- Perform Auto-Regressive Rollout ---
             z_k = model.encode(initial_conditions)
             batch_rollout_loss = 0.0
             for k in range(rollout_steps):
@@ -214,7 +212,6 @@ def main():
         checkpoint = torch.load(resume_checkpoint_path, map_location=DEVICE)
         model_config = checkpoint["config"]
         channels_used = checkpoint.get("channels_used")
-        # --- Datasets are now different for train and val ---
         train_dataset_full = tcKAEMHDDataset(
             file_path=args.data_path, steps=model_config["steps"],
             sequence_length=model_config["sequence_length"],
@@ -241,7 +238,6 @@ def main():
         losses_at_best_epoch = checkpoint.get("losses_at_best_epoch", {})
     else:
         if args.resume: logging.error("Resume flag was set, but no valid checkpoint was found. Starting a new run.")
-        # --- Datasets are now different for train and val ---
         train_dataset_full = tcKAEMHDDataset(
             file_path=args.data_path, steps=args.steps,
             sequence_length=args.sequence_length,
@@ -275,8 +271,10 @@ def main():
         optimizer = Adam(model.parameters(), lr=args.lr)
         scheduler = ReduceLROnPlateau(optimizer, 'min', factor=args.lr_factor, patience=args.lr_patience)
 
+    # --- DataLoaders ---
+    val_batch_size = args.validation_batch_size if args.validation_batch_size else args.batch_size
     train_dataloader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True, num_workers=args.num_workers, pin_memory=True)
-    val_dataloader = DataLoader(val_dataset, batch_size=args.batch_size, shuffle=False, num_workers=args.num_workers, pin_memory=True)
+    val_dataloader = DataLoader(val_dataset, batch_size=val_batch_size, shuffle=False, num_workers=args.num_workers, pin_memory=True)
     logging.info(f"Data split: {len(train_dataset)} train, {len(val_dataset)} val.")
     
     gammas = {"identity": args.gamma_identity, "fwd": args.gamma_fwd, "bwd": args.gamma_bwd if args.backward else 0.0, "con": args.gamma_con if args.backward else 0.0, "tc": args.gamma_tc}
