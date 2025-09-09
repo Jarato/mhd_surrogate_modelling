@@ -16,11 +16,15 @@ import argparse
 TRAIN_SCRIPT = "train.py"
 DATA_PATH = "/raid/skowronek/preprocessed_dns_output/01-Cold_Runs/01-Re16K_Ha325/T1220_x2301_y5_z256_c3/preprocessed/train_val_set.npz"
 NORM_STATS_PATH = "/raid/skowronek/preprocessed_dns_output/01-Cold_Runs/01-Re16K_Ha325/T1220_x2301_y5_z256_c3/preprocessed/normalization_stats.npz"
+# DATA_PATH = "/raid/skowronek/preprocessed_dns_output/01-Cold_Runs/01-Re16K_Ha325/interp/prep2/train_val_set.npz"
+# NORM_STATS_PATH = "/raid/skowronek/preprocessed_dns_output/01-Cold_Runs/01-Re16K_Ha325/interp/prep2/normalization_stats.npz"
 
 # Define the mandatory persistent directory and optional scratch directory
 # These will be the top-level directories for all sweep runs.
 BASE_PERSISTENT_DIR = Path("/cephfs/users/skowronek/Documents/PhD/nuclear_fusion_cooling/prediction/mhd_surrogate_modelling/experiments/study_3_q2d_tckae/output/test/")
-BASE_SCRATCH_DIR = Path("/raid/skowronek/mhd_surrogate_modelling/experiments/study_3_q2d_tckae/output/test/")
+
+# BASE_SCRATCH_DIR = Path("/raid/skowronek/mhd_surrogate_modelling/experiments/study_3_q2d_tckae/output/test/")
+BASE_SCRATCH_DIR = None
 
 # --- Hyperparameter Grid ---
 # Define the parameter space for the grid search.
@@ -29,8 +33,8 @@ param_grid = {
     'latent_dim': [256],
     'bottleneck_dim': [4096],
     'use_bottleneck': [True],
-    'batch_size': [8],
-    'validation_batch_size': [8],
+    'batch_size': [1],
+    'validation_batch_size': [1],
     'sequence_length': [4], # This is M
     'steps': [4],              # This is K for forward dynamics
     'steps_back': [4],         # K for backward dynamics
@@ -46,12 +50,12 @@ param_grid = {
 # --- Fixed Training Arguments ---
 # These arguments will be the same for all runs.
 fixed_args = {
-    "epochs": 2,
+    "epochs": 3,
     "patience": 40,
     "lr_patience": 10,
     "clip_grad_value": 1,
     "lr_factor": 0.1,
-    "num_workers": 8,
+    "num_workers": 2,
     "validation_num_workers": 2,
     "checkpoint_save_freq": 32,
     "persistent_save_freq": 1024,
