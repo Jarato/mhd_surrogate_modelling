@@ -46,7 +46,7 @@ param_grid = {
 # --- Fixed Training Arguments ---
 # These arguments will be the same for all runs.
 fixed_args = {
-    "epochs": 2,
+    "epochs": 3,
     "patience": 40,
     "lr_patience": 10,
     "clip_grad_value": 1,
