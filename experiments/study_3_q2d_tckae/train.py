@@ -96,7 +96,8 @@ def setup_data_and_stats(args: argparse.Namespace) -> Dict[str, Any]:
     
     if args.norm_stats_path:
         logging.info(f"Loading pre-computed normalization stats from {args.norm_stats_path}")
-        norm_stats = np.load(args.norm_stats_path)
+        with np.load(args.norm_stats_path) as data:
+            norm_stats = {key: data[key] for key in data.files}
     else:
         logging.info(f"Computing normalization stats on {train_size} training timesteps.")
         train_data_raw = timeseries[:train_size]
@@ -226,7 +227,6 @@ def main():
     resume_checkpoint_path = find_latest_checkpoint(persistent_dir, scratch_dir) if args.resume else None
 
     if resume_checkpoint_path:
-        # ... (resume logic) ...
         logging.info(f"Resuming training from {resume_checkpoint_path}")
         checkpoint = torch.load(resume_checkpoint_path, map_location=DEVICE)
         model_config = checkpoint["config"]
