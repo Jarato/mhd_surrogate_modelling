@@ -44,13 +44,20 @@ def parse_args():
         "--sequence-length",
         type=int,
         required=True,
-        help="Length of a sequence block (M from the paper)."
+        help="Length of a sequence block for training (M from the paper)."
     )
     parser.add_argument(
         "--steps",
         type=int,
         required=True,
-        help="Number of prediction steps in the future (K from the paper)."
+        help="Number of prediction steps in the future for training (K from the paper)."
+    )
+    # --- NEW: Added argument for validation sequence length ---
+    parser.add_argument(
+        "--validation-rollout-steps",
+        type=int,
+        required=True,
+        help="Number of auto-regressive steps for validation."
     )
     return parser.parse_args()
 
@@ -77,7 +84,6 @@ def main():
     train_size = total_timesteps - val_size
     
     train_data = timeseries[:train_size]
-    # val_data is not explicitly needed, we just need the time range
     
     logging.info(f"Temporal split created: {train_size} timesteps for training, {val_size} for validation.")
     
@@ -86,7 +92,6 @@ def main():
 
     # --- 2. Compute Statistics on Training Set ONLY ---
     logging.info("Calculating min/max statistics per channel on the training set...")
-    # Calculate stats across all axes except the channel axis
     min_vals = np.min(train_data, axis=(0, 1, 2, 3))
     max_vals = np.max(train_data, axis=(0, 1, 2, 3))
 
@@ -97,13 +102,15 @@ def main():
     logging.info("-------------------------------------------------")
     
     # --- 3. Generate Valid Starting Indices for Blocks ---
-    # A block is a sequence of M sequences, each of length (steps + 1)
-    # The total length of one block in time is (M + steps)
-    block_length = args.sequence_length + args.steps
+    # A training block requires M+K timesteps
+    train_block_length = args.sequence_length + args.steps
+    # A validation sequence requires rollout_steps + 1 timesteps
+    val_sequence_length = args.validation_rollout_steps + 1
 
-    # A starting index 'i' is valid if the entire block starting at 'i' fits within the time range.
-    train_indices = np.arange(0, train_size - block_length + 1)
-    val_indices = np.arange(train_size, total_timesteps - block_length + 1)
+    train_indices = np.arange(0, train_size - train_block_length + 1)
+    # The validation indices must start *after* the training data
+    # and leave enough room for a full validation sequence.
+    val_indices = np.arange(train_size, total_timesteps - val_sequence_length + 1)
     
     logging.info(f"Generated {len(train_indices)} valid training start indices.")
     logging.info(f"Generated {len(val_indices)} valid validation start indices.")
@@ -121,3 +128,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
