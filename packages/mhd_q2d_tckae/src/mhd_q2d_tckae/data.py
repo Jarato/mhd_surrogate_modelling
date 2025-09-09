@@ -3,6 +3,7 @@
 
 import logging
 from pathlib import Path
+from typing import Dict
 
 import numpy as np
 import torch
@@ -23,10 +24,11 @@ class tcKAEMHDDataset(Dataset):
 
     def __init__(
         self,
-        file_path: Path | str,
+        full_timeseries: np.ndarray,
+        all_channel_names: list[str],
         sequence_length: int,  # M
         steps: int,            # K
-        norm_stats_path: Path | str | None = None,
+        norm_stats: Dict[str, np.ndarray] | None = None,
         channels_to_use: list[str] | None = None,
         process_safe_copy: bool = False,
     ):
@@ -34,9 +36,7 @@ class tcKAEMHDDataset(Dataset):
         self.steps = steps
         self.process_safe_copy = process_safe_copy
         
-        with np.load(file_path, allow_pickle=True) as data:
-            full_timeseries = data["timeseries"]
-            self.all_channel_names = list(data["labels"])
+        self.all_channel_names = all_channel_names
 
         if channels_to_use:
             indices = [self.all_channel_names.index(name) for name in channels_to_use]
@@ -47,10 +47,9 @@ class tcKAEMHDDataset(Dataset):
             self.channel_names = self.all_channel_names
 
         self.min_vals, self.max_vals, self.range = None, None, None
-        if norm_stats_path:
-            stats = np.load(norm_stats_path)
-            all_min = torch.from_numpy(stats['min_vals']).float()
-            all_max = torch.from_numpy(stats['max_vals']).float()
+        if norm_stats:
+            all_min = torch.from_numpy(norm_stats['min_vals']).float()
+            all_max = torch.from_numpy(norm_stats['max_vals']).float()
             if channels_to_use:
                 indices = [self.all_channel_names.index(name) for name in channels_to_use]
                 self.min_vals = all_min[indices].view(1, -1, 1, 1, 1)
@@ -61,7 +60,8 @@ class tcKAEMHDDataset(Dataset):
             self.range = self.max_vals - self.min_vals + 1e-8
 
     def __len__(self) -> int:
-        return self.data.shape[0] - (self.sequence_length + self.steps) + 1
+        # This length is relative to the subset of indices it will be used with
+        return self.data.shape[0]
 
     def _normalize(self, x: torch.Tensor) -> torch.Tensor:
         if self.min_vals is None: return x
@@ -95,18 +95,17 @@ class RolloutMHDDataset(Dataset):
     """
     def __init__(
         self,
-        file_path: Path | str,
+        full_timeseries: np.ndarray,
+        all_channel_names: list[str],
         rollout_steps: int,
-        norm_stats_path: Path | str | None = None,
+        norm_stats: Dict[str, np.ndarray] | None = None,
         channels_to_use: list[str] | None = None,
         process_safe_copy: bool = False,
     ):
         self.rollout_steps = rollout_steps
         self.process_safe_copy = process_safe_copy
         
-        with np.load(file_path, allow_pickle=True) as data:
-            full_timeseries = data["timeseries"]
-            self.all_channel_names = list(data["labels"])
+        self.all_channel_names = all_channel_names
 
         if channels_to_use:
             indices = [self.all_channel_names.index(name) for name in channels_to_use]
@@ -117,10 +116,9 @@ class RolloutMHDDataset(Dataset):
             self.channel_names = self.all_channel_names
 
         self.min_vals, self.max_vals, self.range = None, None, None
-        if norm_stats_path:
-            stats = np.load(norm_stats_path)
-            all_min = torch.from_numpy(stats['min_vals']).float()
-            all_max = torch.from_numpy(stats['max_vals']).float()
+        if norm_stats:
+            all_min = torch.from_numpy(norm_stats['min_vals']).float()
+            all_max = torch.from_numpy(norm_stats['max_vals']).float()
             if channels_to_use:
                 indices = [self.all_channel_names.index(name) for name in channels_to_use]
                 self.min_vals = all_min[indices].view(1, -1, 1, 1, 1)
@@ -131,7 +129,8 @@ class RolloutMHDDataset(Dataset):
             self.range = self.max_vals - self.min_vals + 1e-8
 
     def __len__(self) -> int:
-        return self.data.shape[0] - self.rollout_steps
+        # This length is relative to the subset of indices it will be used with
+        return self.data.shape[0]
 
     def _normalize(self, x: torch.Tensor) -> torch.Tensor:
         if self.min_vals is None: return x

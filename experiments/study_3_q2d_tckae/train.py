@@ -33,13 +33,14 @@ def parse_args() -> argparse.Namespace:
 
     data_group = parser.add_argument_group("Data and I/O")
     data_group.add_argument("--data-path", type=str, required=True, help="Path to the pre-split train_val_set.npz.")
-    data_group.add_argument("--norm-stats-path", type=str, required=True, help="Path to the normalization_stats.npz file.")
     data_group.add_argument("--persistent-dir", type=str, required=True, help="Required path for logs and best model (persistent storage).")
     data_group.add_argument("--scratch-dir", type=str, default=None, help="Optional path for frequent checkpoints (fast, temporary storage).")
     data_group.add_argument("--channels", nargs='+', default=None, help="List of channel names to use for training.")
     data_group.add_argument("--resume", action="store_true", help="Flag to resume training from the latest available checkpoint.")
     
     train_group = parser.add_argument_group("Training Parameters")
+    train_group.add_argument("--val-split", type=float, default=0.2, help="Fraction of data for validation.")
+    train_group.add_argument("--seed", type=int, default=42, help="Random seed for the train/val split.")
     train_group.add_argument("--checkpoint-save-freq", type=int, default=1, help="Frequency (in epochs) to save the latest checkpoint.")
     train_group.add_argument("--persistent-save-freq", type=int, default=10, help="Frequency (in epochs) to save a checkpoint to persistent storage if scratch-dir is used.")
     train_group.add_argument("--epochs", type=int, default=200, help="Maximum number of training epochs.")
@@ -49,6 +50,7 @@ def parse_args() -> argparse.Namespace:
     train_group.add_argument("--validation-num-workers", type=int, default=None, help="Number of workers for validation. Defaults to num-workers if not set.")
     train_group.add_argument("--validation-rollout-steps", type=int, default=50, help="Number of auto-regressive steps for validation.")
 
+    # ... (rest of argparse remains the same) ...
     optim_group = parser.add_argument_group("Optimizer and Scheduler")
     optim_group.add_argument("--lr", type=float, default=1e-4, help="Initial learning rate.")
     optim_group.add_argument("--patience", type=int, default=20, help="Patience for early stopping.")
@@ -81,8 +83,59 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def setup_data_and_stats(args: argparse.Namespace) -> Dict[str, Any]:
+    """Loads data, performs split, computes stats, and returns datasets."""
+    logging.info(f"Loading and splitting data from {args.data_path}")
+    with np.load(args.data_path, allow_pickle=True) as data:
+        timeseries = data["timeseries"]
+        all_channel_names = list(data["labels"])
+
+    # --- Temporal Train/Validation Split ---
+    total_timesteps = timeseries.shape[0]
+    val_size = int(total_timesteps * args.val_split)
+    train_size = total_timesteps - val_size
+    
+    train_data_raw = timeseries[:train_size]
+    
+    # --- Compute Normalization Stats on Training Set ONLY ---
+    logging.info(f"Computing normalization stats on {train_size} training timesteps.")
+    min_vals = np.min(train_data_raw, axis=(0, 1, 2, 3))
+    max_vals = np.max(train_data_raw, axis=(0, 1, 2, 3))
+    norm_stats = {"min_vals": min_vals, "max_vals": max_vals}
+
+    # --- Generate Valid Starting Indices ---
+    train_block_len = args.sequence_length + args.steps
+    val_seq_len = args.validation_rollout_steps + 1
+    
+    train_indices = np.arange(0, train_size - train_block_len + 1)
+    val_indices = np.arange(train_size, total_timesteps - val_seq_len + 1)
+    
+    # --- Create Datasets ---
+    process_safe = args.num_workers > 0
+    val_process_safe = (args.validation_num_workers if args.validation_num_workers is not None else args.num_workers) > 0
+
+    train_dataset_full = tcKAEMHDDataset(
+        full_timeseries=timeseries, all_channel_names=all_channel_names,
+        sequence_length=args.sequence_length, steps=args.steps,
+        norm_stats=norm_stats, channels_to_use=args.channels,
+        process_safe_copy=process_safe,
+    )
+    val_dataset_full = RolloutMHDDataset(
+        full_timeseries=timeseries, all_channel_names=all_channel_names,
+        rollout_steps=args.validation_rollout_steps,
+        norm_stats=norm_stats, channels_to_use=args.channels,
+        process_safe_copy=val_process_safe,
+    )
+    
+    return {
+        "train_dataset": Subset(train_dataset_full, train_indices),
+        "val_dataset": Subset(val_dataset_full, val_indices),
+        "channels_used": train_dataset_full.channel_names,
+    }
+
+
 def find_latest_checkpoint(persistent_dir: Path, scratch_dir: Path | None) -> Path | None:
-    """Finds the most recent checkpoint file between scratch and persistent dirs."""
+    # ... (function remains the same) ...
     persistent_ckpt = persistent_dir / "latest_checkpoint.pth"
     scratch_ckpt = scratch_dir / "latest_checkpoint.pth" if scratch_dir else None
     persistent_exists, scratch_exists = persistent_ckpt.exists(), scratch_ckpt.exists() if scratch_dir else False
@@ -92,7 +145,6 @@ def find_latest_checkpoint(persistent_dir: Path, scratch_dir: Path | None) -> Pa
         return scratch_ckpt if scratch_ckpt.stat().st_mtime > persistent_ckpt.stat().st_mtime else persistent_ckpt
     return scratch_ckpt if scratch_exists else persistent_ckpt
 
-
 def compute_loss_tckae(
     model: tcKoopmanAutoencoderQ2D,
     batch_of_blocks: torch.Tensor,
@@ -100,7 +152,7 @@ def compute_loss_tckae(
     epoch: int,
     epoch_trans: int,
 ) -> tuple[torch.Tensor, Dict[str, torch.Tensor]]:
-    """Computes the full tcKAE loss for a batch of sequence blocks in a vectorized manner."""
+    # ... (function remains the same) ...
     loss_fn = nn.MSELoss()
     B, M, T, C, X, Y, Z = batch_of_blocks.shape
     
@@ -155,15 +207,12 @@ def compute_loss_tckae(
     }
     return total_loss, loss_dict
 
-
 def validate_epoch_rollout(
     model: tcKoopmanAutoencoderQ2D,
     dataloader: DataLoader,
     rollout_steps: int,
 ) -> Dict[str, float]:
-    """
-    Computes validation loss via auto-regressive rollout.
-    """
+    # ... (function remains the same) ...
     model.eval()
     loss_fn = nn.MSELoss()
     total_rollout_loss = 0.0
@@ -187,7 +236,6 @@ def validate_epoch_rollout(
     avg_rollout_loss = total_rollout_loss / len(dataloader)
     return {"total": avg_rollout_loss}
 
-
 def main():
     """Main training and validation script."""
     args = parse_args()
@@ -202,64 +250,38 @@ def main():
         scratch_dir.mkdir(parents=True, exist_ok=True)
 
     start_epoch, best_val_loss, patience_counter, best_epoch = 0, float("inf"), 0, 0
-    channels_used = args.channels
     losses_at_best_epoch = {}
     
     resume_checkpoint_path = find_latest_checkpoint(persistent_dir, scratch_dir) if args.resume else None
 
     if resume_checkpoint_path:
         logging.info(f"Resuming training from {resume_checkpoint_path}")
+        # When resuming, we still need to run setup_data to get datasets
+        # But we will load the model and optimizer state from the checkpoint
+        data_setup = setup_data_and_stats(args)
+        train_dataset, val_dataset = data_setup["train_dataset"], data_setup["val_dataset"]
+        channels_used = data_setup["channels_used"]
+        
         checkpoint = torch.load(resume_checkpoint_path, map_location=DEVICE)
         model_config = checkpoint["config"]
-        channels_used = checkpoint.get("channels_used")
-        train_dataset_full = tcKAEMHDDataset(
-            file_path=args.data_path, steps=model_config["steps"],
-            sequence_length=model_config["sequence_length"],
-            norm_stats_path=args.norm_stats_path, channels_to_use=channels_used,
-            process_safe_copy=(args.num_workers > 0),
-        )
-        val_dataset_full = RolloutMHDDataset(
-            file_path=args.data_path,
-            rollout_steps=args.validation_rollout_steps,
-            norm_stats_path=args.norm_stats_path,
-            channels_to_use=channels_used,
-            process_safe_copy=(args.validation_num_workers > 0 if args.validation_num_workers is not None else args.num_workers > 0),
-        )
-        train_indices, val_indices = checkpoint["train_indices"], checkpoint["val_indices"]
-        train_dataset, val_dataset = Subset(train_dataset_full, train_indices), Subset(val_dataset_full, val_indices)
-        
         model = tcKoopmanAutoencoderQ2D(**model_config).to(DEVICE)
         model.load_state_dict(checkpoint["model_state_dict"])
+        
         optimizer = Adam(model.parameters(), lr=args.lr)
         optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
         scheduler = ReduceLROnPlateau(optimizer, 'min', factor=args.lr_factor, patience=args.lr_patience)
         scheduler.load_state_dict(checkpoint["scheduler_state_dict"])
+        
         start_epoch, best_val_loss, patience_counter, best_epoch = checkpoint["epoch"] + 1, checkpoint["best_val_loss"], checkpoint["patience_counter"], checkpoint.get("best_epoch", 0)
         losses_at_best_epoch = checkpoint.get("losses_at_best_epoch", {})
     else:
         if args.resume: logging.error("Resume flag was set, but no valid checkpoint was found. Starting a new run.")
-        train_dataset_full = tcKAEMHDDataset(
-            file_path=args.data_path, steps=args.steps,
-            sequence_length=args.sequence_length,
-            norm_stats_path=args.norm_stats_path, channels_to_use=args.channels,
-            process_safe_copy=(args.num_workers > 0),
-        )
-        val_dataset_full = RolloutMHDDataset(
-            file_path=args.data_path,
-            rollout_steps=args.validation_rollout_steps,
-            norm_stats_path=args.norm_stats_path,
-            channels_to_use=args.channels,
-            process_safe_copy=(args.validation_num_workers > 0 if args.validation_num_workers is not None else args.num_workers > 0),
-        )
-        channels_used = train_dataset_full.channel_names
+        data_setup = setup_data_and_stats(args)
+        train_dataset, val_dataset = data_setup["train_dataset"], data_setup["val_dataset"]
+        channels_used = data_setup["channels_used"]
+
+        sample_x = train_dataset.dataset.data[0, 0] # Get a sample for shape info
         
-        stats = np.load(args.norm_stats_path)
-        train_indices, val_indices = stats["train_indices"], stats["val_indices"]
-        train_dataset = Subset(train_dataset_full, train_indices)
-        val_dataset = Subset(val_dataset_full, val_indices)
-        
-        sample_block = train_dataset_full[0]
-        sample_x = sample_block[0, 0]
         model_config = {
             "in_channels": sample_x.shape[0], "latent_dim": args.latent_dim,
             "input_spatial_dims": sample_x.shape[1:], "steps": args.steps,
@@ -281,10 +303,9 @@ def main():
     
     gammas = {"identity": args.gamma_identity, "fwd": args.gamma_fwd, "bwd": args.gamma_bwd if args.backward else 0.0, "con": args.gamma_con if args.backward else 0.0, "tc": args.gamma_tc}
 
-    # =========================================================================
     # --- TRAINING LOOP ---
-    # =========================================================================
     for epoch in range(start_epoch, args.epochs):
+        # ... (training loop remains the same) ...
         model.train()
         epoch_losses = {"total": 0.0, "identity": 0.0, "forward": 0.0, "tc": 0.0, "backward": 0.0, "consistency": 0.0}
         epoch_grad_norm = 0.0
@@ -323,7 +344,7 @@ def main():
         else:
             patience_counter += 1
         
-        checkpoint_data = {"epoch": epoch, "config": model_config, "model_state_dict": model.state_dict(), "optimizer_state_dict": optimizer.state_dict(), "scheduler_state_dict": scheduler.state_dict(), "best_val_loss": best_val_loss, "patience_counter": patience_counter, "best_epoch": best_epoch, "losses_at_best_epoch": losses_at_best_epoch, "train_indices": train_indices, "val_indices": val_indices, "channels_used": channels_used}
+        checkpoint_data = {"epoch": epoch, "config": model_config, "model_state_dict": model.state_dict(), "optimizer_state_dict": optimizer.state_dict(), "scheduler_state_dict": scheduler.state_dict(), "best_val_loss": best_val_loss, "patience_counter": patience_counter, "best_epoch": best_epoch, "losses_at_best_epoch": losses_at_best_epoch}
         
         is_last_epoch = (epoch == args.epochs - 1)
         if (epoch + 1) % args.checkpoint_save_freq == 0 or is_last_epoch:
