@@ -14,7 +14,7 @@ import argparse
 
 # --- Script and Data Paths ---
 TRAIN_SCRIPT = "train.py"
-DATA_PATH = "/raid/skowronek/preprocessed_dns_output/01-Cold_Runs/01-Re16K_Ha325/interp/prep2/train_val_set.npz"
+DATA_PATH = "/raid/skowronek/preprocessed_dns_output/01-Cold_Runs/01-Re16K_Ha325/T1220_x2301_y5_z256_c3/preprocessed/train_val_set.npz"
 
 # Define the mandatory persistent directory and optional scratch directory
 # These will be the top-level directories for all sweep runs.
@@ -45,7 +45,7 @@ param_grid = {
 # --- Fixed Training Arguments ---
 # These arguments will be the same for all runs.
 fixed_args = {
-    "epochs": 3,
+    "epochs": 2,
     "patience": 40,
     "lr_patience": 10,
     "clip_grad_value": 1,
