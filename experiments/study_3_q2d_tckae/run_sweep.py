@@ -15,6 +15,7 @@ import argparse
 # --- Script and Data Paths ---
 TRAIN_SCRIPT = "train.py"
 DATA_PATH = "/raid/skowronek/preprocessed_dns_output/01-Cold_Runs/01-Re16K_Ha325/T1220_x2301_y5_z256_c3/preprocessed/train_val_set.npz"
+NORM_STATS_PATH = "/raid/skowronek/preprocessed_dns_output/01-Cold_Runs/01-Re16K_Ha325/T1220_x2301_y5_z256_c3/preprocessed/normalization_stats.npz"
 
 # Define the mandatory persistent directory and optional scratch directory
 # These will be the top-level directories for all sweep runs.
@@ -86,11 +87,8 @@ def main():
             f"Ktc{config['steps_tc']}",
             f"gtc{config['gamma_tc']}",
         ]
-        # Conditionally add backward-related parameters to the run name for clarity
         if config['backward']:
-            run_name_parts.append(
-                f"bwd_True_gb{config['gamma_bwd']}_gc{config['gamma_con']}"
-            )
+            run_name_parts.append(f"bwd_True_gb{config['gamma_bwd']}_gc{config['gamma_con']}")
         else:
             run_name_parts.append("bwd_False")
         run_name = "_".join(run_name_parts)
@@ -114,6 +112,7 @@ def main():
             "python",
             TRAIN_SCRIPT,
             "--data-path", DATA_PATH,
+            "--norm-stats-path", NORM_STATS_PATH,
             "--persistent-dir", str(persistent_dir),
         ]
         
