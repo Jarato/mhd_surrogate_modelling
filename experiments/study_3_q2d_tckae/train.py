@@ -33,6 +33,7 @@ def parse_args() -> argparse.Namespace:
 
     data_group = parser.add_argument_group("Data and I/O")
     data_group.add_argument("--data-path", type=str, required=True, help="Path to the pre-split train_val_set.npz.")
+    data_group.add_argument("--norm-stats-path", type=str, default=None, help="Optional path to pre-computed normalization stats.")
     data_group.add_argument("--persistent-dir", type=str, required=True, help="Required path for logs and best model (persistent storage).")
     data_group.add_argument("--scratch-dir", type=str, default=None, help="Optional path for frequent checkpoints (fast, temporary storage).")
     data_group.add_argument("--channels", nargs='+', default=None, help="List of channel names to use for training.")
@@ -83,8 +84,8 @@ def parse_args() -> argparse.Namespace:
 
 
 def setup_data_and_stats(args: argparse.Namespace) -> Dict[str, Any]:
-    """Loads data, performs split, computes stats, and returns datasets."""
-    logging.info(f"Loading and splitting data from {args.data_path}")
+    """Loads data, performs split, computes or loads stats, and returns datasets."""
+    logging.info(f"Loading data from {args.data_path}")
     with np.load(args.data_path, allow_pickle=True) as data:
         timeseries = data["timeseries"]
         all_channel_names = list(data["labels"])
@@ -93,12 +94,15 @@ def setup_data_and_stats(args: argparse.Namespace) -> Dict[str, Any]:
     val_size = int(total_timesteps * args.val_split)
     train_size = total_timesteps - val_size
     
-    train_data_raw = timeseries[:train_size]
-    
-    logging.info(f"Computing normalization stats on {train_size} training timesteps.")
-    min_vals = np.min(train_data_raw, axis=(0, 1, 2, 3))
-    max_vals = np.max(train_data_raw, axis=(0, 1, 2, 3))
-    norm_stats = {"min_vals": min_vals, "max_vals": max_vals}
+    if args.norm_stats_path:
+        logging.info(f"Loading pre-computed normalization stats from {args.norm_stats_path}")
+        norm_stats = np.load(args.norm_stats_path)
+    else:
+        logging.info(f"Computing normalization stats on {train_size} training timesteps.")
+        train_data_raw = timeseries[:train_size]
+        min_vals = np.min(train_data_raw, axis=(0, 1, 2, 3))
+        max_vals = np.max(train_data_raw, axis=(0, 1, 2, 3))
+        norm_stats = {"min_vals": min_vals, "max_vals": max_vals}
 
     train_block_len = args.sequence_length + args.steps
     val_seq_len = args.validation_rollout_steps + 1
@@ -222,21 +226,18 @@ def main():
     resume_checkpoint_path = find_latest_checkpoint(persistent_dir, scratch_dir) if args.resume else None
 
     if resume_checkpoint_path:
+        # ... (resume logic) ...
         logging.info(f"Resuming training from {resume_checkpoint_path}")
         checkpoint = torch.load(resume_checkpoint_path, map_location=DEVICE)
         model_config = checkpoint["config"]
         norm_stats = checkpoint["norm_stats"]
         train_indices, val_indices = checkpoint["train_indices"], checkpoint["val_indices"]
-        
         with np.load(args.data_path, allow_pickle=True) as data:
             timeseries, all_channel_names = data["timeseries"], list(data["labels"])
-            
         train_dataset_full = tcKAEMHDDataset(timeseries, all_channel_names, model_config["sequence_length"], model_config["steps"], norm_stats, model_config.get("channels_used"), args.num_workers > 0)
         val_dataset_full = RolloutMHDDataset(timeseries, all_channel_names, args.validation_rollout_steps, norm_stats, model_config.get("channels_used"), (args.validation_num_workers if args.validation_num_workers is not None else args.num_workers) > 0)
-        
         train_dataset, val_dataset = Subset(train_dataset_full, train_indices), Subset(val_dataset_full, val_indices)
         channels_used = train_dataset_full.channel_names
-        
         model = tcKoopmanAutoencoderQ2D(**model_config).to(DEVICE)
         model.load_state_dict(checkpoint["model_state_dict"])
         optimizer = Adam(model.parameters(), lr=args.lr)
