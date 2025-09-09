@@ -37,7 +37,6 @@ def parse_args() -> argparse.Namespace:
     data_group.add_argument("--persistent-dir", type=str, required=True, help="Required path for logs and best model (persistent storage).")
     data_group.add_argument("--scratch-dir", type=str, default=None, help="Optional path for frequent checkpoints (fast, temporary storage).")
     data_group.add_argument("--channels", nargs='+', default=None, help="List of channel names to use for training.")
-    # --- NEW: Changed to a boolean flag ---
     data_group.add_argument("--resume", action="store_true", help="Flag to resume training from the latest available checkpoint.")
     
     train_group = parser.add_argument_group("Training Parameters")
@@ -46,6 +45,7 @@ def parse_args() -> argparse.Namespace:
     train_group.add_argument("--epochs", type=int, default=200, help="Maximum number of training epochs.")
     train_group.add_argument("--batch-size", type=int, default=4, help="Number of independent blocks per batch.")
     train_group.add_argument("--num-workers", type=int, default=8, help="Number of worker processes for data loading.")
+    train_group.add_argument("--validation-rollout-steps", type=int, default=50, help="Number of auto-regressive steps for validation.")
 
     optim_group = parser.add_argument_group("Optimizer and Scheduler")
     optim_group.add_argument("--lr", type=float, default=1e-4, help="Initial learning rate.")
@@ -177,24 +177,52 @@ def compute_loss_tckae(
     return total_loss, loss_dict
 
 
-def validate_epoch(
+def validate_epoch_rollout(
     model: tcKoopmanAutoencoderQ2D,
     dataloader: DataLoader,
-    gammas: Dict[str, float],
-    epoch: int,
-    epoch_trans: int,
+    rollout_steps: int,
 ) -> Dict[str, float]:
-    """Computes validation loss for one epoch."""
+    """
+    Computes validation loss via auto-regressive rollout, which is a more
+    realistic measure of forecasting performance.
+    """
     model.eval()
-    total_losses = {"total": 0.0, "identity": 0.0, "forward": 0.0, "tc": 0.0, "backward": 0.0, "consistency": 0.0}
+    loss_fn = nn.MSELoss()
+    total_rollout_loss = 0.0
+
     with torch.no_grad():
         for batch_of_blocks in dataloader:
             batch_of_blocks = batch_of_blocks.to(DEVICE)
-            _, loss_dict = compute_loss_tckae(model, batch_of_blocks, gammas, epoch, epoch_trans)
-            for key in total_losses:
-                total_losses[key] += loss_dict[key].item()
+            B, M, T, C, X, Y, Z = batch_of_blocks.shape
 
-    return {key: val / len(dataloader) for key, val in total_losses.items()}
+            # Ensure we have enough ground truth data for the rollout
+            if T < rollout_steps + 1:
+                continue
+
+            # --- Prepare Initial Conditions and Ground Truth ---
+            # Initial conditions for all sequences in the batch
+            initial_conditions = batch_of_blocks[:, :, 0].reshape(B * M, C, X, Y, Z)
+            # Ground truth trajectory for comparison
+            ground_truth = [
+                batch_of_blocks[:, :, t].reshape(B * M, C, X, Y, Z)
+                for t in range(1, rollout_steps + 1)
+            ]
+
+            # --- Perform Auto-Regressive Rollout ---
+            z_k = model.encode(initial_conditions)
+            batch_rollout_loss = 0.0
+            for k in range(rollout_steps):
+                z_k = model.koopman_step(z_k)
+                x_k_pred = model.decode(z_k)
+                batch_rollout_loss += loss_fn(x_k_pred, ground_truth[k])
+            
+            total_rollout_loss += (batch_rollout_loss / rollout_steps).item()
+
+    # Average over all batches
+    avg_rollout_loss = total_rollout_loss / len(dataloader)
+    # Return in a dictionary for consistency with training loss logging
+    return {"total": avg_rollout_loss}
+
 
 def main():
     """Main training and validation script."""
@@ -217,9 +245,7 @@ def main():
     losses_at_best_epoch = {}
     best_component_losses = {"identity": float("inf"), "forward": float("inf"), "tc": float("inf"), "backward": float("inf"), "consistency": float("inf")}
     
-    resume_checkpoint_path = None
-    if args.resume:
-        resume_checkpoint_path = find_latest_checkpoint(persistent_dir, scratch_dir)
+    resume_checkpoint_path = find_latest_checkpoint(persistent_dir, scratch_dir) if args.resume else None
 
     if resume_checkpoint_path:
         logging.info(f"Resuming training from {resume_checkpoint_path}")
@@ -244,10 +270,7 @@ def main():
         losses_at_best_epoch = checkpoint.get("losses_at_best_epoch", {})
         best_component_losses = checkpoint.get("best_component_losses", best_component_losses)
     else:
-        # --- Initialize a New Run ---
-        if args.resume:
-            logging.error("Resume flag was set, but no valid checkpoint was found. Starting a new run.")
-        
+        if args.resume: logging.error("Resume flag was set, but no valid checkpoint was found. Starting a new run.")
         full_dataset = tcKAEMHDDataset(
             file_path=args.data_path, steps=args.steps,
             sequence_length=args.sequence_length,
@@ -306,39 +329,26 @@ def main():
             pbar.set_postfix(loss=loss.item())
 
         avg_train_losses = {key: val / len(train_dataloader) for key, val in epoch_losses.items()}
-        avg_val_losses = validate_epoch(model, val_dataloader, gammas, epoch, args.epoch_trans)
+        avg_val_losses = validate_epoch_rollout(model, val_dataloader, args.validation_rollout_steps)
         scheduler.step(avg_val_losses["total"])
 
-        logging.info(f"Epoch [{epoch+1}/{args.epochs}] | Train Loss: {avg_train_losses['total']:.4f} | Val Loss: {avg_val_losses['total']:.4f}")
+        logging.info(f"Epoch [{epoch+1}/{args.epochs}] | Train Loss: {avg_train_losses['total']:.4f} | Val Rollout Loss: {avg_val_losses['total']:.4f}")
         
         writer.add_scalars("Loss/Total", {'train': avg_train_losses['total'], 'val': avg_val_losses['total']}, epoch)
         writer.add_scalar("Gradient/Norm", epoch_grad_norm / len(train_dataloader), epoch)
         for key in avg_train_losses:
-            if key != "total":
-                writer.add_scalars(f"Loss/{key}", {'train': avg_train_losses[key], 'val': avg_val_losses[key]}, epoch)
+            if key != "total": writer.add_scalars(f"Loss/{key}", {'train': avg_train_losses[key]}, epoch)
         writer.add_scalar("Learning_Rate", optimizer.param_groups[0]['lr'], epoch)
         
-        # --- Checkpointing and Early Stopping ---
-        for key in best_component_losses:
-            if key in avg_val_losses:
-                 best_component_losses[key] = min(best_component_losses[key], avg_val_losses[key])
-
         if avg_val_losses["total"] < best_val_loss:
             best_val_loss, patience_counter, best_epoch = avg_val_losses["total"], 0, epoch + 1
-            losses_at_best_epoch = avg_val_losses
+            losses_at_best_epoch = avg_val_losses # Store the simple rollout loss
             torch.save({'config': model_config, 'model_state_dict': model.state_dict(), 'channels_used': channels_used}, persistent_dir / "best_model.pth")
-            logging.info(f"New best model saved to persistent storage (Val Loss: {best_val_loss:.4f})")
+            logging.info(f"New best model saved to persistent storage (Val Rollout Loss: {best_val_loss:.4f})")
         else:
             patience_counter += 1
         
-        checkpoint_data = {
-            "epoch": epoch, "config": model_config, "model_state_dict": model.state_dict(),
-            "optimizer_state_dict": optimizer.state_dict(), "scheduler_state_dict": scheduler.state_dict(),
-            "best_val_loss": best_val_loss, "patience_counter": patience_counter,
-            "best_epoch": best_epoch, "losses_at_best_epoch": losses_at_best_epoch,
-            "best_component_losses": best_component_losses, "train_indices": train_indices,
-            "val_indices": val_indices, "channels_used": channels_used,
-        }
+        checkpoint_data = {"epoch": epoch, "config": model_config, "model_state_dict": model.state_dict(), "optimizer_state_dict": optimizer.state_dict(), "scheduler_state_dict": scheduler.state_dict(), "best_val_loss": best_val_loss, "patience_counter": patience_counter, "best_epoch": best_epoch, "losses_at_best_epoch": losses_at_best_epoch, "best_component_losses": best_component_losses, "train_indices": train_indices, "val_indices": val_indices, "channels_used": channels_used}
         
         # Save latest checkpoint based on the specified frequency
         is_last_epoch = (epoch == args.epochs - 1)
@@ -356,13 +366,7 @@ def main():
             logging.info("Early stopping triggered."); break
 
     # --- Final HParam Logging ---
-    hparams = {
-        **{k: v for k, v in vars(args).items() if k not in ['latent_dim', 'bottleneck_dim', 'channels', 'use_bottleneck','steps', 'steps_back', 'steps_tc']},
-        'latent_dim': model_config['latent_dim'], 'bottleneck_dim': model_config.get('bottleneck_dim', 4096),
-        'use_bottleneck': model_config.get('use_bottleneck', True), 'steps': model_config['steps'],
-        'steps_back': model_config['steps_back'], 'steps_tc': model_config['steps_tc'],
-        'channels': ",".join(channels_used) if channels_used is not None else "all",
-    }
+    hparams = {**{k: v for k, v in vars(args).items() if k not in ['latent_dim', 'bottleneck_dim', 'channels', 'use_bottleneck','steps', 'steps_back', 'steps_tc']}, 'latent_dim': model_config['latent_dim'], 'bottleneck_dim': model_config.get('bottleneck_dim', 4096), 'use_bottleneck': model_config.get('use_bottleneck', True), 'steps': model_config['steps'], 'steps_back': model_config['steps_back'], 'steps_tc': model_config['steps_tc'], 'channels': ",".join(channels_used) if channels_used is not None else "all"}
     for key, value in hparams.items():
         if isinstance(value, Path): hparams[key] = str(value)
         elif key.endswith('_path') and value is not None: hparams[key] = str(value)
