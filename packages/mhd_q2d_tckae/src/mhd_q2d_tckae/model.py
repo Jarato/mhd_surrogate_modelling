@@ -1,19 +1,18 @@
 # -*- coding: utf-8 -*-
-# packages/mhd_q2d_kae/src/mhd_q2d_kae/model.py
+# packages/mhd_q2d_tckae/src/mhd_q2d_tckae/model.py
 
 from collections import OrderedDict
 
 import torch
 import torch.nn as nn
 
-# Your EncoderQ2D and DecoderQ2D classes are excellent and can be used directly.
-# I've copied them here for completeness within the new model file.
+# --- Encoder and Decoder definitions from your original model ---
+# These are assumed to be defined as you provided them earlier.
 
 class EncoderQ2D(nn.Module):
     """
     A Quasi-2D CNN Encoder with a progressive linear bottleneck.
     """
-
     def __init__(
         self,
         in_channels: int,
@@ -62,7 +61,6 @@ class DecoderQ2D(nn.Module):
     """
     A Quasi-2D CNN Decoder with an optional progressive linear bottleneck.
     """
-
     def __init__(
         self,
         latent_dim: int,
@@ -128,11 +126,7 @@ class DecoderQ2D(nn.Module):
 
 
 class tcKoopmanAutoencoderQ2D(nn.Module):
-    """
-    The main Temporally-Consistent Quasi-2D Koopman Autoencoder model.
-    This model integrates the tcKAE logic with the Q2D convolutional architecture.
-    """
-
+    """The main Temporally-Consistent Quasi-2D Koopman Autoencoder model."""
     def __init__(
         self,
         in_channels: int,
@@ -141,15 +135,17 @@ class tcKoopmanAutoencoderQ2D(nn.Module):
         steps: int,
         steps_back: int,
         steps_tc: int,
+        sequence_length: int, # M
         bottleneck_dim: int = 4096,
         use_bottleneck: bool = True,
-        **kwargs,
     ):
         super().__init__()
         self.use_bottleneck = use_bottleneck
         self.steps = steps
         self.steps_back = steps_back
         self.steps_tc = steps_tc
+        # --- FIX: Store latent_dim as an attribute ---
+        self.latent_dim = latent_dim
         
         x_dim, y_dim, z_dim = input_spatial_dims
         
@@ -193,7 +189,12 @@ class tcKoopmanAutoencoderQ2D(nn.Module):
         
         # Backward operator for consistency loss, as in cKAE/tcKAE paper's implementation
         self.koopman_operator_backward = nn.Linear(latent_dim, latent_dim, bias=False)
-        self.koopman_operator_backward.weight.data = torch.pinverse(self.koopman_operator.weight.data.T)
+        
+        # Initialize backward operator as pseudo-inverse of forward
+        with torch.no_grad():
+            self.koopman_operator_backward.weight.data = torch.pinverse(
+                self.koopman_operator.weight.data.t()
+            )
 
     def encode(self, x: torch.Tensor) -> torch.Tensor:
         return self.encoder(x)
@@ -213,51 +214,42 @@ class tcKoopmanAutoencoderQ2D(nn.Module):
         mode: str = 'forward',
     ) -> dict[str, list[torch.Tensor]]:
         """
-        Performs the forward pass, generating multi-step predictions.
+        Performs a multi-step forward or backward pass.
         
         Args:
-            x: Input tensor (batch of initial states).
-            mode: 'forward' or 'backward' to control prediction direction.
-
+            x (torch.Tensor): The initial state tensor of shape (B, C, X, Y, Z).
+            mode (str): 'forward' or 'backward'.
+        
         Returns:
             A dictionary containing lists of predicted states and latent states.
         """
-        z = self.encode(x)
-        q = z.clone() # Use clone to avoid in-place modification issues
-
-        predicted_states = []
-        latent_states = []
-
         if mode == 'forward':
-            # Determine the maximum number of steps to iterate
             max_steps = max(self.steps, self.steps_tc)
-            for _ in range(max_steps):
-                q = self.koopman_step(q)
-                predicted_states.append(self.decode(q))
-                latent_states.append(q)
-            
-            # Also include the reconstruction of the original input
-            predicted_states.append(self.decode(z))
-            latent_states.append(z)
-
-            return {
-                "predicted_states": predicted_states,
-                "latent_states": latent_states
-            }
-
+            op = self.koopman_step
+            state_key = "predicted_states"
+            latent_key = "latent_states"
         elif mode == 'backward':
-            for _ in range(self.steps_back):
-                q = self.koopman_step_backward(q)
-                predicted_states.append(self.decode(q))
-                latent_states.append(q)
-
-            predicted_states.append(self.decode(z))
-            latent_states.append(z)
-            
-            return {
-                "predicted_states_back": predicted_states,
-                "latent_states_back": latent_states,
-            }
-        
+            max_steps = self.steps_back
+            op = self.koopman_step_backward
+            state_key = "predicted_states_back"
+            latent_key = "latent_states_back"
         else:
             raise ValueError(f"Unknown mode: {mode}")
+
+        z = self.encode(x)
+        
+        predicted_states = []
+        latent_states = []
+        
+        # Iteratively apply the Koopman operator
+        z_k = z
+        for _ in range(max_steps):
+            z_k = op(z_k)
+            latent_states.append(z_k)
+            predicted_states.append(self.decode(z_k))
+            
+        # Add the reconstruction of the initial state for the identity loss
+        predicted_states.append(self.decode(z))
+        
+        return {state_key: predicted_states, latent_key: latent_states}
+
