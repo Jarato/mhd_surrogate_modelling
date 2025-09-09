@@ -15,7 +15,6 @@ import argparse
 # --- Script and Data Paths ---
 TRAIN_SCRIPT = "train.py"
 DATA_PATH = "/raid/skowronek/preprocessed_dns_output/01-Cold_Runs/01-Re16K_Ha325/interp/prep2/train_val_set.npz"
-NORM_STATS_PATH = "/raid/skowronek/preprocessed_dns_output/01-Cold_Runs/01-Re16K_Ha325/interp/prep2/normalization_stats.npz"
 
 # Define the mandatory persistent directory and optional scratch directory
 # These will be the top-level directories for all sweep runs.
@@ -115,7 +114,6 @@ def main():
             "python",
             TRAIN_SCRIPT,
             "--data-path", DATA_PATH,
-            "--norm-stats-path", NORM_STATS_PATH,
             "--persistent-dir", str(persistent_dir),
         ]
         
@@ -127,17 +125,14 @@ def main():
 
         # Add hyperparameters from the config
         for key, value in config.items():
-            # Handle boolean flags that are triggered by their presence
             if key in ['use_bottleneck', 'backward']:
                 if value:
                     cmd.append(f'--{key.replace("_", "-")}')
             else:
-                cmd.append(f"--{key.replace('_', '-')}")
-                cmd.append(str(value))
+                cmd.extend([f"--{key.replace('_', '-')}", str(value)])
                 
         for key, value in fixed_args.items():
-            cmd.append(f"--{key.replace('_', '-')}")
-            cmd.append(str(value))
+            cmd.extend([f"--{key.replace('_', '-')}", str(value)])
 
         # Execute the training script
         try:
