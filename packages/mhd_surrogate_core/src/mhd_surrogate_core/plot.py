@@ -399,6 +399,8 @@ def plot_z_time_evolution(
     vmin: float = None,
     vmax: float = None,
     figsize: tuple = None,
+    base_size: int = 8,
+    min_size: int = 4,
 ):
     """
     Plots the time evolution of a channel along the z-axis (Time-Z plot).
@@ -420,7 +422,7 @@ def plot_z_time_evolution(
         time_range = data_slice.shape[0]
         z_range = coords['z'][-1] - coords['z'][0]
         # Heuristic: treat time steps as comparable to spatial units for aspect ratio
-        figsize = _calculate_dynamic_figsize(time_range, z_range, base_size=10, min_size=5, title_space=1.5)
+        figsize = _calculate_dynamic_figsize(time_range, z_range, base_size=base_size, min_size=min_size, title_space=1.5)
     # ---
 
     plt.style.use('seaborn-v0_8-whitegrid')
@@ -458,6 +460,8 @@ def plot_x_time_evolution(
     vmin: float = None,
     vmax: float = None,
     figsize: tuple = None,
+    base_size: int = 8,
+    min_size: int = 4,
 ):
     """
     Plots the time evolution of a channel along the x-axis (Time-X plot).
@@ -478,7 +482,7 @@ def plot_x_time_evolution(
     if figsize is None:
         time_range = data_slice.shape[0]
         x_range = coords['x'][-1] - coords['x'][0]
-        figsize = _calculate_dynamic_figsize(time_range, x_range, base_size=10, min_size=5, title_space=1.5)
+        figsize = _calculate_dynamic_figsize(time_range, x_range, base_size=base_size, min_size=min_size, title_space=1.5)
     # ---
 
     plt.style.use('seaborn-v0_8-whitegrid')
@@ -516,6 +520,8 @@ def plot_y_time_evolution(
     vmin: float = None,
     vmax: float = None,
     figsize: tuple = None,
+    base_size: int = 8,
+    min_size: int = 4,
 ):
     """
     Plots the time evolution of a channel along the y-axis (Time-Y plot).
@@ -536,7 +542,7 @@ def plot_y_time_evolution(
     if figsize is None:
         time_range = data_slice.shape[0]
         y_range = coords['y'][-1] - coords['y'][0]
-        figsize = _calculate_dynamic_figsize(time_range, y_range, base_size=10, min_size=5, title_space=1.5)
+        figsize = _calculate_dynamic_figsize(time_range, y_range, base_size=base_size, min_size=min_size, title_space=1.5)
     # ---
 
     plt.style.use('seaborn-v0_8-whitegrid')
@@ -574,6 +580,8 @@ def plot_xz_slice(
     vmin: float = None,
     vmax: float = None,
     figsize: tuple = None,
+    base_size: int = 8,
+    min_size: int = 4,
 ):
     """
     Plots a 2D slice in the x-z plane.
@@ -594,7 +602,7 @@ def plot_xz_slice(
     if figsize is None:
         x_range = coords['x'][-1] - coords['x'][0]
         z_range = coords['z'][-1] - coords['z'][0]
-        figsize = _calculate_dynamic_figsize(x_range, z_range)
+        figsize = _calculate_dynamic_figsize(x_range, z_range, base_size=base_size, min_size=min_size)
     # ---
 
     plt.style.use('seaborn-v0_8-whitegrid')
@@ -632,6 +640,8 @@ def plot_xy_slice(
     vmin: float = None,
     vmax: float = None,
     figsize: tuple = None,
+    base_size: int = 8,
+    min_size: int = 4,
 ):
     """
     Plots a 2D slice in the x-y plane.
@@ -652,7 +662,7 @@ def plot_xy_slice(
     if figsize is None:
         x_range = coords['x'][-1] - coords['x'][0]
         y_range = coords['y'][-1] - coords['y'][0]
-        figsize = _calculate_dynamic_figsize(x_range, y_range)
+        figsize = _calculate_dynamic_figsize(x_range, y_range, base_size=base_size, min_size=min_size)
     # ---
 
     plt.style.use('seaborn-v0_8-whitegrid')
@@ -690,6 +700,8 @@ def plot_yz_slice(
     vmin: float = None,
     vmax: float = None,
     figsize: tuple = None,
+    base_size: int = 8,
+    min_size: int = 4,
 ):
     """
     Plots a 2D slice in the y-z plane.
@@ -710,7 +722,7 @@ def plot_yz_slice(
     if figsize is None:
         y_range = coords['y'][-1] - coords['y'][0]
         z_range = coords['z'][-1] - coords['z'][0]
-        figsize = _calculate_dynamic_figsize(y_range, z_range)
+        figsize = _calculate_dynamic_figsize(y_range, z_range, base_size=base_size, min_size=min_size)
     # ---
 
     plt.style.use('seaborn-v0_8-whitegrid')
@@ -836,5 +848,4 @@ def plot_prediction_dashboard(
 
     plt.tight_layout(rect=[0, 0, 1, 0.94])
     plt.show()
-
 
