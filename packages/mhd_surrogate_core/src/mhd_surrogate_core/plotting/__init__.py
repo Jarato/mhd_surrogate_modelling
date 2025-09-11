@@ -1,7 +1,8 @@
-# mhd_surrogate_core/src/mhd_surrogate_core/plotting/__init__.py
-
 """
-A collection of plotting utilities for the MHD surrogate model project.
+The plotting package for the MHD Surrogate Core project.
+
+This package provides a set of functions for visualizing simulation data
+and model performance metrics.
 """
 
 from .evaluation import (
@@ -29,10 +30,13 @@ from .raw import (
     plot_interpolated_xz_slice,
     plot_interpolated_xy_slice,
     plot_interpolated_yz_slice,
+    plot_interpolated_z_time_evolution,
+    plot_interpolated_y_time_evolution,
+    plot_interpolated_x_time_evolution,
 )
 
 __all__ = [
-    # Evaluation plots
+    # Evaluation functions
     "plot_snapshot_comparison",
     "plot_prediction_comparison",
     "plot_prediction_rollout_error",
@@ -42,15 +46,19 @@ __all__ = [
     "plot_r2_performance",
     "plot_reconstruction_error_over_time",
     "plot_prediction_dashboard",
-    # Processed data plots
+    # Processed data functions
     "plot_z_time_evolution",
     "plot_x_time_evolution",
     "plot_y_time_evolution",
     "plot_xz_slice",
     "plot_xy_slice",
     "plot_yz_slice",
-    # Raw data plots
+    # Raw data functions
     "plot_interpolated_xz_slice",
     "plot_interpolated_xy_slice",
     "plot_interpolated_yz_slice",
+    "plot_interpolated_z_time_evolution",
+    "plot_interpolated_y_time_evolution",
+    "plot_interpolated_x_time_evolution",
 ]
+
