@@ -379,6 +379,7 @@ def plot_z_time_evolution(
     y_index: int,
     timeseries_data: np.ndarray = None,
     coords: dict = None,
+    channel_alias: str = None,
 ):
     """
     Plots the time evolution of a channel along the z-axis (Time-Z plot).
@@ -392,23 +393,23 @@ def plot_z_time_evolution(
         logging.error(f"Channel '{channel}' not found in {coords['labels']}.")
         return
 
-    # Data is shaped (time, x, y, z, channel)
     data_slice = timeseries_data[:, x_index, y_index, :, channel_idx]
+    display_name = channel_alias if channel_alias is not None else channel
 
     plt.style.use('seaborn-v0_8-whitegrid')
     fig, ax = plt.subplots(figsize=(10, 6))
 
     im = ax.pcolormesh(
-        range(data_slice.shape[0]),  # Time
-        coords['z'],                 # Z-axis
-        data_slice.T,                # Transpose for correct orientation
+        range(data_slice.shape[0]),
+        coords['z'],
+        data_slice.T,
         shading='gouraud',
         cmap='viridis',
     )
 
-    fig.colorbar(im, ax=ax, label=f"Value of {channel}")
+    fig.colorbar(im, ax=ax, label=f"Value of {display_name}")
     ax.set_title(
-        f"Time Evolution of '{channel}' along Z-axis\n"
+        f"Time Evolution of '{display_name}' along Z-axis\n"
         f"at x={coords['x'][x_index]:.2f} (idx={x_index}), y={coords['y'][y_index]:.2f} (idx={y_index})"
     )
     ax.set_xlabel("Time Index")
@@ -424,6 +425,7 @@ def plot_x_time_evolution(
     z_index: int,
     timeseries_data: np.ndarray = None,
     coords: dict = None,
+    channel_alias: str = None,
 ):
     """
     Plots the time evolution of a channel along the x-axis (Time-X plot).
@@ -438,6 +440,7 @@ def plot_x_time_evolution(
         return
 
     data_slice = timeseries_data[:, :, y_index, z_index, channel_idx]
+    display_name = channel_alias if channel_alias is not None else channel
 
     plt.style.use('seaborn-v0_8-whitegrid')
     fig, ax = plt.subplots(figsize=(10, 6))
@@ -450,9 +453,9 @@ def plot_x_time_evolution(
         cmap='viridis',
     )
 
-    fig.colorbar(im, ax=ax, label=f"Value of {channel}")
+    fig.colorbar(im, ax=ax, label=f"Value of {display_name}")
     ax.set_title(
-        f"Time Evolution of '{channel}' along X-axis\n"
+        f"Time Evolution of '{display_name}' along X-axis\n"
         f"at y={coords['y'][y_index]:.2f} (idx={y_index}), z={coords['z'][z_index]:.2f} (idx={z_index})"
     )
     ax.set_xlabel("Time Index")
@@ -468,6 +471,7 @@ def plot_y_time_evolution(
     z_index: int,
     timeseries_data: np.ndarray = None,
     coords: dict = None,
+    channel_alias: str = None,
 ):
     """
     Plots the time evolution of a channel along the y-axis (Time-Y plot).
@@ -482,6 +486,7 @@ def plot_y_time_evolution(
         return
 
     data_slice = timeseries_data[:, x_index, :, z_index, channel_idx]
+    display_name = channel_alias if channel_alias is not None else channel
 
     plt.style.use('seaborn-v0_8-whitegrid')
     fig, ax = plt.subplots(figsize=(10, 6))
@@ -494,9 +499,9 @@ def plot_y_time_evolution(
         cmap='viridis',
     )
 
-    fig.colorbar(im, ax=ax, label=f"Value of {channel}")
+    fig.colorbar(im, ax=ax, label=f"Value of {display_name}")
     ax.set_title(
-        f"Time Evolution of '{channel}' along Y-axis\n"
+        f"Time Evolution of '{display_name}' along Y-axis\n"
         f"at x={coords['x'][x_index]:.2f} (idx={x_index}), z={coords['z'][z_index]:.2f} (idx={z_index})"
     )
     ax.set_xlabel("Time Index")
@@ -512,6 +517,7 @@ def plot_xz_slice(
     time_index: int,
     timeseries_data: np.ndarray = None,
     coords: dict = None,
+    channel_alias: str = None,
 ):
     """
     Plots a 2D slice in the x-z plane.
@@ -526,6 +532,7 @@ def plot_xz_slice(
         return
 
     data_slice = timeseries_data[time_index, :, y_index, :, channel_idx]
+    display_name = channel_alias if channel_alias is not None else channel
 
     plt.style.use('seaborn-v0_8-whitegrid')
     fig, ax = plt.subplots(figsize=(10, 6))
@@ -538,9 +545,9 @@ def plot_xz_slice(
         cmap='viridis',
     )
 
-    fig.colorbar(im, ax=ax, label=f"Value of {channel}")
+    fig.colorbar(im, ax=ax, label=f"Value of {display_name}")
     ax.set_title(
-        f"X-Z Slice of '{channel}'\n"
+        f"X-Z Slice of '{display_name}'\n"
         f"at time index {time_index}, y={coords['y'][y_index]:.2f} (idx={y_index})"
     )
     ax.set_xlabel("X Coordinate")
@@ -556,6 +563,7 @@ def plot_xy_slice(
     time_index: int,
     timeseries_data: np.ndarray = None,
     coords: dict = None,
+    channel_alias: str = None,
 ):
     """
     Plots a 2D slice in the x-y plane.
@@ -570,6 +578,7 @@ def plot_xy_slice(
         return
 
     data_slice = timeseries_data[time_index, :, :, z_index, channel_idx]
+    display_name = channel_alias if channel_alias is not None else channel
 
     plt.style.use('seaborn-v0_8-whitegrid')
     fig, ax = plt.subplots(figsize=(10, 6))
@@ -582,9 +591,9 @@ def plot_xy_slice(
         cmap='viridis',
     )
 
-    fig.colorbar(im, ax=ax, label=f"Value of {channel}")
+    fig.colorbar(im, ax=ax, label=f"Value of {display_name}")
     ax.set_title(
-        f"X-Y Slice of '{channel}'\n"
+        f"X-Y Slice of '{display_name}'\n"
         f"at time index {time_index}, z={coords['z'][z_index]:.2f} (idx={z_index})"
     )
     ax.set_xlabel("X Coordinate")
@@ -600,6 +609,7 @@ def plot_yz_slice(
     time_index: int,
     timeseries_data: np.ndarray = None,
     coords: dict = None,
+    channel_alias: str = None,
 ):
     """
     Plots a 2D slice in the y-z plane.
@@ -614,6 +624,7 @@ def plot_yz_slice(
         return
 
     data_slice = timeseries_data[time_index, x_index, :, :, channel_idx]
+    display_name = channel_alias if channel_alias is not None else channel
 
     plt.style.use('seaborn-v0_8-whitegrid')
     fig, ax = plt.subplots(figsize=(10, 6))
@@ -626,9 +637,9 @@ def plot_yz_slice(
         cmap='viridis',
     )
 
-    fig.colorbar(im, ax=ax, label=f"Value of {channel}")
+    fig.colorbar(im, ax=ax, label=f"Value of {display_name}")
     ax.set_title(
-        f"Y-Z Slice of '{channel}'\n"
+        f"Y-Z Slice of '{display_name}'\n"
         f"at time index {time_index}, x={coords['x'][x_index]:.2f} (idx={x_index})"
     )
     ax.set_xlabel("Y Coordinate")
@@ -736,3 +747,4 @@ def plot_prediction_dashboard(
 
     plt.tight_layout(rect=[0, 0, 1, 0.94])
     plt.show()
+
