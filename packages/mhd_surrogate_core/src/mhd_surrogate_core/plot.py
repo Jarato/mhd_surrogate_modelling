@@ -401,6 +401,7 @@ def plot_z_time_evolution(
     figsize: tuple = None,
     base_size: int = 8,
     min_size: int = 4,
+    unit_label: str = None,
 ):
     """
     Plots the time evolution of a channel along the z-axis (Time-Z plot).
@@ -424,21 +425,25 @@ def plot_z_time_evolution(
         # Heuristic: treat time steps as comparable to spatial units for aspect ratio
         figsize = _calculate_dynamic_figsize(time_range, z_range, base_size=base_size, min_size=min_size, title_space=1.5)
     # ---
-
+    
     plt.style.use('seaborn-v0_8-whitegrid')
     fig, ax = plt.subplots(figsize=figsize)
 
     im = ax.pcolormesh(
-        range(data_slice.shape[0]),
-        coords['z'],
-        data_slice.T,
+        range(data_slice.shape[0]),  # Time
+        coords['z'],                 # Z-axis
+        data_slice.T,                # Transpose for correct orientation
         shading='gouraud',
         cmap='viridis',
         vmin=vmin,
         vmax=vmax,
     )
 
-    fig.colorbar(im, ax=ax, label=f"Value of {display_name}")
+    cbar_label = f"Value of {display_name}"
+    if unit_label:
+        cbar_label += f" [{unit_label}]"
+    fig.colorbar(im, ax=ax, label=cbar_label)
+    
     ax.set_title(
         f"Time Evolution of '{display_name}' along Z-axis\n"
         f"at x={coords['x'][x_index]:.2f} (idx={x_index}), y={coords['y'][y_index]:.2f} (idx={y_index})"
@@ -462,6 +467,7 @@ def plot_x_time_evolution(
     figsize: tuple = None,
     base_size: int = 8,
     min_size: int = 4,
+    unit_label: str = None,
 ):
     """
     Plots the time evolution of a channel along the x-axis (Time-X plot).
@@ -484,7 +490,7 @@ def plot_x_time_evolution(
         x_range = coords['x'][-1] - coords['x'][0]
         figsize = _calculate_dynamic_figsize(time_range, x_range, base_size=base_size, min_size=min_size, title_space=1.5)
     # ---
-
+    
     plt.style.use('seaborn-v0_8-whitegrid')
     fig, ax = plt.subplots(figsize=figsize)
 
@@ -498,7 +504,11 @@ def plot_x_time_evolution(
         vmax=vmax,
     )
 
-    fig.colorbar(im, ax=ax, label=f"Value of {display_name}")
+    cbar_label = f"Value of {display_name}"
+    if unit_label:
+        cbar_label += f" [{unit_label}]"
+    fig.colorbar(im, ax=ax, label=cbar_label)
+    
     ax.set_title(
         f"Time Evolution of '{display_name}' along X-axis\n"
         f"at y={coords['y'][y_index]:.2f} (idx={y_index}), z={coords['z'][z_index]:.2f} (idx={z_index})"
@@ -522,6 +532,7 @@ def plot_y_time_evolution(
     figsize: tuple = None,
     base_size: int = 8,
     min_size: int = 4,
+    unit_label: str = None,
 ):
     """
     Plots the time evolution of a channel along the y-axis (Time-Y plot).
@@ -544,7 +555,7 @@ def plot_y_time_evolution(
         y_range = coords['y'][-1] - coords['y'][0]
         figsize = _calculate_dynamic_figsize(time_range, y_range, base_size=base_size, min_size=min_size, title_space=1.5)
     # ---
-
+    
     plt.style.use('seaborn-v0_8-whitegrid')
     fig, ax = plt.subplots(figsize=figsize)
 
@@ -557,8 +568,12 @@ def plot_y_time_evolution(
         vmin=vmin,
         vmax=vmax,
     )
+    
+    cbar_label = f"Value of {display_name}"
+    if unit_label:
+        cbar_label += f" [{unit_label}]"
+    fig.colorbar(im, ax=ax, label=cbar_label)
 
-    fig.colorbar(im, ax=ax, label=f"Value of {display_name}")
     ax.set_title(
         f"Time Evolution of '{display_name}' along Y-axis\n"
         f"at x={coords['x'][x_index]:.2f} (idx={x_index}), z={coords['z'][z_index]:.2f} (idx={z_index})"
@@ -582,6 +597,7 @@ def plot_xz_slice(
     figsize: tuple = None,
     base_size: int = 8,
     min_size: int = 4,
+    unit_label: str = None,
 ):
     """
     Plots a 2D slice in the x-z plane.
@@ -604,7 +620,7 @@ def plot_xz_slice(
         z_range = coords['z'][-1] - coords['z'][0]
         figsize = _calculate_dynamic_figsize(x_range, z_range, base_size=base_size, min_size=min_size)
     # ---
-
+    
     plt.style.use('seaborn-v0_8-whitegrid')
     fig, ax = plt.subplots(figsize=figsize)
 
@@ -618,7 +634,11 @@ def plot_xz_slice(
         vmax=vmax,
     )
 
-    fig.colorbar(im, ax=ax, label=f"Value of {display_name}")
+    cbar_label = f"Value of {display_name}"
+    if unit_label:
+        cbar_label += f" [{unit_label}]"
+    fig.colorbar(im, ax=ax, label=cbar_label)
+    
     ax.set_title(
         f"X-Z Slice of '{display_name}'\n"
         f"at time index {time_index}, y={coords['y'][y_index]:.2f} (idx={y_index})"
@@ -642,6 +662,7 @@ def plot_xy_slice(
     figsize: tuple = None,
     base_size: int = 8,
     min_size: int = 4,
+    unit_label: str = None,
 ):
     """
     Plots a 2D slice in the x-y plane.
@@ -678,7 +699,11 @@ def plot_xy_slice(
         vmax=vmax,
     )
 
-    fig.colorbar(im, ax=ax, label=f"Value of {display_name}")
+    cbar_label = f"Value of {display_name}"
+    if unit_label:
+        cbar_label += f" [{unit_label}]"
+    fig.colorbar(im, ax=ax, label=cbar_label)
+    
     ax.set_title(
         f"X-Y Slice of '{display_name}'\n"
         f"at time index {time_index}, z={coords['z'][z_index]:.2f} (idx={z_index})"
@@ -702,6 +727,7 @@ def plot_yz_slice(
     figsize: tuple = None,
     base_size: int = 8,
     min_size: int = 4,
+    unit_label: str = None,
 ):
     """
     Plots a 2D slice in the y-z plane.
@@ -724,7 +750,7 @@ def plot_yz_slice(
         z_range = coords['z'][-1] - coords['z'][0]
         figsize = _calculate_dynamic_figsize(y_range, z_range, base_size=base_size, min_size=min_size)
     # ---
-
+    
     plt.style.use('seaborn-v0_8-whitegrid')
     fig, ax = plt.subplots(figsize=figsize)
 
@@ -738,7 +764,11 @@ def plot_yz_slice(
         vmax=vmax,
     )
 
-    fig.colorbar(im, ax=ax, label=f"Value of {display_name}")
+    cbar_label = f"Value of {display_name}"
+    if unit_label:
+        cbar_label += f" [{unit_label}]"
+    fig.colorbar(im, ax=ax, label=cbar_label)
+    
     ax.set_title(
         f"Y-Z Slice of '{display_name}'\n"
         f"at time index {time_index}, x={coords['x'][x_index]:.2f} (idx={x_index})"
