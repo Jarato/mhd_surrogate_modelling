@@ -380,6 +380,8 @@ def plot_z_time_evolution(
     timeseries_data: np.ndarray = None,
     coords: dict = None,
     channel_alias: str = None,
+    vmin: float = None,
+    vmax: float = None,
 ):
     """
     Plots the time evolution of a channel along the z-axis (Time-Z plot).
@@ -405,6 +407,8 @@ def plot_z_time_evolution(
         data_slice.T,
         shading='gouraud',
         cmap='viridis',
+        vmin=vmin,
+        vmax=vmax,
     )
 
     fig.colorbar(im, ax=ax, label=f"Value of {display_name}")
@@ -426,6 +430,8 @@ def plot_x_time_evolution(
     timeseries_data: np.ndarray = None,
     coords: dict = None,
     channel_alias: str = None,
+    vmin: float = None,
+    vmax: float = None,
 ):
     """
     Plots the time evolution of a channel along the x-axis (Time-X plot).
@@ -451,6 +457,8 @@ def plot_x_time_evolution(
         data_slice.T,
         shading='gouraud',
         cmap='viridis',
+        vmin=vmin,
+        vmax=vmax,
     )
 
     fig.colorbar(im, ax=ax, label=f"Value of {display_name}")
@@ -472,6 +480,8 @@ def plot_y_time_evolution(
     timeseries_data: np.ndarray = None,
     coords: dict = None,
     channel_alias: str = None,
+    vmin: float = None,
+    vmax: float = None,
 ):
     """
     Plots the time evolution of a channel along the y-axis (Time-Y plot).
@@ -497,6 +507,8 @@ def plot_y_time_evolution(
         data_slice.T,
         shading='gouraud',
         cmap='viridis',
+        vmin=vmin,
+        vmax=vmax,
     )
 
     fig.colorbar(im, ax=ax, label=f"Value of {display_name}")
@@ -518,6 +530,8 @@ def plot_xz_slice(
     timeseries_data: np.ndarray = None,
     coords: dict = None,
     channel_alias: str = None,
+    vmin: float = None,
+    vmax: float = None,
 ):
     """
     Plots a 2D slice in the x-z plane.
@@ -543,6 +557,8 @@ def plot_xz_slice(
         data_slice.T,
         shading='gouraud',
         cmap='viridis',
+        vmin=vmin,
+        vmax=vmax,
     )
 
     fig.colorbar(im, ax=ax, label=f"Value of {display_name}")
@@ -564,6 +580,8 @@ def plot_xy_slice(
     timeseries_data: np.ndarray = None,
     coords: dict = None,
     channel_alias: str = None,
+    vmin: float = None,
+    vmax: float = None,
 ):
     """
     Plots a 2D slice in the x-y plane.
@@ -589,6 +607,8 @@ def plot_xy_slice(
         data_slice.T,
         shading='gouraud',
         cmap='viridis',
+        vmin=vmin,
+        vmax=vmax,
     )
 
     fig.colorbar(im, ax=ax, label=f"Value of {display_name}")
@@ -610,6 +630,8 @@ def plot_yz_slice(
     timeseries_data: np.ndarray = None,
     coords: dict = None,
     channel_alias: str = None,
+    vmin: float = None,
+    vmax: float = None,
 ):
     """
     Plots a 2D slice in the y-z plane.
@@ -635,6 +657,8 @@ def plot_yz_slice(
         data_slice.T,
         shading='gouraud',
         cmap='viridis',
+        vmin=vmin,
+        vmax=vmax,
     )
 
     fig.colorbar(im, ax=ax, label=f"Value of {display_name}")
