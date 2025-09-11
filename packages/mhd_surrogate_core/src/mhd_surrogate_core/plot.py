@@ -369,7 +369,7 @@ def _load_data_for_viz(data_path, timeseries_data, coords):
 
 
 # ==============================================================================
-# NEW AND UPDATED VISUALIZATION FUNCTIONS
+# VISUALIZATION FUNCTIONS FOR NOTEBOOK
 # ==============================================================================
 
 def plot_z_time_evolution(
