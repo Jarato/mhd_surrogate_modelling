@@ -1,23 +1,39 @@
-# mhd_surrogate_core/src/mhd_surrogate_core/plotting/raw.py
-
-"""
-Functions for visualizing raw snapshot data from binary files.
-These functions include logic to interpolate data from non-uniform
-grids onto a uniform grid for plotting.
-"""
-
 import logging
 from pathlib import Path
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy.interpolate import griddata
 
-# This module might need the dynamic figsize calculator
-from .processed import _calculate_dynamic_figsize
+# --- Helper to load a single raw snapshot ---
+def _load_single_snapshot(snapshot_file: Path, nx: int, ny: int, nz: int, source_channel_labels: list):
+    """Loads and reshapes data from a single raw binary snapshot file."""
+    if not snapshot_file.exists():
+        logging.error(f"Snapshot file not found at {snapshot_file}")
+        return None, None
+    
+    try:
+        input_dtype = np.float64
+        with open(snapshot_file, 'rb') as f:
+            x_coords_raw = np.fromfile(f, dtype=input_dtype, count=nx)
+            y_coords_raw = np.fromfile(f, dtype=input_dtype, count=ny)
+            z_coords_raw = np.fromfile(f, dtype=input_dtype, count=nz)
+            channel_data_1d = np.fromfile(f, dtype=input_dtype)
+        
+        num_input_channels = len(source_channel_labels)
+        data_4d_physical = channel_data_1d.reshape((nz, num_input_channels, ny, nx))
+        snapshot_data_3d = data_4d_physical.transpose(3, 2, 0, 1).astype(np.float32)
+        
+        raw_coords = {
+            'labels': source_channel_labels,
+            'x': x_coords_raw, 'y': y_coords_raw, 'z': z_coords_raw
+        }
+        return snapshot_data_3d, raw_coords
+    except Exception as e:
+        logging.error(f"Failed to load/process {snapshot_file.name}: {e}")
+        return None, None
 
-# ==============================================================================
-# VISUALIZATION FUNCTIONS FOR RAW SNAPSHOTS (WITH INTERPOLATION)
-# ==============================================================================
+
+# --- Spatial Slice Plotting (for 3D data) ---
 
 def plot_interpolated_xz_slice(
     snapshot_data_3d: np.ndarray,
@@ -29,72 +45,63 @@ def plot_interpolated_xz_slice(
     vmin: float = None,
     vmax: float = None,
     figsize: tuple = None,
-    base_size: int = 8,
-    min_size: int = 4,
-    unit_label: str = None,
+    base_size: float = 8.0,
+    min_size: float = 3.0,
+    unit_label: str = "",
 ):
     """
-    Extracts an X-Z slice from raw 3D data, interpolates it onto a uniform
+    Extracts an x-z slice from raw 3D data, interpolates it onto a uniform
     grid, and plots it.
     """
-    display_name = channel_alias if channel_alias else channel
-    
-    # --- Prepare data and coordinates ---
-    try:
-        channel_idx = raw_coords['labels'].index(channel)
-    except ValueError:
-        logging.error(f"Channel '{channel}' not found in {raw_coords['labels']}.")
+    if snapshot_data_3d is None or not raw_coords:
+        logging.warning("Snapshot data or coordinates not available. Skipping plot.")
         return
 
-    # Data is (x, y, z, channel), so slice is (x, z)
+    try:
+        channel_idx = raw_coords['labels'].index(channel)
+        display_name = channel_alias if channel_alias else channel
+    except ValueError:
+        logging.error(f"Channel '{channel}' not found in labels: {raw_coords['labels']}")
+        return
+
+    # --- Data Extraction and Interpolation ---
     data_slice_raw = snapshot_data_3d[:, y_index, :, channel_idx]
-    
     x_coords_raw = raw_coords['x']
     z_coords_raw = raw_coords['z']
-    
-    # --- Create grids for interpolation ---
-    # Source grid (can be non-uniform)
+
     X_raw, Z_raw = np.meshgrid(x_coords_raw, z_coords_raw, indexing='ij')
     
-    # Target grid (uniform)
-    x_coords_interp = x_coords_raw # X is already uniform
+    x_coords_interp = x_coords_raw
     z_coords_interp = np.linspace(z_coords_raw.min(), z_coords_raw.max(), num_interp_points_z)
     X_interp, Z_interp = np.meshgrid(x_coords_interp, z_coords_interp, indexing='ij')
 
-    # --- Interpolate data ---
-    logging.info(f"Interpolating X-Z slice for '{display_name}' onto a {len(x_coords_interp)}x{len(z_coords_interp)} grid...")
     points_raw = np.array([X_raw.flatten(), Z_raw.flatten()]).T
     values_raw = data_slice_raw.flatten()
     data_interp = griddata(points_raw, values_raw, (X_interp, Z_interp), method='cubic')
     
     # --- Plotting ---
     if figsize is None:
-        x_range = x_coords_interp.max() - x_coords_interp.min()
-        z_range = z_coords_interp.max() - z_coords_interp.min()
-        figsize = _calculate_dynamic_figsize(x_range, z_range, base_size, min_size)
+        x_range = x_coords_raw.max() - x_coords_raw.min()
+        z_range = z_coords_raw.max() - z_coords_raw.min()
+        aspect_ratio = z_range / x_range if x_range > 0 else 1
+        fig_width = base_size
+        fig_height = max(min_size, base_size * aspect_ratio)
+        figsize = (fig_width, fig_height)
 
-    plt.style.use('seaborn-v0_8-whitegrid')
     fig, ax = plt.subplots(figsize=figsize)
-
     im = ax.pcolormesh(
         x_coords_interp,
         z_coords_interp,
-        data_interp.T, # Transpose to match pcolormesh convention
+        data_interp.T,
         shading='gouraud',
         cmap='viridis',
         vmin=vmin,
         vmax=vmax,
     )
 
-    cbar_label = f"Value of {display_name}"
-    if unit_label:
-        cbar_label += f" [{unit_label}]"
+    cbar_label = f"Value of {display_name}" + (f" [{unit_label}]" if unit_label else "")
     fig.colorbar(im, ax=ax, label=cbar_label)
-    
-    ax.set_title(
-        f"Interpolated X-Z Slice of '{display_name}'\n"
-        f"at y={raw_coords['y'][y_index]:.2f} (idx={y_index})"
-    )
+    ax.set_title(f"X-Z Slice of '{display_name}' at y={raw_coords['y'][y_index]:.2f} (idx={y_index})")
     ax.set_xlabel("X Coordinate")
     ax.set_ylabel("Z Coordinate")
     plt.tight_layout()
@@ -111,67 +118,56 @@ def plot_interpolated_xy_slice(
     vmin: float = None,
     vmax: float = None,
     figsize: tuple = None,
-    base_size: int = 8,
-    min_size: int = 4,
-    unit_label: str = None,
+    base_size: float = 8.0,
+    min_size: float = 3.0,
+    unit_label: str = "",
 ):
     """
-    Extracts an X-Y slice, interpolates, and plots.
+    Extracts an x-y slice from raw 3D data, interpolates it, and plots it.
     """
-    display_name = channel_alias if channel_alias else channel
-    
-    try:
-        channel_idx = raw_coords['labels'].index(channel)
-    except ValueError:
-        logging.error(f"Channel '{channel}' not found in {raw_coords['labels']}.")
+    if snapshot_data_3d is None or not raw_coords:
+        logging.warning("Snapshot data or coordinates not available. Skipping plot.")
         return
 
-    # Data is (x, y, z, channel), so slice is (x, y)
+    try:
+        channel_idx = raw_coords['labels'].index(channel)
+        display_name = channel_alias if channel_alias else channel
+    except ValueError:
+        logging.error(f"Channel '{channel}' not found in labels: {raw_coords['labels']}")
+        return
+
     data_slice_raw = snapshot_data_3d[:, :, z_index, channel_idx]
-    
     x_coords_raw = raw_coords['x']
     y_coords_raw = raw_coords['y']
-    
-    # --- Grids ---
+
     X_raw, Y_raw = np.meshgrid(x_coords_raw, y_coords_raw, indexing='ij')
+
     x_coords_interp = x_coords_raw
     y_coords_interp = np.linspace(y_coords_raw.min(), y_coords_raw.max(), num_interp_points_y)
     X_interp, Y_interp = np.meshgrid(x_coords_interp, y_coords_interp, indexing='ij')
 
-    # --- Interpolation ---
-    logging.info(f"Interpolating X-Y slice for '{display_name}' onto a {len(x_coords_interp)}x{len(y_coords_interp)} grid...")
     points_raw = np.array([X_raw.flatten(), Y_raw.flatten()]).T
     values_raw = data_slice_raw.flatten()
     data_interp = griddata(points_raw, values_raw, (X_interp, Y_interp), method='cubic')
-    
-    # --- Plotting ---
+
     if figsize is None:
-        x_range = x_coords_interp.max() - x_coords_interp.min()
-        y_range = y_coords_interp.max() - y_coords_interp.min()
-        figsize = _calculate_dynamic_figsize(x_range, y_range, base_size, min_size)
+        x_range = x_coords_raw.max() - x_coords_raw.min()
+        y_range = y_coords_raw.max() - y_coords_raw.min()
+        aspect_ratio = y_range / x_range if x_range > 0 else 1
+        fig_width = base_size
+        fig_height = max(min_size, base_size * aspect_ratio)
+        figsize = (fig_width, fig_height)
 
-    plt.style.use('seaborn-v0_8-whitegrid')
     fig, ax = plt.subplots(figsize=figsize)
-
     im = ax.pcolormesh(
         x_coords_interp,
         y_coords_interp,
         data_interp.T,
-        shading='gouraud',
-        cmap='viridis',
-        vmin=vmin,
-        vmax=vmax,
-    )
+        shading='gouraud', cmap='viridis', vmin=vmin, vmax=vmax)
 
-    cbar_label = f"Value of {display_name}"
-    if unit_label:
-        cbar_label += f" [{unit_label}]"
+    cbar_label = f"Value of {display_name}" + (f" [{unit_label}]" if unit_label else "")
     fig.colorbar(im, ax=ax, label=cbar_label)
-    
-    ax.set_title(
-        f"Interpolated X-Y Slice of '{display_name}'\n"
-        f"at z={raw_coords['z'][z_index]:.2f} (idx={z_index})"
-    )
+    ax.set_title(f"X-Y Slice of '{display_name}' at z={raw_coords['z'][z_index]:.2f} (idx={z_index})")
     ax.set_xlabel("X Coordinate")
     ax.set_ylabel("Y Coordinate")
     plt.tight_layout()
@@ -189,68 +185,252 @@ def plot_interpolated_yz_slice(
     vmin: float = None,
     vmax: float = None,
     figsize: tuple = None,
-    base_size: int = 8,
-    min_size: int = 4,
-    unit_label: str = None,
+    base_size: float = 8.0,
+    min_size: float = 3.0,
+    unit_label: str = "",
 ):
     """
-    Extracts a Y-Z slice, interpolates, and plots.
+    Extracts a y-z slice from raw 3D data, interpolates it, and plots it.
     """
-    display_name = channel_alias if channel_alias else channel
-    
-    try:
-        channel_idx = raw_coords['labels'].index(channel)
-    except ValueError:
-        logging.error(f"Channel '{channel}' not found in {raw_coords['labels']}.")
+    if snapshot_data_3d is None or not raw_coords:
+        logging.warning("Snapshot data or coordinates not available. Skipping plot.")
         return
 
-    # Data is (x, y, z, channel), so slice is (y, z)
+    try:
+        channel_idx = raw_coords['labels'].index(channel)
+        display_name = channel_alias if channel_alias else channel
+    except ValueError:
+        logging.error(f"Channel '{channel}' not found in labels: {raw_coords['labels']}")
+        return
+
     data_slice_raw = snapshot_data_3d[x_index, :, :, channel_idx]
-    
     y_coords_raw = raw_coords['y']
     z_coords_raw = raw_coords['z']
-    
-    # --- Grids ---
+
     Y_raw, Z_raw = np.meshgrid(y_coords_raw, z_coords_raw, indexing='ij')
+
     y_coords_interp = np.linspace(y_coords_raw.min(), y_coords_raw.max(), num_interp_points_y)
     z_coords_interp = np.linspace(z_coords_raw.min(), z_coords_raw.max(), num_interp_points_z)
     Y_interp, Z_interp = np.meshgrid(y_coords_interp, z_coords_interp, indexing='ij')
 
-    # --- Interpolation ---
-    logging.info(f"Interpolating Y-Z slice for '{display_name}' onto a {len(y_coords_interp)}x{len(z_coords_interp)} grid...")
     points_raw = np.array([Y_raw.flatten(), Z_raw.flatten()]).T
     values_raw = data_slice_raw.flatten()
     data_interp = griddata(points_raw, values_raw, (Y_interp, Z_interp), method='cubic')
-    
-    # --- Plotting ---
+
     if figsize is None:
-        y_range = y_coords_interp.max() - y_coords_interp.min()
-        z_range = z_coords_interp.max() - z_coords_interp.min()
-        figsize = _calculate_dynamic_figsize(y_range, z_range, base_size, min_size)
+        y_range = y_coords_raw.max() - y_coords_raw.min()
+        z_range = z_coords_raw.max() - z_coords_raw.min()
+        aspect_ratio = z_range / y_range if y_range > 0 else 1
+        fig_width = base_size
+        fig_height = max(min_size, base_size * aspect_ratio)
+        figsize = (fig_width, fig_height)
 
-    plt.style.use('seaborn-v0_8-whitegrid')
     fig, ax = plt.subplots(figsize=figsize)
-
     im = ax.pcolormesh(
         y_coords_interp,
         z_coords_interp,
         data_interp.T,
-        shading='gouraud',
-        cmap='viridis',
-        vmin=vmin,
-        vmax=vmax,
-    )
+        shading='gouraud', cmap='viridis', vmin=vmin, vmax=vmax)
 
-    cbar_label = f"Value of {display_name}"
-    if unit_label:
-        cbar_label += f" [{unit_label}]"
+    cbar_label = f"Value of {display_name}" + (f" [{unit_label}]" if unit_label else "")
     fig.colorbar(im, ax=ax, label=cbar_label)
-    
-    ax.set_title(
-        f"Interpolated Y-Z Slice of '{display_name}'\n"
-        f"at x={raw_coords['x'][x_index]:.2f} (idx={x_index})"
-    )
+    ax.set_title(f"Y-Z Slice of '{display_name}' at x={raw_coords['x'][x_index]:.2f} (idx={x_index})")
     ax.set_xlabel("Y Coordinate")
     ax.set_ylabel("Z Coordinate")
     plt.tight_layout()
     plt.show()
+
+
+# --- Time Evolution Plotting (for 4D data) ---
+
+def plot_interpolated_z_time_evolution(
+    timeseries_data: np.ndarray,
+    raw_coords: dict,
+    channel: str,
+    x_index: int,
+    y_index: int,
+    num_interp_points_z: int = 256,
+    channel_alias: str = None,
+    vmin: float = None,
+    vmax: float = None,
+    figsize: tuple = None,
+    base_size: float = 8.0,
+    min_size: float = 3.0,
+    unit_label: str = "",
+):
+    """
+    Extracts a time-z slice from raw 4D data, interpolates it, and plots it.
+    """
+    if timeseries_data is None or not raw_coords:
+        logging.warning("Timeseries data or coordinates not available. Skipping plot.")
+        return
+
+    try:
+        channel_idx = raw_coords['labels'].index(channel)
+        display_name = channel_alias if channel_alias else channel
+    except ValueError:
+        logging.error(f"Channel '{channel}' not found in labels: {raw_coords['labels']}")
+        return
+        
+    data_slice_raw = timeseries_data[:, x_index, y_index, :, channel_idx]
+    num_timesteps = timeseries_data.shape[0]
+    time_coords_raw = np.arange(num_timesteps)
+    z_coords_raw = raw_coords['z']
+
+    T_raw, Z_raw = np.meshgrid(time_coords_raw, z_coords_raw, indexing='ij')
+
+    time_coords_interp = time_coords_raw
+    z_coords_interp = np.linspace(z_coords_raw.min(), z_coords_raw.max(), num_interp_points_z)
+    T_interp, Z_interp = np.meshgrid(time_coords_interp, z_coords_interp, indexing='ij')
+    
+    points_raw = np.array([T_raw.flatten(), Z_raw.flatten()]).T
+    values_raw = data_slice_raw.flatten()
+    data_interp = griddata(points_raw, values_raw, (T_interp, Z_interp), method='cubic')
+
+    if figsize is None:
+        time_range = num_timesteps
+        z_range = z_coords_raw.max() - z_coords_raw.min()
+        aspect_ratio = z_range / time_range if time_range > 0 else 1
+        fig_width = base_size
+        fig_height = max(min_size, base_size * aspect_ratio)
+        figsize = (fig_width, fig_height)
+
+    fig, ax = plt.subplots(figsize=figsize)
+    im = ax.pcolormesh(
+        time_coords_interp,
+        z_coords_interp,
+        data_interp.T,
+        shading='gouraud', cmap='viridis', vmin=vmin, vmax=vmax)
+        
+    cbar_label = f"Value of {display_name}" + (f" [{unit_label}]" if unit_label else "")
+    fig.colorbar(im, ax=ax, label=cbar_label)
+    ax.set_title(f"Time Evolution of '{display_name}' along Z-axis\nat x={raw_coords['x'][x_index]:.2f}, y={raw_coords['y'][y_index]:.2f}")
+    ax.set_xlabel("Time Index")
+    ax.set_ylabel("Z Coordinate")
+    plt.tight_layout()
+    plt.show()
+
+def plot_interpolated_y_time_evolution(
+    timeseries_data: np.ndarray,
+    raw_coords: dict,
+    channel: str,
+    x_index: int,
+    z_index: int,
+    num_interp_points_y: int = 256,
+    channel_alias: str = None,
+    vmin: float = None,
+    vmax: float = None,
+    figsize: tuple = None,
+    base_size: float = 8.0,
+    min_size: float = 3.0,
+    unit_label: str = "",
+):
+    """
+    Extracts a time-y slice from raw 4D data, interpolates it, and plots it.
+    """
+    if timeseries_data is None or not raw_coords:
+        logging.warning("Timeseries data or coordinates not available. Skipping plot.")
+        return
+
+    try:
+        channel_idx = raw_coords['labels'].index(channel)
+        display_name = channel_alias if channel_alias else channel
+    except ValueError:
+        logging.error(f"Channel '{channel}' not found in labels: {raw_coords['labels']}")
+        return
+
+    data_slice_raw = timeseries_data[:, x_index, :, z_index, channel_idx]
+    num_timesteps = timeseries_data.shape[0]
+    time_coords_raw = np.arange(num_timesteps)
+    y_coords_raw = raw_coords['y']
+
+    T_raw, Y_raw = np.meshgrid(time_coords_raw, y_coords_raw, indexing='ij')
+
+    time_coords_interp = time_coords_raw
+    y_coords_interp = np.linspace(y_coords_raw.min(), y_coords_raw.max(), num_interp_points_y)
+    T_interp, Y_interp = np.meshgrid(time_coords_interp, y_coords_interp, indexing='ij')
+
+    points_raw = np.array([T_raw.flatten(), Y_raw.flatten()]).T
+    values_raw = data_slice_raw.flatten()
+    data_interp = griddata(points_raw, values_raw, (T_interp, Y_interp), method='cubic')
+
+    if figsize is None:
+        time_range = num_timesteps
+        y_range = y_coords_raw.max() - y_coords_raw.min()
+        aspect_ratio = y_range / time_range if time_range > 0 else 1
+        fig_width = base_size
+        fig_height = max(min_size, base_size * aspect_ratio)
+        figsize = (fig_width, fig_height)
+        
+    fig, ax = plt.subplots(figsize=figsize)
+    im = ax.pcolormesh(
+        time_coords_interp,
+        y_coords_interp,
+        data_interp.T,
+        shading='gouraud', cmap='viridis', vmin=vmin, vmax=vmax)
+
+    cbar_label = f"Value of {display_name}" + (f" [{unit_label}]" if unit_label else "")
+    fig.colorbar(im, ax=ax, label=cbar_label)
+    ax.set_title(f"Time Evolution of '{display_name}' along Y-axis\nat x={raw_coords['x'][x_index]:.2f}, z={raw_coords['z'][z_index]:.2f}")
+    ax.set_xlabel("Time Index")
+    ax.set_ylabel("Y Coordinate")
+    plt.tight_layout()
+    plt.show()
+
+def plot_interpolated_x_time_evolution(
+    timeseries_data: np.ndarray,
+    raw_coords: dict,
+    channel: str,
+    y_index: int,
+    z_index: int,
+    channel_alias: str = None,
+    vmin: float = None,
+    vmax: float = None,
+    figsize: tuple = None,
+    base_size: float = 8.0,
+    min_size: float = 3.0,
+    unit_label: str = "",
+):
+    """
+    Extracts a time-x slice from raw 4D data and plots it. No interpolation
+    is needed as the x-axis is uniform.
+    """
+    if timeseries_data is None or not raw_coords:
+        logging.warning("Timeseries data or coordinates not available. Skipping plot.")
+        return
+
+    try:
+        channel_idx = raw_coords['labels'].index(channel)
+        display_name = channel_alias if channel_alias else channel
+    except ValueError:
+        logging.error(f"Channel '{channel}' not found in labels: {raw_coords['labels']}")
+        return
+
+    data_slice = timeseries_data[:, :, y_index, z_index, channel_idx]
+    num_timesteps = timeseries_data.shape[0]
+    time_coords = np.arange(num_timesteps)
+    x_coords = raw_coords['x']
+
+    if figsize is None:
+        time_range = num_timesteps
+        x_range = x_coords.max() - x_coords.min()
+        aspect_ratio = x_range / time_range if time_range > 0 else 1
+        fig_height = base_size 
+        fig_width = max(min_size, base_size * aspect_ratio)
+        figsize = (fig_width, fig_height)
+
+    fig, ax = plt.subplots(figsize=figsize)
+    im = ax.pcolormesh(
+        time_coords,
+        x_coords,
+        data_slice.T,
+        shading='gouraud', cmap='viridis', vmin=vmin, vmax=vmax)
+
+    cbar_label = f"Value of {display_name}" + (f" [{unit_label}]" if unit_label else "")
+    fig.colorbar(im, ax=ax, label=cbar_label)
+    ax.set_title(f"Time Evolution of '{display_name}' along X-axis\nat y={raw_coords['y'][y_index]:.2f}, z={raw_coords['z'][z_index]:.2f}")
+    ax.set_xlabel("Time Index")
+    ax.set_ylabel("X Coordinate")
+    plt.tight_layout()
+    plt.show()
+
