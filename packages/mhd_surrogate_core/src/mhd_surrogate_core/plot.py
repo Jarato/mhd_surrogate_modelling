@@ -353,6 +353,20 @@ def _load_data_for_viz(data_path, timeseries_data, coords):
     if timeseries_data is not None and coords is not None:
         return timeseries_data, coords
 
+    data_path = Path(data_path)
+    if not data_path.exists():
+        logging.error(f"Data file not found at: {data_path}")
+        return None, None
+    with np.load(data_path, allow_pickle=True) as data:
+        timeseries_data = data['timeseries']
+        coords = {
+            'labels': list(data['labels']),
+            'x': data['x_coords'],
+            'y': data['y_coords'],
+            'z': data['z_coords'],
+        }
+    return timeseries_data, coords
+
 def _calculate_dynamic_figsize(range1, range2, base_size=8, min_size=4, title_space=2):
     """Calculates figsize while maintaining aspect ratio."""
     range1, range2 = abs(range1), abs(range2)
@@ -384,6 +398,7 @@ def plot_z_time_evolution(
     channel_alias: str = None,
     vmin: float = None,
     vmax: float = None,
+    figsize: tuple = None,
 ):
     """
     Plots the time evolution of a channel along the z-axis (Time-Z plot).
@@ -400,11 +415,12 @@ def plot_z_time_evolution(
     data_slice = timeseries_data[:, x_index, y_index, :, channel_idx]
     display_name = channel_alias if channel_alias is not None else channel
 
-    # --- Dynamic Figure Size Calculation ---
-    time_range = data_slice.shape[0]
-    z_range = coords['z'][-1] - coords['z'][0]
-    # Heuristic: treat time steps as comparable to spatial units for aspect ratio
-    figsize = _calculate_dynamic_figsize(time_range, z_range, base_size=10, min_size=5, title_space=1.5)
+    # --- Figure Size Calculation ---
+    if figsize is None:
+        time_range = data_slice.shape[0]
+        z_range = coords['z'][-1] - coords['z'][0]
+        # Heuristic: treat time steps as comparable to spatial units for aspect ratio
+        figsize = _calculate_dynamic_figsize(time_range, z_range, base_size=10, min_size=5, title_space=1.5)
     # ---
 
     plt.style.use('seaborn-v0_8-whitegrid')
@@ -441,6 +457,7 @@ def plot_x_time_evolution(
     channel_alias: str = None,
     vmin: float = None,
     vmax: float = None,
+    figsize: tuple = None,
 ):
     """
     Plots the time evolution of a channel along the x-axis (Time-X plot).
@@ -457,10 +474,11 @@ def plot_x_time_evolution(
     data_slice = timeseries_data[:, :, y_index, z_index, channel_idx]
     display_name = channel_alias if channel_alias is not None else channel
 
-    # --- Dynamic Figure Size Calculation ---
-    time_range = data_slice.shape[0]
-    x_range = coords['x'][-1] - coords['x'][0]
-    figsize = _calculate_dynamic_figsize(time_range, x_range, base_size=10, min_size=5, title_space=1.5)
+    # --- Figure Size Calculation ---
+    if figsize is None:
+        time_range = data_slice.shape[0]
+        x_range = coords['x'][-1] - coords['x'][0]
+        figsize = _calculate_dynamic_figsize(time_range, x_range, base_size=10, min_size=5, title_space=1.5)
     # ---
 
     plt.style.use('seaborn-v0_8-whitegrid')
@@ -497,6 +515,7 @@ def plot_y_time_evolution(
     channel_alias: str = None,
     vmin: float = None,
     vmax: float = None,
+    figsize: tuple = None,
 ):
     """
     Plots the time evolution of a channel along the y-axis (Time-Y plot).
@@ -513,10 +532,11 @@ def plot_y_time_evolution(
     data_slice = timeseries_data[:, x_index, :, z_index, channel_idx]
     display_name = channel_alias if channel_alias is not None else channel
 
-    # --- Dynamic Figure Size Calculation ---
-    time_range = data_slice.shape[0]
-    y_range = coords['y'][-1] - coords['y'][0]
-    figsize = _calculate_dynamic_figsize(time_range, y_range, base_size=10, min_size=5, title_space=1.5)
+    # --- Figure Size Calculation ---
+    if figsize is None:
+        time_range = data_slice.shape[0]
+        y_range = coords['y'][-1] - coords['y'][0]
+        figsize = _calculate_dynamic_figsize(time_range, y_range, base_size=10, min_size=5, title_space=1.5)
     # ---
 
     plt.style.use('seaborn-v0_8-whitegrid')
@@ -553,6 +573,7 @@ def plot_xz_slice(
     channel_alias: str = None,
     vmin: float = None,
     vmax: float = None,
+    figsize: tuple = None,
 ):
     """
     Plots a 2D slice in the x-z plane.
@@ -569,10 +590,11 @@ def plot_xz_slice(
     data_slice = timeseries_data[time_index, :, y_index, :, channel_idx]
     display_name = channel_alias if channel_alias is not None else channel
 
-    # --- Dynamic Figure Size Calculation ---
-    x_range = coords['x'][-1] - coords['x'][0]
-    z_range = coords['z'][-1] - coords['z'][0]
-    figsize = _calculate_dynamic_figsize(x_range, z_range)
+    # --- Figure Size Calculation ---
+    if figsize is None:
+        x_range = coords['x'][-1] - coords['x'][0]
+        z_range = coords['z'][-1] - coords['z'][0]
+        figsize = _calculate_dynamic_figsize(x_range, z_range)
     # ---
 
     plt.style.use('seaborn-v0_8-whitegrid')
@@ -609,6 +631,7 @@ def plot_xy_slice(
     channel_alias: str = None,
     vmin: float = None,
     vmax: float = None,
+    figsize: tuple = None,
 ):
     """
     Plots a 2D slice in the x-y plane.
@@ -624,11 +647,12 @@ def plot_xy_slice(
 
     data_slice = timeseries_data[time_index, :, :, z_index, channel_idx]
     display_name = channel_alias if channel_alias is not None else channel
-    
-    # --- Dynamic Figure Size Calculation ---
-    x_range = coords['x'][-1] - coords['x'][0]
-    y_range = coords['y'][-1] - coords['y'][0]
-    figsize = _calculate_dynamic_figsize(x_range, y_range)
+
+    # --- Figure Size Calculation ---
+    if figsize is None:
+        x_range = coords['x'][-1] - coords['x'][0]
+        y_range = coords['y'][-1] - coords['y'][0]
+        figsize = _calculate_dynamic_figsize(x_range, y_range)
     # ---
 
     plt.style.use('seaborn-v0_8-whitegrid')
@@ -665,6 +689,7 @@ def plot_yz_slice(
     channel_alias: str = None,
     vmin: float = None,
     vmax: float = None,
+    figsize: tuple = None,
 ):
     """
     Plots a 2D slice in the y-z plane.
@@ -681,10 +706,11 @@ def plot_yz_slice(
     data_slice = timeseries_data[time_index, x_index, :, :, channel_idx]
     display_name = channel_alias if channel_alias is not None else channel
 
-    # --- Dynamic Figure Size Calculation ---
-    y_range = coords['y'][-1] - coords['y'][0]
-    z_range = coords['z'][-1] - coords['z'][0]
-    figsize = _calculate_dynamic_figsize(y_range, z_range)
+    # --- Figure Size Calculation ---
+    if figsize is None:
+        y_range = coords['y'][-1] - coords['y'][0]
+        z_range = coords['z'][-1] - coords['z'][0]
+        figsize = _calculate_dynamic_figsize(y_range, z_range)
     # ---
 
     plt.style.use('seaborn-v0_8-whitegrid')
@@ -810,4 +836,5 @@ def plot_prediction_dashboard(
 
     plt.tight_layout(rect=[0, 0, 1, 0.94])
     plt.show()
+
 
