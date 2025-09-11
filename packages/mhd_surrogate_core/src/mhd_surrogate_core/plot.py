@@ -890,7 +890,7 @@ def plot_interpolated_xz_slice(
     raw_coords: dict,
     channel: str,
     y_index: int,
-    num_interp_points: int = 256,
+    num_interp_points_z: int = 256,
     channel_alias: str = None,
     vmin: float = None,
     vmax: float = None,
@@ -924,7 +924,7 @@ def plot_interpolated_xz_slice(
     
     # Target grid (uniform)
     x_coords_interp = x_coords_raw # X is already uniform
-    z_coords_interp = np.linspace(z_coords_raw.min(), z_coords_raw.max(), num_interp_points)
+    z_coords_interp = np.linspace(z_coords_raw.min(), z_coords_raw.max(), num_interp_points_z)
     X_interp, Z_interp = np.meshgrid(x_coords_interp, z_coords_interp, indexing='ij')
 
     # --- Interpolate data ---
@@ -972,7 +972,7 @@ def plot_interpolated_xy_slice(
     raw_coords: dict,
     channel: str,
     z_index: int,
-    num_interp_points: int = 256,
+    num_interp_points_y: int = 256,
     channel_alias: str = None,
     vmin: float = None,
     vmax: float = None,
@@ -1001,7 +1001,7 @@ def plot_interpolated_xy_slice(
     # --- Grids ---
     X_raw, Y_raw = np.meshgrid(x_coords_raw, y_coords_raw, indexing='ij')
     x_coords_interp = x_coords_raw
-    y_coords_interp = np.linspace(y_coords_raw.min(), y_coords_raw.max(), num_interp_points)
+    y_coords_interp = np.linspace(y_coords_raw.min(), y_coords_raw.max(), num_interp_points_y)
     X_interp, Y_interp = np.meshgrid(x_coords_interp, y_coords_interp, indexing='ij')
 
     # --- Interpolation ---
