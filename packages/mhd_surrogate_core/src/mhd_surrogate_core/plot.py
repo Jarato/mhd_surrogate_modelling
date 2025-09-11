@@ -347,6 +347,31 @@ def plot_reconstruction_error_over_time(error_path: Path | str):
     plt.show()
 
 
+# --- Helper to load data for visualization functions ---
+def _load_data_for_viz(data_path, timeseries_data, coords):
+    """Loads data from file if not provided in memory."""
+    if timeseries_data is not None and coords is not None:
+        return timeseries_data, coords
+
+    data_path = Path(data_path)
+    if not data_path.exists():
+        logging.error(f"Data file not found at: {data_path}")
+        return None, None
+    with np.load(data_path, allow_pickle=True) as data:
+        timeseries_data = data['timeseries']
+        coords = {
+            'labels': list(data['labels']),
+            'x': data['x_coords'],
+            'y': data['y_coords'],
+            'z': data['z_coords'],
+        }
+    return timeseries_data, coords
+
+
+# ==============================================================================
+# NEW AND UPDATED VISUALIZATION FUNCTIONS
+# ==============================================================================
+
 def plot_z_time_evolution(
     data_path: Path | str,
     channel: str,
@@ -356,38 +381,27 @@ def plot_z_time_evolution(
     coords: dict = None,
 ):
     """
-    Plots the time evolution of a channel along the z-axis.
-    Can either load data from a file or use an in-memory array.
+    Plots the time evolution of a channel along the z-axis (Time-Z plot).
     """
-    if timeseries_data is None or coords is None:
-        data_path = Path(data_path)
-        if not data_path.exists():
-            logging.error(f"Data file not found at: {data_path}")
-            return
-        with np.load(data_path, allow_pickle=True) as data:
-            timeseries_data = data['timeseries']
-            coords = {
-                'labels': list(data['labels']),
-                'x': data['x_coords'],
-                'y': data['y_coords'],
-                'z': data['z_coords'],
-            }
+    timeseries_data, coords = _load_data_for_viz(data_path, timeseries_data, coords)
+    if timeseries_data is None: return
 
     try:
         channel_idx = coords['labels'].index(channel)
     except ValueError:
-        logging.error(f"Channel '{channel}' not found.")
+        logging.error(f"Channel '{channel}' not found in {coords['labels']}.")
         return
 
+    # Data is shaped (time, x, y, z, channel)
     data_slice = timeseries_data[:, x_index, y_index, :, channel_idx]
 
     plt.style.use('seaborn-v0_8-whitegrid')
     fig, ax = plt.subplots(figsize=(10, 6))
 
     im = ax.pcolormesh(
-        range(data_slice.shape[0]),
-        coords['z'],
-        data_slice.T,
+        range(data_slice.shape[0]),  # Time
+        coords['z'],                 # Z-axis
+        data_slice.T,                # Transpose for correct orientation
         shading='gouraud',
         cmap='viridis',
     )
@@ -403,6 +417,94 @@ def plot_z_time_evolution(
     plt.show()
 
 
+def plot_x_time_evolution(
+    data_path: Path | str,
+    channel: str,
+    y_index: int,
+    z_index: int,
+    timeseries_data: np.ndarray = None,
+    coords: dict = None,
+):
+    """
+    Plots the time evolution of a channel along the x-axis (Time-X plot).
+    """
+    timeseries_data, coords = _load_data_for_viz(data_path, timeseries_data, coords)
+    if timeseries_data is None: return
+
+    try:
+        channel_idx = coords['labels'].index(channel)
+    except ValueError:
+        logging.error(f"Channel '{channel}' not found in {coords['labels']}.")
+        return
+
+    data_slice = timeseries_data[:, :, y_index, z_index, channel_idx]
+
+    plt.style.use('seaborn-v0_8-whitegrid')
+    fig, ax = plt.subplots(figsize=(10, 6))
+
+    im = ax.pcolormesh(
+        range(data_slice.shape[0]),
+        coords['x'],
+        data_slice.T,
+        shading='gouraud',
+        cmap='viridis',
+    )
+
+    fig.colorbar(im, ax=ax, label=f"Value of {channel}")
+    ax.set_title(
+        f"Time Evolution of '{channel}' along X-axis\n"
+        f"at y={coords['y'][y_index]:.2f} (idx={y_index}), z={coords['z'][z_index]:.2f} (idx={z_index})"
+    )
+    ax.set_xlabel("Time Index")
+    ax.set_ylabel("X Coordinate")
+    plt.tight_layout()
+    plt.show()
+
+
+def plot_y_time_evolution(
+    data_path: Path | str,
+    channel: str,
+    x_index: int,
+    z_index: int,
+    timeseries_data: np.ndarray = None,
+    coords: dict = None,
+):
+    """
+    Plots the time evolution of a channel along the y-axis (Time-Y plot).
+    """
+    timeseries_data, coords = _load_data_for_viz(data_path, timeseries_data, coords)
+    if timeseries_data is None: return
+
+    try:
+        channel_idx = coords['labels'].index(channel)
+    except ValueError:
+        logging.error(f"Channel '{channel}' not found in {coords['labels']}.")
+        return
+
+    data_slice = timeseries_data[:, x_index, :, z_index, channel_idx]
+
+    plt.style.use('seaborn-v0_8-whitegrid')
+    fig, ax = plt.subplots(figsize=(10, 6))
+
+    im = ax.pcolormesh(
+        range(data_slice.shape[0]),
+        coords['y'],
+        data_slice.T,
+        shading='gouraud',
+        cmap='viridis',
+    )
+
+    fig.colorbar(im, ax=ax, label=f"Value of {channel}")
+    ax.set_title(
+        f"Time Evolution of '{channel}' along Y-axis\n"
+        f"at x={coords['x'][x_index]:.2f} (idx={x_index}), z={coords['z'][z_index]:.2f} (idx={z_index})"
+    )
+    ax.set_xlabel("Time Index")
+    ax.set_ylabel("Y Coordinate")
+    plt.tight_layout()
+    plt.show()
+
+
 def plot_xz_slice(
     data_path: Path | str,
     channel: str,
@@ -413,26 +515,14 @@ def plot_xz_slice(
 ):
     """
     Plots a 2D slice in the x-z plane.
-    Can either load data from a file or use an in-memory array.
     """
-    if timeseries_data is None or coords is None:
-        data_path = Path(data_path)
-        if not data_path.exists():
-            logging.error(f"Data file not found at: {data_path}")
-            return
-        with np.load(data_path, allow_pickle=True) as data:
-            timeseries_data = data['timeseries']
-            coords = {
-                'labels': list(data['labels']),
-                'x': data['x_coords'],
-                'y': data['y_coords'],
-                'z': data['z_coords'],
-            }
+    timeseries_data, coords = _load_data_for_viz(data_path, timeseries_data, coords)
+    if timeseries_data is None: return
 
     try:
         channel_idx = coords['labels'].index(channel)
     except ValueError:
-        logging.error(f"Channel '{channel}' not found.")
+        logging.error(f"Channel '{channel}' not found in {coords['labels']}.")
         return
 
     data_slice = timeseries_data[time_index, :, y_index, :, channel_idx]
@@ -454,6 +544,94 @@ def plot_xz_slice(
         f"at time index {time_index}, y={coords['y'][y_index]:.2f} (idx={y_index})"
     )
     ax.set_xlabel("X Coordinate")
+    ax.set_ylabel("Z Coordinate")
+    plt.tight_layout()
+    plt.show()
+
+
+def plot_xy_slice(
+    data_path: Path | str,
+    channel: str,
+    z_index: int,
+    time_index: int,
+    timeseries_data: np.ndarray = None,
+    coords: dict = None,
+):
+    """
+    Plots a 2D slice in the x-y plane.
+    """
+    timeseries_data, coords = _load_data_for_viz(data_path, timeseries_data, coords)
+    if timeseries_data is None: return
+
+    try:
+        channel_idx = coords['labels'].index(channel)
+    except ValueError:
+        logging.error(f"Channel '{channel}' not found in {coords['labels']}.")
+        return
+
+    data_slice = timeseries_data[time_index, :, :, z_index, channel_idx]
+
+    plt.style.use('seaborn-v0_8-whitegrid')
+    fig, ax = plt.subplots(figsize=(10, 6))
+
+    im = ax.pcolormesh(
+        coords['x'],
+        coords['y'],
+        data_slice.T,
+        shading='gouraud',
+        cmap='viridis',
+    )
+
+    fig.colorbar(im, ax=ax, label=f"Value of {channel}")
+    ax.set_title(
+        f"X-Y Slice of '{channel}'\n"
+        f"at time index {time_index}, z={coords['z'][z_index]:.2f} (idx={z_index})"
+    )
+    ax.set_xlabel("X Coordinate")
+    ax.set_ylabel("Y Coordinate")
+    plt.tight_layout()
+    plt.show()
+
+
+def plot_yz_slice(
+    data_path: Path | str,
+    channel: str,
+    x_index: int,
+    time_index: int,
+    timeseries_data: np.ndarray = None,
+    coords: dict = None,
+):
+    """
+    Plots a 2D slice in the y-z plane.
+    """
+    timeseries_data, coords = _load_data_for_viz(data_path, timeseries_data, coords)
+    if timeseries_data is None: return
+
+    try:
+        channel_idx = coords['labels'].index(channel)
+    except ValueError:
+        logging.error(f"Channel '{channel}' not found in {coords['labels']}.")
+        return
+
+    data_slice = timeseries_data[time_index, x_index, :, :, channel_idx]
+
+    plt.style.use('seaborn-v0_8-whitegrid')
+    fig, ax = plt.subplots(figsize=(10, 6))
+
+    im = ax.pcolormesh(
+        coords['y'],
+        coords['z'],
+        data_slice.T,
+        shading='gouraud',
+        cmap='viridis',
+    )
+
+    fig.colorbar(im, ax=ax, label=f"Value of {channel}")
+    ax.set_title(
+        f"Y-Z Slice of '{channel}'\n"
+        f"at time index {time_index}, x={coords['x'][x_index]:.2f} (idx={x_index})"
+    )
+    ax.set_xlabel("Y Coordinate")
     ax.set_ylabel("Z Coordinate")
     plt.tight_layout()
     plt.show()
