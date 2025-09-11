@@ -83,9 +83,14 @@ def plot_interpolated_xz_slice(
     if figsize is None:
         x_range = x_coords_raw.max() - x_coords_raw.min()
         z_range = z_coords_raw.max() - z_coords_raw.min()
-        aspect_ratio = z_range / x_range if x_range > 0 else 1
-        fig_width = base_size
-        fig_height = max(min_size, base_size * aspect_ratio)
+        if x_range > z_range:
+            fig_width = base_size
+            aspect_ratio = z_range / x_range if x_range > 0 else 1
+            fig_height = max(min_size, base_size * aspect_ratio)
+        else:
+            fig_height = base_size
+            aspect_ratio = x_range / z_range if z_range > 0 else 1
+            fig_width = max(min_size, base_size * aspect_ratio)
         figsize = (fig_width, fig_height)
 
     fig, ax = plt.subplots(figsize=figsize)
@@ -153,9 +158,14 @@ def plot_interpolated_xy_slice(
     if figsize is None:
         x_range = x_coords_raw.max() - x_coords_raw.min()
         y_range = y_coords_raw.max() - y_coords_raw.min()
-        aspect_ratio = y_range / x_range if x_range > 0 else 1
-        fig_width = base_size
-        fig_height = max(min_size, base_size * aspect_ratio)
+        if x_range > y_range:
+            fig_width = base_size
+            aspect_ratio = y_range / x_range if x_range > 0 else 1
+            fig_height = max(min_size, base_size * aspect_ratio)
+        else:
+            fig_height = base_size
+            aspect_ratio = x_range / y_range if y_range > 0 else 1
+            fig_width = max(min_size, base_size * aspect_ratio)
         figsize = (fig_width, fig_height)
 
     fig, ax = plt.subplots(figsize=figsize)
@@ -220,9 +230,14 @@ def plot_interpolated_yz_slice(
     if figsize is None:
         y_range = y_coords_raw.max() - y_coords_raw.min()
         z_range = z_coords_raw.max() - z_coords_raw.min()
-        aspect_ratio = z_range / y_range if y_range > 0 else 1
-        fig_width = base_size
-        fig_height = max(min_size, base_size * aspect_ratio)
+        if y_range > z_range:
+            fig_width = base_size
+            aspect_ratio = z_range / y_range if y_range > 0 else 1
+            fig_height = max(min_size, base_size * aspect_ratio)
+        else:
+            fig_height = base_size
+            aspect_ratio = y_range / z_range if z_range > 0 else 1
+            fig_width = max(min_size, base_size * aspect_ratio)
         figsize = (fig_width, fig_height)
 
     fig, ax = plt.subplots(figsize=figsize)
@@ -288,11 +303,16 @@ def plot_interpolated_z_time_evolution(
     data_interp = griddata(points_raw, values_raw, (T_interp, Z_interp), method='cubic')
 
     if figsize is None:
-        time_range = num_timesteps
+        time_range = float(num_timesteps)
         z_range = z_coords_raw.max() - z_coords_raw.min()
-        aspect_ratio = z_range / time_range if time_range > 0 else 1
-        fig_width = base_size
-        fig_height = max(min_size, base_size * aspect_ratio)
+        if time_range > z_range:
+            fig_width = base_size
+            aspect_ratio = z_range / time_range if time_range > 0 else 1
+            fig_height = max(min_size, base_size * aspect_ratio)
+        else:
+            fig_height = base_size
+            aspect_ratio = time_range / z_range if z_range > 0 else 1
+            fig_width = max(min_size, base_size * aspect_ratio)
         figsize = (fig_width, fig_height)
 
     fig, ax = plt.subplots(figsize=figsize)
@@ -355,11 +375,16 @@ def plot_interpolated_y_time_evolution(
     data_interp = griddata(points_raw, values_raw, (T_interp, Y_interp), method='cubic')
 
     if figsize is None:
-        time_range = num_timesteps
+        time_range = float(num_timesteps)
         y_range = y_coords_raw.max() - y_coords_raw.min()
-        aspect_ratio = y_range / time_range if time_range > 0 else 1
-        fig_width = base_size
-        fig_height = max(min_size, base_size * aspect_ratio)
+        if time_range > y_range:
+            fig_width = base_size
+            aspect_ratio = y_range / time_range if time_range > 0 else 1
+            fig_height = max(min_size, base_size * aspect_ratio)
+        else:
+            fig_height = base_size
+            aspect_ratio = time_range / y_range if y_range > 0 else 1
+            fig_width = max(min_size, base_size * aspect_ratio)
         figsize = (fig_width, fig_height)
         
     fig, ax = plt.subplots(figsize=figsize)
@@ -412,11 +437,16 @@ def plot_interpolated_x_time_evolution(
     x_coords = raw_coords['x']
 
     if figsize is None:
-        time_range = num_timesteps
+        time_range = float(num_timesteps)
         x_range = x_coords.max() - x_coords.min()
-        aspect_ratio = x_range / time_range if time_range > 0 else 1
-        fig_height = base_size 
-        fig_width = max(min_size, base_size * aspect_ratio)
+        if time_range > x_range:
+            fig_width = base_size
+            aspect_ratio = x_range / time_range if time_range > 0 else 1
+            fig_height = max(min_size, base_size * aspect_ratio)
+        else:
+            fig_height = base_size
+            aspect_ratio = time_range / x_range if x_range > 0 else 1
+            fig_width = max(min_size, base_size * aspect_ratio)
         figsize = (fig_width, fig_height)
 
     fig, ax = plt.subplots(figsize=figsize)
