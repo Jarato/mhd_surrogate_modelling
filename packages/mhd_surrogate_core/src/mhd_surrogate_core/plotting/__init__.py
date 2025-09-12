@@ -35,6 +35,10 @@ from .raw import (
     plot_interpolated_x_time_evolution,
 )
 
+from .video import (
+    generate_slice_video,
+)
+
 __all__ = [
     # Evaluation functions
     "plot_snapshot_comparison",
@@ -60,5 +64,7 @@ __all__ = [
     "plot_interpolated_z_time_evolution",
     "plot_interpolated_y_time_evolution",
     "plot_interpolated_x_time_evolution",
+    # Video generation
+    "generate_slice_video",
 ]
 
