@@ -252,6 +252,13 @@ def generate_slice_video(
 # --- Functions for Preprocessed NPZ Data ---
 # ==============================================================================
 
+# Global variable to hold the shared data for worker processes
+worker_data = {}
+
+def _init_worker_from_npz(timeseries_data_shared):
+    """Initializer for each worker process. Puts the shared data into a global variable."""
+    worker_data['timeseries_data'] = timeseries_data_shared
+
 def _create_frame_from_npz(
     frame_path: Path,
     data_slice: np.ndarray,
@@ -307,13 +314,15 @@ def _create_frame_from_npz(
 
 def _generate_frame_worker_from_npz(relative_time_index, common_args):
     """Wrapper function for multiprocessing to generate a single frame from npz data."""
+    # The large timeseries_data is now accessed from the global scope of the worker
+    timeseries_data = worker_data['timeseries_data']
+    
     time_offset = common_args['time_offset']
     absolute_time_index = relative_time_index + time_offset
     
     frame_path = common_args['frame_dir'] / f"frame_{absolute_time_index:04d}.png"
     display_name = common_args['display_name']
     
-    timeseries_data = common_args['timeseries_data']
     channel_idx = common_args['channel_idx']
     slice_orientation = common_args['slice_orientation']
     slice_index = common_args['slice_index']
@@ -418,8 +427,9 @@ def generate_slice_video_from_npz(
         
         logging.info(f"Generating {num_frames} frames in parallel using {num_workers} workers...")
 
+        # Arguments that DON'T contain the large data array
         common_args = {
-            'timeseries_data': timeseries_data, 'coords': coords, 'channel_idx': channel_idx,
+            'coords': coords, 'channel_idx': channel_idx,
             'slice_orientation': slice_orientation, 'slice_index': slice_index,
             'frame_dir': frame_dir, 'display_name': display_name, 'plot_labels': plot_labels,
             'cbar_label': cbar_label, 'vmin': vmin, 'vmax': vmax,
@@ -429,7 +439,8 @@ def generate_slice_video_from_npz(
         worker_func = partial(_generate_frame_worker_from_npz, common_args=common_args)
         
         frame_paths = []
-        with multiprocessing.Pool(processes=num_workers) as pool:
+        # Initialize the pool with the shared data
+        with multiprocessing.Pool(processes=num_workers, initializer=_init_worker_from_npz, initargs=(timeseries_data,)) as pool:
             with tqdm(total=num_frames, desc="Generating frames") as pbar:
                 for frame_path in pool.imap_unordered(worker_func, range(num_frames)):
                     frame_paths.append(frame_path)
