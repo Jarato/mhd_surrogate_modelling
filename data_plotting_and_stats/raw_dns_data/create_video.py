@@ -89,8 +89,8 @@ python create_video.py \
     --slice-index 240 \
     --channel vx \
     --channel-alias u \
-    --unit-label "m/s" \
-    --fps 5 \
+    --unit-label "" \
+    --fps 16 \
     --interp-y 1024 \
     --interp-z 1024 \
     --num-workers 15 \
