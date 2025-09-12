@@ -16,6 +16,10 @@ logging.basicConfig(
 )
 
 
+# ==============================================================================
+# --- Functions for Raw Binary Snapshot Data ---
+# ==============================================================================
+
 def _get_slice_data(
     snapshot_file: Path,
     nx: int, ny: int, nz: int,
@@ -50,7 +54,7 @@ def _get_slice_data(
     return data_slice.astype(np.float32), slice_coords
 
 
-def _create_frame(
+def _create_frame_from_raw(
     frame_path: Path,
     data_slice_raw: np.ndarray,
     slice_coords: dict,
@@ -118,8 +122,8 @@ def _create_frame(
     plt.close(fig)
 
 
-def _generate_frame_worker(args_tuple, common_args):
-    """A wrapper function for multiprocessing to generate a single frame."""
+def _generate_frame_worker_from_raw(args_tuple, common_args):
+    """A wrapper function for multiprocessing to generate a single frame from raw data."""
     i, f_path, time_val = args_tuple
     
     data_slice, slice_coords = _get_slice_data(
@@ -134,7 +138,7 @@ def _generate_frame_worker(args_tuple, common_args):
     frame_path = common_args['frame_dir'] / f"frame_{i:04d}.png"
     display_name = common_args['display_name']
 
-    _create_frame(
+    _create_frame_from_raw(
         frame_path=frame_path,
         data_slice_raw=data_slice,
         slice_coords=slice_coords,
@@ -212,7 +216,6 @@ def generate_slice_video(
     with tempfile.TemporaryDirectory() as temp_dir:
         frame_dir = Path(temp_dir)
         
-        # --- Parallel Frame Generation ---
         logging.info(f"Generating {len(snapshot_files)} frames in parallel using {num_workers} workers...")
 
         common_args = {
@@ -225,8 +228,7 @@ def generate_slice_video(
         
         tasks = [(i, f_path, time_val) for i, (f_path, time_val) in enumerate(zip(snapshot_files, time_indices))]
         
-        # Use partial to freeze the common_args for the worker function
-        worker_func = partial(_generate_frame_worker, common_args=common_args)
+        worker_func = partial(_generate_frame_worker_from_raw, common_args=common_args)
         
         frame_paths = []
         with multiprocessing.Pool(processes=num_workers) as pool:
@@ -235,10 +237,189 @@ def generate_slice_video(
                     frame_paths.append(frame_path)
                     pbar.update(1)
 
-        # Sort paths to ensure correct order
         frame_paths.sort()
 
-        # Assemble video
+        logging.info(f"Assembling video at {output_path} with {fps} FPS...")
+        with imageio.get_writer(output_path, fps=fps, macro_block_size=None) as writer:
+            for frame_path in tqdm(frame_paths, desc="Writing video"):
+                image = imageio.imread(frame_path)
+                writer.append_data(image)
+
+    logging.info("Video generation complete.")
+
+
+# ==============================================================================
+# --- Functions for Preprocessed NPZ Data ---
+# ==============================================================================
+
+def _create_frame_from_npz(
+    frame_path: Path,
+    data_slice: np.ndarray,
+    coords: dict,
+    title: str,
+    xlabel: str,
+    ylabel: str,
+    cbar_label: str,
+    vmin: float,
+    vmax: float,
+    base_size: float,
+    min_size: float,
+):
+    """Plots a 2D slice from npz data to a file (no interpolation needed)."""
+    x_coords = coords['x']
+    y_coords = coords['y']
+    
+    dpi = 150
+    macro_block_size = 16
+    
+    x_range = x_coords.max() - x_coords.min()
+    y_range = y_coords.max() - y_coords.min()
+    if x_range > y_range:
+        fig_width_in = base_size
+        aspect_ratio = y_range / x_range if x_range > 0 else 1
+        fig_height_in = max(min_size, base_size * aspect_ratio)
+    else:
+        fig_height_in = base_size
+        aspect_ratio = x_range / y_range if y_range > 0 else 1
+        fig_width_in = max(min_size, base_size * aspect_ratio)
+
+    width_px = int(fig_width_in * dpi)
+    height_px = int(fig_height_in * dpi)
+    
+    width_px = (width_px + macro_block_size - 1) // macro_block_size * macro_block_size
+    height_px = (height_px + macro_block_size - 1) // macro_block_size * macro_block_size
+    
+    figsize = (width_px / dpi, height_px / dpi)
+
+    fig, ax = plt.subplots(figsize=figsize)
+    im = ax.pcolormesh(x_coords, y_coords, data_slice.T,
+                       shading='gouraud', cmap='viridis', vmin=vmin, vmax=vmax)
+    
+    fig.colorbar(im, ax=ax, label=cbar_label)
+    ax.set_title(title)
+    ax.set_xlabel(xlabel)
+    ax.set_ylabel(ylabel)
+    plt.tight_layout()
+    
+    plt.savefig(frame_path, dpi=dpi)
+    plt.close(fig)
+
+
+def _generate_frame_worker_from_npz(time_index, common_args):
+    """Wrapper function for multiprocessing to generate a single frame from npz data."""
+    frame_path = common_args['frame_dir'] / f"frame_{time_index:04d}.png"
+    display_name = common_args['display_name']
+    
+    timeseries_data = common_args['timeseries_data']
+    channel_idx = common_args['channel_idx']
+    slice_orientation = common_args['slice_orientation']
+    slice_index = common_args['slice_index']
+    coords = common_args['coords']
+    
+    if slice_orientation == 'xz':
+        data_slice = timeseries_data[time_index, :, slice_index, :, channel_idx]
+        frame_coords = {'x': coords['x'], 'y': coords['z']}
+    elif slice_orientation == 'xy':
+        data_slice = timeseries_data[time_index, :, :, slice_index, channel_idx]
+        frame_coords = {'x': coords['x'], 'y': coords['y']}
+    elif slice_orientation == 'yz':
+        data_slice = timeseries_data[time_index, slice_index, :, :, channel_idx]
+        frame_coords = {'x': coords['y'], 'y': coords['z']}
+        
+    _create_frame_from_npz(
+        frame_path=frame_path,
+        data_slice=data_slice,
+        coords=frame_coords,
+        title=f"Slice of '{display_name}' at Time Index {time_index}",
+        xlabel=common_args['plot_labels']['xlabel'],
+        ylabel=common_args['plot_labels']['ylabel'],
+        cbar_label=common_args['cbar_label'],
+        vmin=common_args['vmin'], vmax=common_args['vmax'],
+        base_size=common_args['base_size'], min_size=common_args['min_size'],
+    )
+    return frame_path
+
+
+def generate_slice_video_from_npz(
+    npz_path: Path,
+    output_path: Path,
+    slice_orientation: str,
+    slice_index: int,
+    channel: str,
+    fps: int = 15,
+    channel_alias: str = None,
+    unit_label: str = "",
+    base_size: float = 10.0,
+    min_size: float = 3.0,
+    vmin_override: float = None,
+    vmax_override: float = None,
+    num_workers: int = 1,
+):
+    """
+    Generates a 2D video of a slice evolving over time from a preprocessed .npz file.
+    """
+    if not npz_path.exists():
+        logging.error(f"NPZ file not found at {npz_path}. Aborting.")
+        return
+
+    logging.info(f"Loading data from {npz_path}...")
+    with np.load(npz_path) as data:
+        timeseries_data = data['timeseries']
+        coords = {
+            'labels': list(data['labels']),
+            'x': data['x_coords'],
+            'y': data['y_coords'],
+            'z': data['z_coords'],
+        }
+
+    try:
+        channel_idx = coords['labels'].index(channel)
+    except ValueError:
+        logging.error(f"Channel '{channel}' not found in NPZ labels: {coords['labels']}. Aborting.")
+        return
+
+    vmin, vmax = vmin_override, vmax_override
+    if vmin is None or vmax is None:
+        logging.info("Calculating global color scale...")
+        channel_data = timeseries_data[..., channel_idx]
+        vmin, vmax = channel_data.min(), channel_data.max()
+        logging.info(f"Global color scale for '{channel}' set to: [{vmin:.3f}, {vmax:.3f}]")
+
+    display_name = channel_alias if channel_alias else channel
+    cbar_label = f"Value of {display_name}" + (f" [{unit_label}]" if unit_label else "")
+    
+    orient_map = {
+        'xz': {'xlabel': 'X Coordinate', 'ylabel': 'Z Coordinate'},
+        'xy': {'xlabel': 'X Coordinate', 'ylabel': 'Y Coordinate'},
+        'yz': {'xlabel': 'Y Coordinate', 'ylabel': 'Z Coordinate'},
+    }
+    plot_labels = orient_map[slice_orientation]
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        frame_dir = Path(temp_dir)
+        num_frames = timeseries_data.shape[0]
+        
+        logging.info(f"Generating {num_frames} frames in parallel using {num_workers} workers...")
+
+        common_args = {
+            'timeseries_data': timeseries_data, 'coords': coords, 'channel_idx': channel_idx,
+            'slice_orientation': slice_orientation, 'slice_index': slice_index,
+            'frame_dir': frame_dir, 'display_name': display_name, 'plot_labels': plot_labels,
+            'cbar_label': cbar_label, 'vmin': vmin, 'vmax': vmax,
+            'base_size': base_size, 'min_size': min_size,
+        }
+        
+        worker_func = partial(_generate_frame_worker_from_npz, common_args=common_args)
+        
+        frame_paths = []
+        with multiprocessing.Pool(processes=num_workers) as pool:
+            with tqdm(total=num_frames, desc="Generating frames") as pbar:
+                for frame_path in pool.imap_unordered(worker_func, range(num_frames)):
+                    frame_paths.append(frame_path)
+                    pbar.update(1)
+
+        frame_paths.sort()
+
         logging.info(f"Assembling video at {output_path} with {fps} FPS...")
         with imageio.get_writer(output_path, fps=fps, macro_block_size=None) as writer:
             for frame_path in tqdm(frame_paths, desc="Writing video"):

@@ -37,6 +37,7 @@ from .raw import (
 
 from .video import (
     generate_slice_video,
+    generate_slice_video_from_npz,
 )
 
 __all__ = [
@@ -66,5 +67,6 @@ __all__ = [
     "plot_interpolated_x_time_evolution",
     # Video generation
     "generate_slice_video",
+    "generate_slice_video_from_npz",
 ]
 
