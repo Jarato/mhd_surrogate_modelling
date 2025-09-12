@@ -77,17 +77,28 @@ def _create_frame(
     data_interp = griddata(points_raw, values_raw, (X_interp, Y_interp), method='cubic')
 
     # Determine figure size
+    dpi = 150 # Standard DPI for saving frames
+    macro_block_size = 16 # For video codec compatibility
+    
     x_range = x_coords_raw.max() - x_coords_raw.min()
     y_range = y_coords_raw.max() - y_coords_raw.min()
     if x_range > y_range:
-        fig_width = base_size
+        fig_width_in = base_size
         aspect_ratio = y_range / x_range if x_range > 0 else 1
-        fig_height = max(min_size, base_size * aspect_ratio)
+        fig_height_in = max(min_size, base_size * aspect_ratio)
     else:
-        fig_height = base_size
+        fig_height_in = base_size
         aspect_ratio = x_range / y_range if y_range > 0 else 1
-        fig_width = max(min_size, base_size * aspect_ratio)
-    figsize = (fig_width, fig_height)
+        fig_width_in = max(min_size, base_size * aspect_ratio)
+
+    # Adjust size to be divisible by macro_block_size
+    width_px = int(fig_width_in * dpi)
+    height_px = int(fig_height_in * dpi)
+    
+    width_px = (width_px + macro_block_size - 1) // macro_block_size * macro_block_size
+    height_px = (height_px + macro_block_size - 1) // macro_block_size * macro_block_size
+    
+    figsize = (width_px / dpi, height_px / dpi)
 
     # Plotting
     fig, ax = plt.subplots(figsize=figsize)
@@ -101,7 +112,7 @@ def _create_frame(
     plt.tight_layout()
     
     # Save and close
-    plt.savefig(frame_path, dpi=150)
+    plt.savefig(frame_path, dpi=dpi)
     plt.close(fig)
 
 
@@ -195,3 +206,4 @@ def generate_slice_video(
                 writer.append_data(image)
 
     logging.info("Video generation complete.")
+
