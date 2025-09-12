@@ -84,7 +84,7 @@ python create_video.py \
     --snapshot-dir /raid/skowronek/preprocessed_dns_output/01-Cold_Runs/01-Re16K_Ha325/raw/ \
     --output-path output/xz_slice_u.mp4 \
     --nx 2301 --ny 481 --nz 121 \
-    --time-start 609 --time-end 617 \
+    --time-start 609 --time-end 737 \
     --slice-orientation xz \
     --slice-index 240 \
     --channel vx \
@@ -93,7 +93,7 @@ python create_video.py \
     --fps 16 \
     --interp-y 1024 \
     --interp-z 1024 \
-    --num-workers 15 \
+    --num-workers 64 \
     --vmin -5 \
     --vmax 6
 ```
