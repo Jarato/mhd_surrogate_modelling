@@ -72,12 +72,12 @@ python create_video_from_npz.py \
     --channel vx \
     --channel-alias u \
     --unit-label "m/s" \
-    --fps 15 \
-    --num-workers 15 \
+    --fps 1 \
+    --num-workers 1 \
     --vmin -3 \
     --vmax 5 \
-    --time-start 50 \
-    --time-end 100
+    --time-start 0 \
+    --time-end 4
 ```
 """
 
