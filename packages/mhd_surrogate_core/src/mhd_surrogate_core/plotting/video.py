@@ -6,6 +6,8 @@ import matplotlib.pyplot as plt
 from scipy.interpolate import griddata
 from tqdm import tqdm
 import imageio.v2 as imageio
+import multiprocessing
+from functools import partial
 
 # Configure basic logging
 logging.basicConfig(
@@ -116,6 +118,37 @@ def _create_frame(
     plt.close(fig)
 
 
+def _generate_frame_worker(args_tuple, common_args):
+    """A wrapper function for multiprocessing to generate a single frame."""
+    i, f_path, time_val = args_tuple
+    
+    data_slice, slice_coords = _get_slice_data(
+        snapshot_file=f_path,
+        nx=common_args['nx'], ny=common_args['ny'], nz=common_args['nz'],
+        num_channels=len(common_args['source_channel_labels']),
+        channel_idx=common_args['channel_idx'],
+        slice_orientation=common_args['slice_orientation'],
+        slice_index=common_args['slice_index'],
+    )
+    
+    frame_path = common_args['frame_dir'] / f"frame_{i:04d}.png"
+    display_name = common_args['display_name']
+
+    _create_frame(
+        frame_path=frame_path,
+        data_slice_raw=data_slice,
+        slice_coords=slice_coords,
+        interp_points=common_args['plot_labels']['interp'],
+        title=f"Slice of '{display_name}' at Time Index {time_val}",
+        xlabel=common_args['plot_labels']['xlabel'],
+        ylabel=common_args['plot_labels']['ylabel'],
+        cbar_label=common_args['cbar_label'],
+        vmin=common_args['vmin'], vmax=common_args['vmax'],
+        base_size=common_args['base_size'], min_size=common_args['min_size'],
+    )
+    return frame_path
+
+
 def generate_slice_video(
     snapshot_dir: Path,
     file_prefix: str,
@@ -135,6 +168,7 @@ def generate_slice_video(
     min_size: float = 3.0,
     vmin_override: float = None,
     vmax_override: float = None,
+    num_workers: int = 1,
 ):
     """
     Generates a 2D video of a slice evolving over time from raw snapshot files.
@@ -177,30 +211,36 @@ def generate_slice_video(
     # Generate frames in a temporary directory
     with tempfile.TemporaryDirectory() as temp_dir:
         frame_dir = Path(temp_dir)
-        frame_paths = []
         
-        for i, f_path in enumerate(tqdm(snapshot_files, desc="Generating frames")):
-            data_slice, slice_coords = _get_slice_data(f_path, nx, ny, nz, len(source_channel_labels), 
-                                                       channel_idx, slice_orientation, slice_index)
-            frame_path = frame_dir / f"frame_{i:04d}.png"
-            
-            _create_frame(
-                frame_path=frame_path,
-                data_slice_raw=data_slice,
-                slice_coords=slice_coords,
-                interp_points=plot_labels['interp'],
-                title=f"Slice of '{display_name}' at Time Index {time_indices[i]}",
-                xlabel=plot_labels['xlabel'],
-                ylabel=plot_labels['ylabel'],
-                cbar_label=cbar_label,
-                vmin=vmin, vmax=vmax,
-                base_size=base_size, min_size=min_size,
-            )
-            frame_paths.append(frame_path)
+        # --- Parallel Frame Generation ---
+        logging.info(f"Generating {len(snapshot_files)} frames in parallel using {num_workers} workers...")
+
+        common_args = {
+            'nx': nx, 'ny': ny, 'nz': nz, 'source_channel_labels': source_channel_labels,
+            'channel_idx': channel_idx, 'slice_orientation': slice_orientation,
+            'slice_index': slice_index, 'frame_dir': frame_dir, 'display_name': display_name,
+            'plot_labels': plot_labels, 'cbar_label': cbar_label, 'vmin': vmin, 'vmax': vmax,
+            'base_size': base_size, 'min_size': min_size,
+        }
+        
+        tasks = [(i, f_path, time_val) for i, (f_path, time_val) in enumerate(zip(snapshot_files, time_indices))]
+        
+        # Use partial to freeze the common_args for the worker function
+        worker_func = partial(_generate_frame_worker, common_args=common_args)
+        
+        frame_paths = []
+        with multiprocessing.Pool(processes=num_workers) as pool:
+            with tqdm(total=len(tasks), desc="Generating frames") as pbar:
+                for frame_path in pool.imap_unordered(worker_func, tasks):
+                    frame_paths.append(frame_path)
+                    pbar.update(1)
+
+        # Sort paths to ensure correct order
+        frame_paths.sort()
 
         # Assemble video
         logging.info(f"Assembling video at {output_path} with {fps} FPS...")
-        with imageio.get_writer(output_path, fps=fps) as writer:
+        with imageio.get_writer(output_path, fps=fps, macro_block_size=None) as writer:
             for frame_path in tqdm(frame_paths, desc="Writing video"):
                 image = imageio.imread(frame_path)
                 writer.append_data(image)

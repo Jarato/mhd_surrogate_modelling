@@ -1,5 +1,6 @@
 import argparse
 from pathlib import Path
+import multiprocessing
 from mhd_surrogate_core.plotting import generate_slice_video
 
 def main():
@@ -34,8 +35,15 @@ def main():
     parser.add_argument("--unit-label", type=str, default="", help="Unit label to display on the color bar (e.g., 'm/s').")
     parser.add_argument("--vmin", type=float, default=None, help="Override for the minimum value of the color scale.")
     parser.add_argument("--vmax", type=float, default=None, help="Override for the maximum value of the color scale.")
+    
+    # --- Parallelization Argument ---
+    parser.add_argument("--num-workers", type=int, default=1, help="Number of parallel worker processes for frame generation. Set to -1 to use all available CPU cores.")
 
     args = parser.parse_args()
+    
+    num_workers = args.num_workers
+    if num_workers == -1:
+        num_workers = multiprocessing.cpu_count()
 
     # --- Run the video generation ---
     generate_slice_video(
@@ -55,6 +63,7 @@ def main():
         unit_label=args.unit_label,
         vmin_override=args.vmin,
         vmax_override=args.vmax,
+        num_workers=num_workers,
     )
 
 if __name__ == "__main__":
@@ -83,7 +92,8 @@ python create_video.py \
     --unit-label "m/s" \
     --fps 5 \
     --interp-y 1024 \
-    --interp-z 1024
+    --interp-z 1024 \
+    --num-workers 15 
 ```
 """
 
