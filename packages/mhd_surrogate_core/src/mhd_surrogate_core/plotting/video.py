@@ -26,7 +26,7 @@ def _get_slice_data(
     num_channels: int, channel_idx: int,
     slice_orientation: str, slice_index: int
 ) -> tuple[np.ndarray, dict]:
-    """Loads a single snapshot and extracts the required 2D data slice and coordinates."""
+    """Loads a single snapshot and extracts the required 2D data slice and full coordinates."""
     input_dtype = np.float64
     with open(snapshot_file, 'rb') as f:
         coords = {
@@ -41,17 +41,14 @@ def _get_slice_data(
 
     if slice_orientation == 'xz':
         data_slice = snapshot_3d[:, slice_index, :, channel_idx]
-        slice_coords = {'x': coords['x'], 'y': coords['z']} # y-axis of plot is z-data
     elif slice_orientation == 'xy':
         data_slice = snapshot_3d[:, :, slice_index, channel_idx]
-        slice_coords = {'x': coords['x'], 'y': coords['y']}
     elif slice_orientation == 'yz':
         data_slice = snapshot_3d[slice_index, :, :, channel_idx]
-        slice_coords = {'x': coords['y'], 'y': coords['z']} # x-axis of plot is y-data
     else:
         raise ValueError(f"Invalid slice orientation: {slice_orientation}")
 
-    return data_slice.astype(np.float32), slice_coords
+    return data_slice.astype(np.float32), coords
 
 
 def _create_frame_from_raw(
@@ -126,7 +123,7 @@ def _generate_frame_worker_from_raw(args_tuple, common_args):
     """A wrapper function for multiprocessing to generate a single frame from raw data."""
     i, f_path, time_val = args_tuple
     
-    data_slice, slice_coords = _get_slice_data(
+    data_slice, raw_coords = _get_slice_data(
         snapshot_file=f_path,
         nx=common_args['nx'], ny=common_args['ny'], nz=common_args['nz'],
         num_channels=len(common_args['source_channel_labels']),
@@ -137,13 +134,32 @@ def _generate_frame_worker_from_raw(args_tuple, common_args):
     
     frame_path = common_args['frame_dir'] / f"frame_{i:04d}.png"
     display_name = common_args['display_name']
+    slice_orientation = common_args['slice_orientation']
+    slice_index = common_args['slice_index']
+
+    # Construct detailed title
+    title_suffix = ""
+    if slice_orientation == 'xz':
+        coord_val = raw_coords['y'][slice_index]
+        title_suffix = f"at y={coord_val:.2f} (idx={slice_index})"
+        plot_coords = {'x': raw_coords['x'], 'y': raw_coords['z']}
+    elif slice_orientation == 'xy':
+        coord_val = raw_coords['z'][slice_index]
+        title_suffix = f"at z={coord_val:.2f} (idx={slice_index})"
+        plot_coords = {'x': raw_coords['x'], 'y': raw_coords['y']}
+    elif slice_orientation == 'yz':
+        coord_val = raw_coords['x'][slice_index]
+        title_suffix = f"at x={coord_val:.2f} (idx={slice_index})"
+        plot_coords = {'x': raw_coords['y'], 'y': raw_coords['z']}
+    
+    title = f"Slice of '{display_name}' at Time Index {time_val}\n{title_suffix}"
 
     _create_frame_from_raw(
         frame_path=frame_path,
         data_slice_raw=data_slice,
-        slice_coords=slice_coords,
+        slice_coords=plot_coords,
         interp_points=common_args['plot_labels']['interp'],
-        title=f"Slice of '{display_name}' at Time Index {time_val}",
+        title=title,
         xlabel=common_args['plot_labels']['xlabel'],
         ylabel=common_args['plot_labels']['ylabel'],
         cbar_label=common_args['cbar_label'],
@@ -328,21 +344,31 @@ def _generate_frame_worker_from_npz(relative_time_index, common_args):
     slice_index = common_args['slice_index']
     coords = common_args['coords']
     
+    # Construct detailed title
+    title_suffix = ""
     if slice_orientation == 'xz':
         data_slice = timeseries_data[relative_time_index, :, slice_index, :, channel_idx]
         frame_coords = {'x': coords['x'], 'y': coords['z']}
+        coord_val = coords['y'][slice_index]
+        title_suffix = f"at y={coord_val:.2f} (idx={slice_index})"
     elif slice_orientation == 'xy':
         data_slice = timeseries_data[relative_time_index, :, :, slice_index, channel_idx]
         frame_coords = {'x': coords['x'], 'y': coords['y']}
+        coord_val = coords['z'][slice_index]
+        title_suffix = f"at z={coord_val:.2f} (idx={slice_index})"
     elif slice_orientation == 'yz':
         data_slice = timeseries_data[relative_time_index, slice_index, :, :, channel_idx]
         frame_coords = {'x': coords['y'], 'y': coords['z']}
+        coord_val = coords['x'][slice_index]
+        title_suffix = f"at x={coord_val:.2f} (idx={slice_index})"
+    
+    title = f"Slice of '{display_name}' at Time Index {absolute_time_index}\n{title_suffix}"
         
     _create_frame_from_npz(
         frame_path=frame_path,
         data_slice=data_slice,
         coords=frame_coords,
-        title=f"Slice of '{display_name}' at Time Index {absolute_time_index}",
+        title=title,
         xlabel=common_args['plot_labels']['xlabel'],
         ylabel=common_args['plot_labels']['ylabel'],
         cbar_label=common_args['cbar_label'],
