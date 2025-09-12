@@ -305,9 +305,12 @@ def _create_frame_from_npz(
     plt.close(fig)
 
 
-def _generate_frame_worker_from_npz(time_index, common_args):
+def _generate_frame_worker_from_npz(relative_time_index, common_args):
     """Wrapper function for multiprocessing to generate a single frame from npz data."""
-    frame_path = common_args['frame_dir'] / f"frame_{time_index:04d}.png"
+    time_offset = common_args['time_offset']
+    absolute_time_index = relative_time_index + time_offset
+    
+    frame_path = common_args['frame_dir'] / f"frame_{absolute_time_index:04d}.png"
     display_name = common_args['display_name']
     
     timeseries_data = common_args['timeseries_data']
@@ -317,20 +320,20 @@ def _generate_frame_worker_from_npz(time_index, common_args):
     coords = common_args['coords']
     
     if slice_orientation == 'xz':
-        data_slice = timeseries_data[time_index, :, slice_index, :, channel_idx]
+        data_slice = timeseries_data[relative_time_index, :, slice_index, :, channel_idx]
         frame_coords = {'x': coords['x'], 'y': coords['z']}
     elif slice_orientation == 'xy':
-        data_slice = timeseries_data[time_index, :, :, slice_index, channel_idx]
+        data_slice = timeseries_data[relative_time_index, :, :, slice_index, channel_idx]
         frame_coords = {'x': coords['x'], 'y': coords['y']}
     elif slice_orientation == 'yz':
-        data_slice = timeseries_data[time_index, slice_index, :, :, channel_idx]
+        data_slice = timeseries_data[relative_time_index, slice_index, :, :, channel_idx]
         frame_coords = {'x': coords['y'], 'y': coords['z']}
         
     _create_frame_from_npz(
         frame_path=frame_path,
         data_slice=data_slice,
         coords=frame_coords,
-        title=f"Slice of '{display_name}' at Time Index {time_index}",
+        title=f"Slice of '{display_name}' at Time Index {absolute_time_index}",
         xlabel=common_args['plot_labels']['xlabel'],
         ylabel=common_args['plot_labels']['ylabel'],
         cbar_label=common_args['cbar_label'],
@@ -346,6 +349,8 @@ def generate_slice_video_from_npz(
     slice_orientation: str,
     slice_index: int,
     channel: str,
+    time_start: int = None,
+    time_end: int = None,
     fps: int = 15,
     channel_alias: str = None,
     unit_label: str = "",
@@ -364,13 +369,25 @@ def generate_slice_video_from_npz(
 
     logging.info(f"Loading data from {npz_path}...")
     with np.load(npz_path) as data:
-        timeseries_data = data['timeseries']
+        timeseries_data_full = data['timeseries']
         coords = {
             'labels': list(data['labels']),
             'x': data['x_coords'],
             'y': data['y_coords'],
             'z': data['z_coords'],
         }
+
+    # --- Apply time slicing if specified ---
+    time_offset = 0
+    if time_start is not None or time_end is not None:
+        start = time_start if time_start is not None else 0
+        end = time_end if time_end is not None else timeseries_data_full.shape[0]
+        time_offset = start
+        logging.info(f"Slicing timeseries from index {start} to {end}.")
+        timeseries_data = timeseries_data_full[start:end]
+    else:
+        timeseries_data = timeseries_data_full
+
 
     try:
         channel_idx = coords['labels'].index(channel)
@@ -380,10 +397,10 @@ def generate_slice_video_from_npz(
 
     vmin, vmax = vmin_override, vmax_override
     if vmin is None or vmax is None:
-        logging.info("Calculating global color scale...")
+        logging.info("Calculating global color scale for the selected time range...")
         channel_data = timeseries_data[..., channel_idx]
         vmin, vmax = channel_data.min(), channel_data.max()
-        logging.info(f"Global color scale for '{channel}' set to: [{vmin:.3f}, {vmax:.3f}]")
+        logging.info(f"Color scale for '{channel}' set to: [{vmin:.3f}, {vmax:.3f}]")
 
     display_name = channel_alias if channel_alias else channel
     cbar_label = f"Value of {display_name}" + (f" [{unit_label}]" if unit_label else "")
@@ -406,7 +423,7 @@ def generate_slice_video_from_npz(
             'slice_orientation': slice_orientation, 'slice_index': slice_index,
             'frame_dir': frame_dir, 'display_name': display_name, 'plot_labels': plot_labels,
             'cbar_label': cbar_label, 'vmin': vmin, 'vmax': vmax,
-            'base_size': base_size, 'min_size': min_size,
+            'base_size': base_size, 'min_size': min_size, 'time_offset': time_offset,
         }
         
         worker_func = partial(_generate_frame_worker_from_npz, common_args=common_args)

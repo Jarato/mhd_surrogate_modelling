@@ -17,6 +17,8 @@ def main():
     parser.add_argument("--slice-orientation", type=str, required=True, choices=['xy', 'xz', 'yz'], help="The orientation of the 2D slice.")
     parser.add_argument("--slice-index", type=int, required=True, help="The integer index of the axis held constant (e.g., z-index for an xy-slice).")
     parser.add_argument("--channel", type=str, required=True, help="The channel to plot (e.g., 'vx').")
+    parser.add_argument("--time-start", type=int, default=None, help="Optional: Starting time index to include in the video (inclusive).")
+    parser.add_argument("--time-end", type=int, default=None, help="Optional: Ending time index to include in the video (exclusive).")
 
     # --- Video and Plotting Arguments ---
     parser.add_argument("--fps", type=int, default=15, help="Frames per second for the output video.")
@@ -41,6 +43,8 @@ def main():
         slice_orientation=args.slice_orientation,
         slice_index=args.slice_index,
         channel=args.channel,
+        time_start=args.time_start,
+        time_end=args.time_end,
         fps=args.fps,
         channel_alias=args.channel_alias,
         unit_label=args.unit_label,
@@ -56,7 +60,8 @@ if __name__ == "__main__":
 #### How to Use It
 
 1.  Place this script inside your `scripts` directory.
-2.  From your terminal, navigate **inside the `scripts` directory** and run a command like this:
+2.  From your terminal, navigate **inside the `scripts` directory** and run a command like this.
+    The new `--time-start` and `--time-end` flags are optional.
 
 ```bash
 python create_video_from_npz.py \
@@ -70,7 +75,9 @@ python create_video_from_npz.py \
     --fps 15 \
     --num-workers 15 \
     --vmin -3 \
-    --vmax 5
+    --vmax 5 \
+    --time-start 50 \
+    --time-end 100
 ```
 """
 
