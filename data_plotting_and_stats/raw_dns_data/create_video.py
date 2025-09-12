@@ -93,7 +93,9 @@ python create_video.py \
     --fps 5 \
     --interp-y 1024 \
     --interp-z 1024 \
-    --num-workers 15 
+    --num-workers 15 \
+    --vmin -3 \
+    --vmax 5
 ```
 """
 
