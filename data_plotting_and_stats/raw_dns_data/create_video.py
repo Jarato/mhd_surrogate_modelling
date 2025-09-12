@@ -67,21 +67,23 @@ if __name__ == "__main__":
     ```bash
     pip install imageio[ffmpeg]
     ```
-2.  Make sure you have a `scripts` directory at the root of your project and place `create_video.py` inside it.
-3.  From your terminal, at the root of your project, you can now run a command like this:
+2.  Place this script inside a `scripts` directory at the root of your project.
+3.  From your terminal, navigate **inside the `scripts` directory** and run a command like this:
 
 ```bash
-python scripts/create_video.py \\
-    --snapshot-dir /raid/skowronek/preprocessed_dns_output/01-Cold-Runs/01-Re16K_Ha325/raw/ \\
-    --output-path ./output/xz_slice_u.mp4 \\
-    --nx 2301 --ny 481 --nz 121 \\
-    --time-start 609 --time-end 617 \\
-    --slice-orientation xz \\
-    --slice-index 240 \\
-    --channel vx \\
-    --channel-alias u \\
-    --unit-label "m/s" \\
-    --fps 5
+python create_video.py \
+    --snapshot-dir /raid/skowronek/preprocessed_dns_output/01-Cold-Runs/01-Re16K_Ha325/raw/ \
+    --output-path output/xz_slice_u.mp4 \
+    --nx 2301 --ny 481 --nz 121 \
+    --time-start 609 --time-end 617 \
+    --slice-orientation xz \
+    --slice-index 240 \
+    --channel vx \
+    --channel-alias u \
+    --unit-label "m/s" \
+    --fps 5 \
+    --interp-y 1024 \
+    --interp-z 1024
 ```
 """
 
