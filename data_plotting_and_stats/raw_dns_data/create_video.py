@@ -73,7 +73,7 @@ if __name__ == "__main__":
 ```bash
 python scripts/create_video.py \\
     --snapshot-dir /raid/skowronek/preprocessed_dns_output/01-Cold-Runs/01-Re16K_Ha325/raw/ \\
-    --output-path ./xz_slice_u.mp4 \\
+    --output-path ./output/xz_slice_u.mp4 \\
     --nx 2301 --ny 481 --nz 121 \\
     --time-start 609 --time-end 617 \\
     --slice-orientation xz \\
