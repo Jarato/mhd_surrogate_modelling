@@ -71,13 +71,11 @@ python create_video_from_npz.py \
     --slice-index 2 \
     --channel vx \
     --channel-alias u \
-    --unit-label "m/s" \
-    --fps 1 \
-    --num-workers 1 \
-    --vmin -3 \
-    --vmax 5 \
-    --time-start 0 \
-    --time-end 4
+    --unit-label "" \
+    --fps 16 \
+    --num-workers 127 \
+    --vmin -5 \
+    --vmax 6
 ```
 """
 
