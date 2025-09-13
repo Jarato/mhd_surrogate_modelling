@@ -1,17 +1,9 @@
-# mhd_surrogate_core/src/mhd_surrogate_core/plotting/processed.py
-
-"""
-Functions for visualizing pre-processed data stored in .npz format.
-These functions assume a uniform grid.
-"""
-
 import logging
 from pathlib import Path
 import numpy as np
 import matplotlib.pyplot as plt
 
-# --- Helper Functions for this module ---
-
+# --- Helper to load data for visualization functions ---
 def _load_data_for_viz(data_path, timeseries_data, coords):
     """Loads data from file if not provided in memory."""
     if timeseries_data is not None and coords is not None:
@@ -32,25 +24,9 @@ def _load_data_for_viz(data_path, timeseries_data, coords):
     return timeseries_data, coords
 
 
-def _calculate_dynamic_figsize(range1, range2, base_size=8, min_size=4, title_space=1.5):
-    """Calculates figsize while maintaining aspect ratio."""
-    if range1 <= 0 or range2 <= 0:
-        return (base_size, base_size / 2 + title_space)
-    
-    aspect_ratio = range2 / range1
-    
-    if range1 > range2:
-        width = base_size
-        height = max(min_size, base_size * aspect_ratio)
-    else:
-        height = base_size
-        width = max(min_size, base_size / aspect_ratio)
-        
-    height += title_space
-    return (width, height)
-
-
-# --- Plotting Functions ---
+# ==============================================================================
+# VISUALIZATION FUNCTIONS FOR PROCESSED NPZ DATA
+# ==============================================================================
 
 def plot_z_time_evolution(
     data_path: Path | str,
@@ -63,9 +39,10 @@ def plot_z_time_evolution(
     vmin: float = None,
     vmax: float = None,
     figsize: tuple = None,
-    base_size: int = 8,
-    min_size: int = 4,
-    unit_label: str = None,
+    base_size: float = 8.0,
+    min_size: float = 3.0,
+    unit_label: str = "",
+    cmap: str = "viridis",
 ):
     """
     Plots the time evolution of a channel along the z-axis (Time-Z plot).
@@ -75,36 +52,40 @@ def plot_z_time_evolution(
 
     try:
         channel_idx = coords['labels'].index(channel)
+        display_name = channel_alias if channel_alias else channel
     except ValueError:
         logging.error(f"Channel '{channel}' not found in {coords['labels']}.")
         return
 
+    # Data is shaped (time, x, y, z, channel)
     data_slice = timeseries_data[:, x_index, y_index, :, channel_idx]
 
     if figsize is None:
-        time_range = timeseries_data.shape[0]
+        time_range = float(timeseries_data.shape[0])
         z_range = coords['z'].max() - coords['z'].min()
-        figsize = _calculate_dynamic_figsize(time_range, z_range, base_size, min_size)
-
+        if time_range > z_range:
+            fig_width = base_size
+            aspect_ratio = z_range / time_range if time_range > 0 else 1
+            fig_height = max(min_size, base_size * aspect_ratio)
+        else:
+            fig_height = base_size
+            aspect_ratio = time_range / z_range if z_range > 0 else 1
+            fig_width = max(min_size, base_size * aspect_ratio)
+        figsize = (fig_width, fig_height)
+        
     plt.style.use('seaborn-v0_8-whitegrid')
     fig, ax = plt.subplots(figsize=figsize)
 
     im = ax.pcolormesh(
-        range(data_slice.shape[0]),
-        coords['z'],
-        data_slice.T,
+        range(data_slice.shape[0]),  # Time
+        coords['z'],                 # Z-axis
+        data_slice.T,                # Transpose for correct orientation
         shading='gouraud',
-        cmap='viridis',
-        vmin=vmin,
-        vmax=vmax,
+        cmap=cmap, vmin=vmin, vmax=vmax
     )
 
-    display_name = channel_alias if channel_alias else channel
-    cbar_label = f"Value of {display_name}"
-    if unit_label:
-        cbar_label += f" [{unit_label}]"
+    cbar_label = f"Value of {display_name}" + (f" [{unit_label}]" if unit_label else "")
     fig.colorbar(im, ax=ax, label=cbar_label)
-    
     ax.set_title(
         f"Time Evolution of '{display_name}' along Z-axis\n"
         f"at x={coords['x'][x_index]:.2f} (idx={x_index}), y={coords['y'][y_index]:.2f} (idx={y_index})"
@@ -126,9 +107,10 @@ def plot_x_time_evolution(
     vmin: float = None,
     vmax: float = None,
     figsize: tuple = None,
-    base_size: int = 8,
-    min_size: int = 4,
-    unit_label: str = None,
+    base_size: float = 8.0,
+    min_size: float = 3.0,
+    unit_label: str = "",
+    cmap: str = "viridis",
 ):
     """
     Plots the time evolution of a channel along the x-axis (Time-X plot).
@@ -138,16 +120,25 @@ def plot_x_time_evolution(
 
     try:
         channel_idx = coords['labels'].index(channel)
+        display_name = channel_alias if channel_alias else channel
     except ValueError:
         logging.error(f"Channel '{channel}' not found in {coords['labels']}.")
         return
 
     data_slice = timeseries_data[:, :, y_index, z_index, channel_idx]
-
+    
     if figsize is None:
-        time_range = timeseries_data.shape[0]
+        time_range = float(timeseries_data.shape[0])
         x_range = coords['x'].max() - coords['x'].min()
-        figsize = _calculate_dynamic_figsize(time_range, x_range, base_size, min_size)
+        if time_range > x_range:
+            fig_width = base_size
+            aspect_ratio = x_range / time_range if time_range > 0 else 1
+            fig_height = max(min_size, base_size * aspect_ratio)
+        else:
+            fig_height = base_size
+            aspect_ratio = time_range / x_range if x_range > 0 else 1
+            fig_width = max(min_size, base_size * aspect_ratio)
+        figsize = (fig_width, fig_height)
 
     plt.style.use('seaborn-v0_8-whitegrid')
     fig, ax = plt.subplots(figsize=figsize)
@@ -157,17 +148,11 @@ def plot_x_time_evolution(
         coords['x'],
         data_slice.T,
         shading='gouraud',
-        cmap='viridis',
-        vmin=vmin,
-        vmax=vmax,
+        cmap=cmap, vmin=vmin, vmax=vmax
     )
     
-    display_name = channel_alias if channel_alias else channel
-    cbar_label = f"Value of {display_name}"
-    if unit_label:
-        cbar_label += f" [{unit_label}]"
+    cbar_label = f"Value of {display_name}" + (f" [{unit_label}]" if unit_label else "")
     fig.colorbar(im, ax=ax, label=cbar_label)
-
     ax.set_title(
         f"Time Evolution of '{display_name}' along X-axis\n"
         f"at y={coords['y'][y_index]:.2f} (idx={y_index}), z={coords['z'][z_index]:.2f} (idx={z_index})"
@@ -189,9 +174,10 @@ def plot_y_time_evolution(
     vmin: float = None,
     vmax: float = None,
     figsize: tuple = None,
-    base_size: int = 8,
-    min_size: int = 4,
-    unit_label: str = None,
+    base_size: float = 8.0,
+    min_size: float = 3.0,
+    unit_label: str = "",
+    cmap: str = "viridis",
 ):
     """
     Plots the time evolution of a channel along the y-axis (Time-Y plot).
@@ -201,6 +187,7 @@ def plot_y_time_evolution(
 
     try:
         channel_idx = coords['labels'].index(channel)
+        display_name = channel_alias if channel_alias else channel
     except ValueError:
         logging.error(f"Channel '{channel}' not found in {coords['labels']}.")
         return
@@ -208,9 +195,17 @@ def plot_y_time_evolution(
     data_slice = timeseries_data[:, x_index, :, z_index, channel_idx]
 
     if figsize is None:
-        time_range = timeseries_data.shape[0]
+        time_range = float(timeseries_data.shape[0])
         y_range = coords['y'].max() - coords['y'].min()
-        figsize = _calculate_dynamic_figsize(time_range, y_range, base_size, min_size)
+        if time_range > y_range:
+            fig_width = base_size
+            aspect_ratio = y_range / time_range if time_range > 0 else 1
+            fig_height = max(min_size, base_size * aspect_ratio)
+        else:
+            fig_height = base_size
+            aspect_ratio = time_range / y_range if y_range > 0 else 1
+            fig_width = max(min_size, base_size * aspect_ratio)
+        figsize = (fig_width, fig_height)
 
     plt.style.use('seaborn-v0_8-whitegrid')
     fig, ax = plt.subplots(figsize=figsize)
@@ -220,17 +215,11 @@ def plot_y_time_evolution(
         coords['y'],
         data_slice.T,
         shading='gouraud',
-        cmap='viridis',
-        vmin=vmin,
-        vmax=vmax,
+        cmap=cmap, vmin=vmin, vmax=vmax
     )
 
-    display_name = channel_alias if channel_alias else channel
-    cbar_label = f"Value of {display_name}"
-    if unit_label:
-        cbar_label += f" [{unit_label}]"
+    cbar_label = f"Value of {display_name}" + (f" [{unit_label}]" if unit_label else "")
     fig.colorbar(im, ax=ax, label=cbar_label)
-
     ax.set_title(
         f"Time Evolution of '{display_name}' along Y-axis\n"
         f"at x={coords['x'][x_index]:.2f} (idx={x_index}), z={coords['z'][z_index]:.2f} (idx={z_index})"
@@ -252,9 +241,10 @@ def plot_xz_slice(
     vmin: float = None,
     vmax: float = None,
     figsize: tuple = None,
-    base_size: int = 8,
-    min_size: int = 4,
-    unit_label: str = None,
+    base_size: float = 8.0,
+    min_size: float = 3.0,
+    unit_label: str = "",
+    cmap: str = "viridis",
 ):
     """
     Plots a 2D slice in the x-z plane.
@@ -264,6 +254,7 @@ def plot_xz_slice(
 
     try:
         channel_idx = coords['labels'].index(channel)
+        display_name = channel_alias if channel_alias else channel
     except ValueError:
         logging.error(f"Channel '{channel}' not found in {coords['labels']}.")
         return
@@ -273,7 +264,15 @@ def plot_xz_slice(
     if figsize is None:
         x_range = coords['x'].max() - coords['x'].min()
         z_range = coords['z'].max() - coords['z'].min()
-        figsize = _calculate_dynamic_figsize(x_range, z_range, base_size, min_size)
+        if x_range > z_range:
+            fig_width = base_size
+            aspect_ratio = z_range / x_range if x_range > 0 else 1
+            fig_height = max(min_size, base_size * aspect_ratio)
+        else:
+            fig_height = base_size
+            aspect_ratio = x_range / z_range if z_range > 0 else 1
+            fig_width = max(min_size, base_size * aspect_ratio)
+        figsize = (fig_width, fig_height)
 
     plt.style.use('seaborn-v0_8-whitegrid')
     fig, ax = plt.subplots(figsize=figsize)
@@ -283,17 +282,11 @@ def plot_xz_slice(
         coords['z'],
         data_slice.T,
         shading='gouraud',
-        cmap='viridis',
-        vmin=vmin,
-        vmax=vmax,
+        cmap=cmap, vmin=vmin, vmax=vmax
     )
 
-    display_name = channel_alias if channel_alias else channel
-    cbar_label = f"Value of {display_name}"
-    if unit_label:
-        cbar_label += f" [{unit_label}]"
+    cbar_label = f"Value of {display_name}" + (f" [{unit_label}]" if unit_label else "")
     fig.colorbar(im, ax=ax, label=cbar_label)
-    
     ax.set_title(
         f"X-Z Slice of '{display_name}'\n"
         f"at time index {time_index}, y={coords['y'][y_index]:.2f} (idx={y_index})"
@@ -315,9 +308,10 @@ def plot_xy_slice(
     vmin: float = None,
     vmax: float = None,
     figsize: tuple = None,
-    base_size: int = 8,
-    min_size: int = 4,
-    unit_label: str = None,
+    base_size: float = 8.0,
+    min_size: float = 3.0,
+    unit_label: str = "",
+    cmap: str = "viridis",
 ):
     """
     Plots a 2D slice in the x-y plane.
@@ -327,6 +321,7 @@ def plot_xy_slice(
 
     try:
         channel_idx = coords['labels'].index(channel)
+        display_name = channel_alias if channel_alias else channel
     except ValueError:
         logging.error(f"Channel '{channel}' not found in {coords['labels']}.")
         return
@@ -336,7 +331,15 @@ def plot_xy_slice(
     if figsize is None:
         x_range = coords['x'].max() - coords['x'].min()
         y_range = coords['y'].max() - coords['y'].min()
-        figsize = _calculate_dynamic_figsize(x_range, y_range, base_size, min_size)
+        if x_range > y_range:
+            fig_width = base_size
+            aspect_ratio = y_range / x_range if x_range > 0 else 1
+            fig_height = max(min_size, base_size * aspect_ratio)
+        else:
+            fig_height = base_size
+            aspect_ratio = x_range / y_range if y_range > 0 else 1
+            fig_width = max(min_size, base_size * aspect_ratio)
+        figsize = (fig_width, fig_height)
 
     plt.style.use('seaborn-v0_8-whitegrid')
     fig, ax = plt.subplots(figsize=figsize)
@@ -346,17 +349,11 @@ def plot_xy_slice(
         coords['y'],
         data_slice.T,
         shading='gouraud',
-        cmap='viridis',
-        vmin=vmin,
-        vmax=vmax,
+        cmap=cmap, vmin=vmin, vmax=vmax
     )
-
-    display_name = channel_alias if channel_alias else channel
-    cbar_label = f"Value of {display_name}"
-    if unit_label:
-        cbar_label += f" [{unit_label}]"
-    fig.colorbar(im, ax=ax, label=cbar_label)
     
+    cbar_label = f"Value of {display_name}" + (f" [{unit_label}]" if unit_label else "")
+    fig.colorbar(im, ax=ax, label=cbar_label)
     ax.set_title(
         f"X-Y Slice of '{display_name}'\n"
         f"at time index {time_index}, z={coords['z'][z_index]:.2f} (idx={z_index})"
@@ -378,9 +375,10 @@ def plot_yz_slice(
     vmin: float = None,
     vmax: float = None,
     figsize: tuple = None,
-    base_size: int = 8,
-    min_size: int = 4,
-    unit_label: str = None,
+    base_size: float = 8.0,
+    min_size: float = 3.0,
+    unit_label: str = "",
+    cmap: str = "viridis",
 ):
     """
     Plots a 2D slice in the y-z plane.
@@ -390,6 +388,7 @@ def plot_yz_slice(
 
     try:
         channel_idx = coords['labels'].index(channel)
+        display_name = channel_alias if channel_alias else channel
     except ValueError:
         logging.error(f"Channel '{channel}' not found in {coords['labels']}.")
         return
@@ -399,7 +398,15 @@ def plot_yz_slice(
     if figsize is None:
         y_range = coords['y'].max() - coords['y'].min()
         z_range = coords['z'].max() - coords['z'].min()
-        figsize = _calculate_dynamic_figsize(y_range, z_range, base_size, min_size)
+        if y_range > z_range:
+            fig_width = base_size
+            aspect_ratio = z_range / y_range if y_range > 0 else 1
+            fig_height = max(min_size, base_size * aspect_ratio)
+        else:
+            fig_height = base_size
+            aspect_ratio = y_range / z_range if z_range > 0 else 1
+            fig_width = max(min_size, base_size * aspect_ratio)
+        figsize = (fig_width, fig_height)
 
     plt.style.use('seaborn-v0_8-whitegrid')
     fig, ax = plt.subplots(figsize=figsize)
@@ -409,17 +416,11 @@ def plot_yz_slice(
         coords['z'],
         data_slice.T,
         shading='gouraud',
-        cmap='viridis',
-        vmin=vmin,
-        vmax=vmax,
+        cmap=cmap, vmin=vmin, vmax=vmax
     )
-
-    display_name = channel_alias if channel_alias else channel
-    cbar_label = f"Value of {display_name}"
-    if unit_label:
-        cbar_label += f" [{unit_label}]"
-    fig.colorbar(im, ax=ax, label=cbar_label)
     
+    cbar_label = f"Value of {display_name}" + (f" [{unit_label}]" if unit_label else "")
+    fig.colorbar(im, ax=ax, label=cbar_label)
     ax.set_title(
         f"Y-Z Slice of '{display_name}'\n"
         f"at time index {time_index}, x={coords['x'][x_index]:.2f} (idx={x_index})"
@@ -428,3 +429,4 @@ def plot_yz_slice(
     ax.set_ylabel("Z Coordinate")
     plt.tight_layout()
     plt.show()
+
