@@ -100,14 +100,14 @@ def plot_interpolated_xz_slice(
         figsize = (fig_width, fig_height)
 
     fig, ax = plt.subplots(figsize=figsize)
-    
+
     plot_kwargs = {'shading': 'gouraud', 'cmap': cmap}
     if vcenter is not None and vmin is not None and vmax is not None:
         plot_kwargs['norm'] = TwoSlopeNorm(vmin=vmin, vcenter=vcenter, vmax=vmax)
     else:
         plot_kwargs['vmin'] = vmin
         plot_kwargs['vmax'] = vmax
-
+        
     im = ax.pcolormesh(
         x_coords_interp,
         z_coords_interp,
@@ -192,7 +192,7 @@ def plot_interpolated_xy_slice(
     else:
         plot_kwargs['vmin'] = vmin
         plot_kwargs['vmax'] = vmax
-
+        
     im = ax.pcolormesh(
         x_coords_interp,
         y_coords_interp,
