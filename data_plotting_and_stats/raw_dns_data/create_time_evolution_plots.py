@@ -229,7 +229,7 @@ python create_time_evolution_plots.py \
     --slice-indices 240 60 \
     --channel vx \
     --channel-alias u \
-    --vmin -3.16 --vmax 4.84 \
+    --vmin -2.16 --vmax 3.84 \
     --vcenters vx:0.84 vy:0.0 vz:0.0 \
     --num-workers 64 \
     --cmap seismic
