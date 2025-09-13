@@ -30,6 +30,7 @@ NUM_WORKERS=127
 VMIN=-5
 VMAX=6
 UNIT_LABEL="" # Set to "" or "m/s", etc.
+COLOR_MAP="coolwarm" # E.g., coolwarm, bwr, seismic, plasma, viridis
 
 # Central slice indices.
 # NOTE: You must know the dimensions of your preprocessed data to set these.
@@ -85,7 +86,8 @@ for orientation in "${orientations[@]}"; do
             --fps $FPS \
             --num-workers $NUM_WORKERS \
             --vmin $VMIN \
-            --vmax $VMAX"
+            --vmax $VMAX \
+            --cmap \"$COLOR_MAP\""
 
         # Print the command to the console and then execute it
         echo "=============================================================================="
@@ -99,3 +101,4 @@ for orientation in "${orientations[@]}"; do
 done
 
 echo "All video generation tasks are complete."
+
