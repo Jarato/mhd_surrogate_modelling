@@ -210,11 +210,11 @@ python create_time_evolution_plots.py \
     --time-start 609 --time-end 737 \
     --plot-type time-x \
     --slice-indices 240 60 \
-    --channel vy \
-    --channel-alias v \
-    --vmin -5 --vmax 6 \
+    --channel vx \
+    --channel-alias u \
+    --vmin -4 --vmax 5 \
     --num-workers 64 \
-    --cmap coolwarm
+    --cmap seismic
 ```
 """
 

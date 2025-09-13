@@ -27,10 +27,10 @@ OUTPUT_DIR="output/videos/"
 # Video and color scale parameters
 FPS=16
 NUM_WORKERS=127
-VMIN=-5
-VMAX=6
+VMIN=-4
+VMAX=5
 UNIT_LABEL="" # Set to "" or "m/s", etc.
-COLOR_MAP="coolwarm" # E.g., coolwarm, bwr, seismic, plasma, viridis
+COLOR_MAP="seismic" # E.g., coolwarm, bwr, seismic, plasma, viridis
 
 # Central slice indices.
 # NOTE: You must know the dimensions of your preprocessed data to set these.

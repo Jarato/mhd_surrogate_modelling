@@ -38,10 +38,10 @@ SOURCE_CHANNELS="vx vy vz T"
 # Video and color scale parameters
 FPS=16
 NUM_WORKERS=64
-VMIN=-5
-VMAX=6
+VMIN=-4
+VMAX=5
 UNIT_LABEL="" # Set to "" or "m/s", etc.
-COLOR_MAP="coolwarm" # E.g., coolwarm, bwr, seismic, plasma, viridis
+COLOR_MAP="seismic" # E.g., coolwarm, bwr, seismic, plasma, viridis
 
 # Interpolation parameters
 INTERP_Y=1024

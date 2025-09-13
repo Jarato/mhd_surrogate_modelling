@@ -76,9 +76,9 @@ python create_video_from_npz.py \
     --unit-label "" \
     --fps 16 \
     --num-workers 64 \
-    --vmin -5 \
-    --vmax 6 \
-    --cmap coolwarm
+    --vmin -4 \
+    --vmax 5 \
+    --cmap seismic
 ```
 """
 
