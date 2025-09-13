@@ -96,7 +96,7 @@ python create_video.py \
     --interp-y 1024 \
     --interp-z 1024 \
     --num-workers 64 \
-    --vmin -4 \
+    --vmin -5 \
     --vmax 5 \
     --cmap seismic
 ```
