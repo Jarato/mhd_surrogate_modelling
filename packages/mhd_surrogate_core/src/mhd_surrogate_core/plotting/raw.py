@@ -45,6 +45,7 @@ def plot_interpolated_xz_slice(
     channel_alias: str = None,
     vmin: float = None,
     vmax: float = None,
+    vcenter: float = None,
     figsize: tuple = None,
     base_size: float = 8.0,
     min_size: float = 3.0,
@@ -81,6 +82,9 @@ def plot_interpolated_xz_slice(
     values_raw = data_slice_raw.flatten()
     data_interp = griddata(points_raw, values_raw, (X_interp, Z_interp), method='cubic')
     
+    if vcenter is not None:
+        np.nan_to_num(data_interp, copy=False, nan=vcenter)
+
     # --- Plotting ---
     if figsize is None:
         x_range = x_coords_raw.max() - x_coords_raw.min()
@@ -96,14 +100,19 @@ def plot_interpolated_xz_slice(
         figsize = (fig_width, fig_height)
 
     fig, ax = plt.subplots(figsize=figsize)
+    
+    plot_kwargs = {'shading': 'gouraud', 'cmap': cmap}
+    if vcenter is not None and vmin is not None and vmax is not None:
+        plot_kwargs['norm'] = TwoSlopeNorm(vmin=vmin, vcenter=vcenter, vmax=vmax)
+    else:
+        plot_kwargs['vmin'] = vmin
+        plot_kwargs['vmax'] = vmax
+
     im = ax.pcolormesh(
         x_coords_interp,
         z_coords_interp,
         data_interp.T,
-        shading='gouraud',
-        cmap=cmap,
-        vmin=vmin,
-        vmax=vmax,
+        **plot_kwargs
     )
 
     cbar_label = f"Value of {display_name}" + (f" [{unit_label}]" if unit_label else "")
@@ -124,6 +133,7 @@ def plot_interpolated_xy_slice(
     channel_alias: str = None,
     vmin: float = None,
     vmax: float = None,
+    vcenter: float = None,
     figsize: tuple = None,
     base_size: float = 8.0,
     min_size: float = 3.0,
@@ -157,6 +167,9 @@ def plot_interpolated_xy_slice(
     points_raw = np.array([X_raw.flatten(), Y_raw.flatten()]).T
     values_raw = data_slice_raw.flatten()
     data_interp = griddata(points_raw, values_raw, (X_interp, Y_interp), method='cubic')
+    
+    if vcenter is not None:
+        np.nan_to_num(data_interp, copy=False, nan=vcenter)
 
     if figsize is None:
         x_range = x_coords_raw.max() - x_coords_raw.min()
@@ -172,11 +185,19 @@ def plot_interpolated_xy_slice(
         figsize = (fig_width, fig_height)
 
     fig, ax = plt.subplots(figsize=figsize)
+    
+    plot_kwargs = {'shading': 'gouraud', 'cmap': cmap}
+    if vcenter is not None and vmin is not None and vmax is not None:
+        plot_kwargs['norm'] = TwoSlopeNorm(vmin=vmin, vcenter=vcenter, vmax=vmax)
+    else:
+        plot_kwargs['vmin'] = vmin
+        plot_kwargs['vmax'] = vmax
+
     im = ax.pcolormesh(
         x_coords_interp,
         y_coords_interp,
         data_interp.T,
-        shading='gouraud', cmap=cmap, vmin=vmin, vmax=vmax)
+        **plot_kwargs)
 
     cbar_label = f"Value of {display_name}" + (f" [{unit_label}]" if unit_label else "")
     fig.colorbar(im, ax=ax, label=cbar_label)
@@ -197,6 +218,7 @@ def plot_interpolated_yz_slice(
     channel_alias: str = None,
     vmin: float = None,
     vmax: float = None,
+    vcenter: float = None,
     figsize: tuple = None,
     base_size: float = 8.0,
     min_size: float = 3.0,
@@ -230,6 +252,9 @@ def plot_interpolated_yz_slice(
     points_raw = np.array([Y_raw.flatten(), Z_raw.flatten()]).T
     values_raw = data_slice_raw.flatten()
     data_interp = griddata(points_raw, values_raw, (Y_interp, Z_interp), method='cubic')
+    
+    if vcenter is not None:
+        np.nan_to_num(data_interp, copy=False, nan=vcenter)
 
     if figsize is None:
         y_range = y_coords_raw.max() - y_coords_raw.min()
@@ -245,11 +270,19 @@ def plot_interpolated_yz_slice(
         figsize = (fig_width, fig_height)
 
     fig, ax = plt.subplots(figsize=figsize)
+    
+    plot_kwargs = {'shading': 'gouraud', 'cmap': cmap}
+    if vcenter is not None and vmin is not None and vmax is not None:
+        plot_kwargs['norm'] = TwoSlopeNorm(vmin=vmin, vcenter=vcenter, vmax=vmax)
+    else:
+        plot_kwargs['vmin'] = vmin
+        plot_kwargs['vmax'] = vmax
+
     im = ax.pcolormesh(
         y_coords_interp,
         z_coords_interp,
         data_interp.T,
-        shading='gouraud', cmap=cmap, vmin=vmin, vmax=vmax)
+        **plot_kwargs)
 
     cbar_label = f"Value of {display_name}" + (f" [{unit_label}]" if unit_label else "")
     fig.colorbar(im, ax=ax, label=cbar_label)
@@ -298,6 +331,10 @@ def plot_interpolated_z_time_evolution(
     values_raw = time_evolution_data.flatten()
     data_interp = griddata(points_raw, values_raw, (T_interp, Z_interp), method='cubic')
 
+    # Handle NaNs from interpolation, which break TwoSlopeNorm
+    if vcenter is not None:
+        np.nan_to_num(data_interp, copy=False, nan=vcenter)
+
     if figsize is None:
         time_range = float(num_timesteps)
         z_range = z_coords_raw.max() - z_coords_raw.min()
@@ -310,9 +347,9 @@ def plot_interpolated_z_time_evolution(
             aspect_ratio = time_range / z_range if z_range > 0 else 1
             fig_width = max(min_size, base_size * aspect_ratio)
         figsize = (fig_width, fig_height)
-
+        
     fig, ax = plt.subplots(figsize=figsize)
-    
+
     plot_kwargs = {'shading': 'gouraud', 'cmap': cmap}
     if vcenter is not None and vmin is not None and vmax is not None:
         plot_kwargs['norm'] = TwoSlopeNorm(vmin=vmin, vcenter=vcenter, vmax=vmax)
@@ -328,7 +365,8 @@ def plot_interpolated_z_time_evolution(
     )
         
     cbar_label = f"Value of {display_name}" + (f" [{unit_label}]" if unit_label else "")
-    fig.colorbar(im, ax=ax, label=cbar_label)
+    cbar = fig.colorbar(im, ax=ax, label=cbar_label)
+
     ax.set_title(f"Time Evolution of '{display_name}' along Z-axis\nat x={raw_coords['x'][x_index]:.2f}, y={raw_coords['y'][y_index]:.2f}")
     ax.set_xlabel("Time Index")
     ax.set_ylabel("Z Coordinate")
@@ -372,6 +410,10 @@ def plot_interpolated_y_time_evolution(
     values_raw = time_evolution_data.flatten()
     data_interp = griddata(points_raw, values_raw, (T_interp, Y_interp), method='cubic')
 
+    # Handle NaNs from interpolation, which break TwoSlopeNorm
+    if vcenter is not None:
+        np.nan_to_num(data_interp, copy=False, nan=vcenter)
+
     if figsize is None:
         time_range = float(num_timesteps)
         y_range = y_coords_raw.max() - y_coords_raw.min()
@@ -402,7 +444,8 @@ def plot_interpolated_y_time_evolution(
     )
 
     cbar_label = f"Value of {display_name}" + (f" [{unit_label}]" if unit_label else "")
-    fig.colorbar(im, ax=ax, label=cbar_label)
+    cbar = fig.colorbar(im, ax=ax, label=cbar_label)
+
     ax.set_title(f"Time Evolution of '{display_name}' along Y-axis\nat x={raw_coords['x'][x_index]:.2f}, z={raw_coords['z'][z_index]:.2f}")
     ax.set_xlabel("Time Index")
     ax.set_ylabel("Y Coordinate")
@@ -465,7 +508,8 @@ def plot_interpolated_x_time_evolution(
     )
 
     cbar_label = f"Value of {display_name}" + (f" [{unit_label}]" if unit_label else "")
-    fig.colorbar(im, ax=ax, label=cbar_label)
+    cbar = fig.colorbar(im, ax=ax, label=cbar_label)
+
     ax.set_title(f"Time Evolution of '{display_name}' along X-axis\nat y={raw_coords['y'][y_index]:.2f}, z={raw_coords['z'][z_index]:.2f}")
     ax.set_xlabel("Time Index")
     ax.set_ylabel("X Coordinate")
