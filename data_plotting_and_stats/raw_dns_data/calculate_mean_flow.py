@@ -39,14 +39,12 @@ def _process_snapshot_for_mean_flow(args):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Calculate the time-averaged mean flow in the x-direction (vx) from raw DNS snapshots.",
+        description="Calculate and print a single scalar value for the time-and-space-averaged mean flow in the x-direction (vx).",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter
     )
 
     # --- I/O Arguments ---
     parser.add_argument("--snapshot-dir", type=Path, required=True, help="Directory containing the raw snapshot files.")
-    parser.add_argument("--output-npz", type=Path, required=True, help="Path to save the output .npz file with the mean profile.")
-    parser.add_argument("--output-plot", type=Path, required=True, help="Path to save the output .png plot of the mean profile.")
     parser.add_argument("--file-prefix", type=str, default="patt3d_vx3d_", help="The common prefix for the snapshot files.")
     
     # --- Data and Grid Arguments ---
@@ -63,9 +61,6 @@ def main():
     args = parser.parse_args()
     
     # --- Main Logic ---
-    args.output_npz.parent.mkdir(parents=True, exist_ok=True)
-    args.output_plot.parent.mkdir(parents=True, exist_ok=True)
-    
     time_indices = range(args.time_start, args.time_end)
     snapshot_files = [args.snapshot_dir / f"{args.file_prefix}{i:06d}" for i in time_indices]
 
@@ -94,33 +89,19 @@ def main():
     if len(all_profiles) != len(snapshot_files):
         raise RuntimeError("One or more snapshot files failed to load. Check logs.")
 
-    # Calculate the final time-averaged profile
-    logging.info("Calculating final time-averaged profile...")
-    final_mean_profile = np.mean(all_profiles, axis=0)
+    # Calculate the time-averaged profile (still a 1D array)
+    logging.info("Calculating time-averaged profile...")
+    time_averaged_profile = np.mean(all_profiles, axis=0)
 
-    # Load x-coordinates for saving
-    with open(snapshot_files[0], 'rb') as f:
-        x_coords = np.fromfile(f, dtype=np.float64, count=args.nx)
-
-    # Save the data
-    logging.info(f"Saving data to {args.output_npz}...")
-    np.savez_compressed(args.output_npz, x_coords=x_coords, mean_vx=final_mean_profile)
-
-    # Create and save the plot
-    logging.info(f"Saving plot to {args.output_plot}...")
-    plt.style.use('seaborn-v0_8-whitegrid')
-    fig, ax = plt.subplots(figsize=(12, 7))
-    ax.plot(x_coords, final_mean_profile, 'o-', label='Time-Averaged Mean Flow')
-    ax.set_title(f'Mean X-Velocity Profile (Averaged over Time {args.time_start}-{args.time_end-1})')
-    ax.set_xlabel('X Coordinate')
-    ax.set_ylabel('Mean Velocity (u)')
-    ax.grid(True, which='both', linestyle='--')
-    ax.legend()
-    plt.tight_layout()
-    plt.savefig(args.output_plot, dpi=300)
-    plt.close(fig)
+    # Calculate the final, single scalar value by averaging over the x-axis
+    overall_mean_flow = np.mean(time_averaged_profile)
 
     logging.info("Mean flow calculation complete.")
+    
+    # Print the final result to the console
+    print("\n--------------------------------------------------")
+    print(f"Overall Mean Flow (vx): {overall_mean_flow}")
+    print("--------------------------------------------------")
 
 
 if __name__ == "__main__":
@@ -135,8 +116,6 @@ if __name__ == "__main__":
 ```bash
 python calculate_mean_flow.py \
     --snapshot-dir /raid/skowronek/preprocessed_dns_output/01-Cold_Runs/01-Re16K_Ha325/raw/ \
-    --output-npz output/mean_flow/mean_flow_profile.npz \
-    --output-plot output/mean_flow/mean_flow_profile.png \
     --nx 2301 --ny 481 --nz 121 \
     --time-start 609 --time-end 737 \
     --num-workers 64
