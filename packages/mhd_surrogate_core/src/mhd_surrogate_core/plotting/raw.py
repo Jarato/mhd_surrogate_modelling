@@ -328,7 +328,16 @@ def plot_interpolated_z_time_evolution(
     )
         
     cbar_label = f"Value of {display_name}" + (f" [{unit_label}]" if unit_label else "")
-    fig.colorbar(im, ax=ax, label=cbar_label)
+    cbar = fig.colorbar(im, ax=ax, label=cbar_label)
+    
+    # Add a tick for the center value if provided
+    if vcenter is not None:
+        ticks = list(cbar.get_ticks())
+        if vcenter not in ticks:
+            ticks.append(vcenter)
+        ticks.sort()
+        cbar.set_ticks(ticks)
+
     ax.set_title(f"Time Evolution of '{display_name}' along Z-axis\nat x={raw_coords['x'][x_index]:.2f}, y={raw_coords['y'][y_index]:.2f}")
     ax.set_xlabel("Time Index")
     ax.set_ylabel("Z Coordinate")
@@ -402,7 +411,16 @@ def plot_interpolated_y_time_evolution(
     )
 
     cbar_label = f"Value of {display_name}" + (f" [{unit_label}]" if unit_label else "")
-    fig.colorbar(im, ax=ax, label=cbar_label)
+    cbar = fig.colorbar(im, ax=ax, label=cbar_label)
+
+    # Add a tick for the center value if provided
+    if vcenter is not None:
+        ticks = list(cbar.get_ticks())
+        if vcenter not in ticks:
+            ticks.append(vcenter)
+        ticks.sort()
+        cbar.set_ticks(ticks)
+
     ax.set_title(f"Time Evolution of '{display_name}' along Y-axis\nat x={raw_coords['x'][x_index]:.2f}, z={raw_coords['z'][z_index]:.2f}")
     ax.set_xlabel("Time Index")
     ax.set_ylabel("Y Coordinate")
@@ -465,11 +483,21 @@ def plot_interpolated_x_time_evolution(
     )
 
     cbar_label = f"Value of {display_name}" + (f" [{unit_label}]" if unit_label else "")
-    fig.colorbar(im, ax=ax, label=cbar_label)
+    cbar = fig.colorbar(im, ax=ax, label=cbar_label)
+
+    # Add a tick for the center value if provided
+    if vcenter is not None:
+        ticks = list(cbar.get_ticks())
+        if vcenter not in ticks:
+            ticks.append(vcenter)
+        ticks.sort()
+        cbar.set_ticks(ticks)
+
     ax.set_title(f"Time Evolution of '{display_name}' along X-axis\nat y={raw_coords['y'][y_index]:.2f}, z={raw_coords['z'][z_index]:.2f}")
     ax.set_xlabel("Time Index")
     ax.set_ylabel("X Coordinate")
     plt.tight_layout()
     plt.savefig(output_path, dpi=150)
     plt.close(fig)
+
 
