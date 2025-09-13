@@ -259,11 +259,12 @@ def plot_interpolated_yz_slice(
 # --- Time Evolution Plotting (for 4D data) ---
 
 def plot_interpolated_z_time_evolution(
-    timeseries_data: np.ndarray,
+    time_evolution_data: np.ndarray,
     raw_coords: dict,
     channel: str,
     x_index: int,
     y_index: int,
+    output_path: Path,
     num_interp_points_z: int = 256,
     channel_alias: str = None,
     vmin: float = None,
@@ -274,21 +275,10 @@ def plot_interpolated_z_time_evolution(
     unit_label: str = "",
 ):
     """
-    Extracts a time-z slice from raw 4D data, interpolates it, and plots it.
+    Takes a 2D (time, z) data array, interpolates it, and saves a plot.
     """
-    if timeseries_data is None or not raw_coords:
-        logging.warning("Timeseries data or coordinates not available. Skipping plot.")
-        return
-
-    try:
-        channel_idx = raw_coords['labels'].index(channel)
-        display_name = channel_alias if channel_alias else channel
-    except ValueError:
-        logging.error(f"Channel '{channel}' not found in labels: {raw_coords['labels']}")
-        return
-        
-    data_slice_raw = timeseries_data[:, x_index, y_index, :, channel_idx]
-    num_timesteps = timeseries_data.shape[0]
+    display_name = channel_alias if channel_alias else channel
+    num_timesteps = time_evolution_data.shape[0]
     time_coords_raw = np.arange(num_timesteps)
     z_coords_raw = raw_coords['z']
 
@@ -299,7 +289,7 @@ def plot_interpolated_z_time_evolution(
     T_interp, Z_interp = np.meshgrid(time_coords_interp, z_coords_interp, indexing='ij')
     
     points_raw = np.array([T_raw.flatten(), Z_raw.flatten()]).T
-    values_raw = data_slice_raw.flatten()
+    values_raw = time_evolution_data.flatten()
     data_interp = griddata(points_raw, values_raw, (T_interp, Z_interp), method='cubic')
 
     if figsize is None:
@@ -328,14 +318,16 @@ def plot_interpolated_z_time_evolution(
     ax.set_xlabel("Time Index")
     ax.set_ylabel("Z Coordinate")
     plt.tight_layout()
-    plt.show()
+    plt.savefig(output_path, dpi=150)
+    plt.close(fig)
 
 def plot_interpolated_y_time_evolution(
-    timeseries_data: np.ndarray,
+    time_evolution_data: np.ndarray,
     raw_coords: dict,
     channel: str,
     x_index: int,
     z_index: int,
+    output_path: Path,
     num_interp_points_y: int = 256,
     channel_alias: str = None,
     vmin: float = None,
@@ -346,21 +338,10 @@ def plot_interpolated_y_time_evolution(
     unit_label: str = "",
 ):
     """
-    Extracts a time-y slice from raw 4D data, interpolates it, and plots it.
+    Takes a 2D (time, y) data array, interpolates it, and saves a plot.
     """
-    if timeseries_data is None or not raw_coords:
-        logging.warning("Timeseries data or coordinates not available. Skipping plot.")
-        return
-
-    try:
-        channel_idx = raw_coords['labels'].index(channel)
-        display_name = channel_alias if channel_alias else channel
-    except ValueError:
-        logging.error(f"Channel '{channel}' not found in labels: {raw_coords['labels']}")
-        return
-
-    data_slice_raw = timeseries_data[:, x_index, :, z_index, channel_idx]
-    num_timesteps = timeseries_data.shape[0]
+    display_name = channel_alias if channel_alias else channel
+    num_timesteps = time_evolution_data.shape[0]
     time_coords_raw = np.arange(num_timesteps)
     y_coords_raw = raw_coords['y']
 
@@ -371,7 +352,7 @@ def plot_interpolated_y_time_evolution(
     T_interp, Y_interp = np.meshgrid(time_coords_interp, y_coords_interp, indexing='ij')
 
     points_raw = np.array([T_raw.flatten(), Y_raw.flatten()]).T
-    values_raw = data_slice_raw.flatten()
+    values_raw = time_evolution_data.flatten()
     data_interp = griddata(points_raw, values_raw, (T_interp, Y_interp), method='cubic')
 
     if figsize is None:
@@ -400,14 +381,16 @@ def plot_interpolated_y_time_evolution(
     ax.set_xlabel("Time Index")
     ax.set_ylabel("Y Coordinate")
     plt.tight_layout()
-    plt.show()
+    plt.savefig(output_path, dpi=150)
+    plt.close(fig)
 
 def plot_interpolated_x_time_evolution(
-    timeseries_data: np.ndarray,
+    time_evolution_data: np.ndarray,
     raw_coords: dict,
     channel: str,
     y_index: int,
     z_index: int,
+    output_path: Path,
     channel_alias: str = None,
     vmin: float = None,
     vmax: float = None,
@@ -417,22 +400,10 @@ def plot_interpolated_x_time_evolution(
     unit_label: str = "",
 ):
     """
-    Extracts a time-x slice from raw 4D data and plots it. No interpolation
-    is needed as the x-axis is uniform.
+    Takes a 2D (time, x) data array and saves a plot. No interpolation needed.
     """
-    if timeseries_data is None or not raw_coords:
-        logging.warning("Timeseries data or coordinates not available. Skipping plot.")
-        return
-
-    try:
-        channel_idx = raw_coords['labels'].index(channel)
-        display_name = channel_alias if channel_alias else channel
-    except ValueError:
-        logging.error(f"Channel '{channel}' not found in labels: {raw_coords['labels']}")
-        return
-
-    data_slice = timeseries_data[:, :, y_index, z_index, channel_idx]
-    num_timesteps = timeseries_data.shape[0]
+    display_name = channel_alias if channel_alias else channel
+    num_timesteps = time_evolution_data.shape[0]
     time_coords = np.arange(num_timesteps)
     x_coords = raw_coords['x']
 
@@ -453,7 +424,7 @@ def plot_interpolated_x_time_evolution(
     im = ax.pcolormesh(
         time_coords,
         x_coords,
-        data_slice.T,
+        time_evolution_data.T,
         shading='gouraud', cmap='viridis', vmin=vmin, vmax=vmax)
 
     cbar_label = f"Value of {display_name}" + (f" [{unit_label}]" if unit_label else "")
@@ -462,5 +433,6 @@ def plot_interpolated_x_time_evolution(
     ax.set_xlabel("Time Index")
     ax.set_ylabel("X Coordinate")
     plt.tight_layout()
-    plt.show()
+    plt.savefig(output_path, dpi=150)
+    plt.close(fig)
 
