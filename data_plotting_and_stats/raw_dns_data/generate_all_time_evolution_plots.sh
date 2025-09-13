@@ -98,9 +98,9 @@ for plot_type in "${plot_types[@]}"; do
             --interp-y $INTERP_Y \
             --interp-z $INTERP_Z \
             --num-workers $NUM_WORKERS \
-            --vmins \"$VMINS\" \
-            --vmaxs \"$VMAXS\" \
-            --vcenters \"$VCENTERS\" \
+            --vmins $VMINS \
+            --vmaxs $VMAXS \
+            --vcenters $VCENTERS \
             --cmap \"$COLOR_MAP\""
 
         # Print the command to the console and then execute it
