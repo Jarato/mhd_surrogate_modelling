@@ -66,7 +66,7 @@ if __name__ == "__main__":
 ```bash
 python create_video_from_npz.py \
     --input-npz /raid/skowronek/preprocessed_dns_output/01-Cold_Runs/01-Re16K_Ha325/T1220_x1151_y5_z127_c3/T1220_x1151_y5_z127_c3.npz \
-    --output-path output/preprocessed_xz_slice_u.mp4 \
+    --output-path output/videos/preprocessed_xz_slice_u.mp4 \
     --slice-orientation xz \
     --slice-index 2 \
     --channel vx \

@@ -24,7 +24,7 @@ SNAPSHOT_DIR="/raid/skowronek/preprocessed_dns_output/01-Cold_Runs/01-Re16K_Ha32
 FILE_PREFIX="patt3d_vx3d_"
 
 # Directory to save the output videos
-OUTPUT_DIR="output"
+OUTPUT_DIR="output/videos/"
 
 # Grid and Time parameters
 NX=2301

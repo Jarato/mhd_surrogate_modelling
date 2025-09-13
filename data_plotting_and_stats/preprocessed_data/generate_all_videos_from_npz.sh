@@ -22,7 +22,7 @@
 INPUT_NPZ="/raid/skowronek/preprocessed_dns_output/01-Cold_Runs/01-Re16K_Ha325/T1220_x1151_y5_z127_c3/T1220_x1151_y5_z127_c3.npz"
 
 # Directory to save the output videos
-OUTPUT_DIR="output"
+OUTPUT_DIR="output/videos/"
 
 # Video and color scale parameters
 FPS=16
