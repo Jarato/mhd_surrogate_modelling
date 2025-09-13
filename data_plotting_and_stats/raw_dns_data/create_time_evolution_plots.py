@@ -3,6 +3,7 @@ from pathlib import Path
 import numpy as np
 from tqdm import tqdm
 import logging
+import multiprocessing
 from mhd_surrogate_core.plotting import (
     plot_interpolated_z_time_evolution,
     plot_interpolated_y_time_evolution,
@@ -14,6 +15,40 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(levelname)s - %(message)s",
 )
+
+def _load_line_worker(args):
+    """
+    Worker function to load one snapshot and extract one line of data.
+    This is designed to be called by a multiprocessing pool.
+    """
+    f_path, nx, ny, nz, num_channels, channel_idx, plot_type, slice_indices = args
+    try:
+        input_dtype = np.float64
+        with open(f_path, 'rb') as f:
+            # Seek past the coordinate data to the beginning of the channel data
+            f.seek((nx + ny + nz) * np.dtype(input_dtype).itemsize)
+            channel_data_1d = np.fromfile(f, dtype=input_dtype)
+        
+        data_4d_physical = channel_data_1d.reshape((nz, num_channels, ny, nx))
+        snapshot_3d = data_4d_physical.transpose(3, 2, 0, 1) # -> (x, y, z, chan)
+
+        if plot_type == 'time-z':
+            x_idx, y_idx = slice_indices
+            line_1d = snapshot_3d[x_idx, y_idx, :, channel_idx]
+        elif plot_type == 'time-y':
+            x_idx, z_idx = slice_indices
+            line_1d = snapshot_3d[x_idx, :, z_idx, channel_idx]
+        elif plot_type == 'time-x':
+            y_idx, z_idx = slice_indices
+            line_1d = snapshot_3d[:, y_idx, z_idx, channel_idx]
+        else:
+            return None # Should not happen with arg validation
+            
+        return line_1d
+    except Exception as e:
+        logging.error(f"Worker failed on file {f_path.name}: {e}")
+        return None
+
 
 def main():
     parser = argparse.ArgumentParser(
@@ -46,6 +81,9 @@ def main():
     parser.add_argument("--vmax", type=float, default=None, help="Override for the maximum value of the color scale.")
     parser.add_argument("--interp-y", type=int, default=1024, help="Number of interpolation points for the y-axis.")
     parser.add_argument("--interp-z", type=int, default=1024, help="Number of interpolation points for the z-axis.")
+    
+    # --- Parallelization ---
+    parser.add_argument("--num-workers", type=int, default=1, help="Number of parallel worker processes for data extraction. Set to -1 to use all available CPU cores.")
 
     args = parser.parse_args()
     
@@ -74,27 +112,20 @@ def main():
         logging.error(f"Channel '{args.channel}' not found in source labels. Aborting.")
         return
 
-    # Memory-efficient data extraction
-    logging.info(f"Extracting 1D data lines for plot type '{args.plot_type}'...")
+    # Parallel data extraction
+    workers = args.num_workers if args.num_workers != -1 else multiprocessing.cpu_count()
+    logging.info(f"Extracting 1D data lines in parallel using {workers} workers...")
+    
+    tasks = [(f, args.nx, args.ny, args.nz, len(args.source_channels), channel_idx, args.plot_type, args.slice_indices) for f in snapshot_files]
+    
     all_lines = []
-    for f_path in tqdm(snapshot_files, desc="Processing snapshots"):
-        with open(f_path, 'rb') as f:
-            f.seek((args.nx + args.ny + args.nz) * np.dtype(input_dtype).itemsize)
-            channel_data_1d = np.fromfile(f, dtype=input_dtype)
-        
-        data_4d_physical = channel_data_1d.reshape((args.nz, len(args.source_channels), args.ny, args.nx))
-        snapshot_3d = data_4d_physical.transpose(3, 2, 0, 1) # -> (x, y, z, chan)
+    with multiprocessing.Pool(processes=workers) as pool:
+        results = list(tqdm(pool.imap(_load_line_worker, tasks), total=len(tasks), desc="Processing snapshots"))
 
-        if args.plot_type == 'time-z':
-            x_idx, y_idx = args.slice_indices
-            line_1d = snapshot_3d[x_idx, y_idx, :, channel_idx]
-        elif args.plot_type == 'time-y':
-            x_idx, z_idx = args.slice_indices
-            line_1d = snapshot_3d[x_idx, :, z_idx, channel_idx]
-        elif args.plot_type == 'time-x':
-            y_idx, z_idx = args.slice_indices
-            line_1d = snapshot_3d[:, y_idx, z_idx, channel_idx]
-        all_lines.append(line_1d)
+    all_lines = [res for res in results if res is not None]
+
+    if len(all_lines) != len(snapshot_files):
+        raise RuntimeError("One or more snapshot files failed to load. Check logs.")
 
     time_evolution_data = np.stack(all_lines, axis=0).astype(np.float32)
 
@@ -148,7 +179,7 @@ if __name__ == "__main__":
 
 1.  Place this script inside your `scripts` directory.
 2.  From your terminal, navigate **inside the `scripts` directory** and run a command.
-    Note that `--slice-indices` expects two values corresponding to the axes that are held constant.
+    The new `--num-workers` flag controls the parallelization.
 
 **Example for a Time-Z plot:**
 (Hold X and Y constant, plot Time vs. Z)
@@ -163,7 +194,8 @@ python create_time_evolution_plots.py \
     --slice-indices 1150 240 \
     --channel vx \
     --channel-alias u \
-    --vmin -5 --vmax 6
+    --vmin -5 --vmax 6 \
+    --num-workers 16
 ```
 
 **Example for a Time-X plot:**
@@ -179,7 +211,8 @@ python create_time_evolution_plots.py \
     --slice-indices 240 60 \
     --channel vy \
     --channel-alias v \
-    --vmin -5 --vmax 6
+    --vmin -5 --vmax 6 \
+    --num-workers 64
 ```
 """
 
