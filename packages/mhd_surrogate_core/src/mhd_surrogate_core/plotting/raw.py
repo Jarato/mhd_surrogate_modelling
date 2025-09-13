@@ -2,6 +2,7 @@ import logging
 from pathlib import Path
 import numpy as np
 import matplotlib.pyplot as plt
+from matplotlib.colors import TwoSlopeNorm
 from scipy.interpolate import griddata
 
 # --- Helper to load a single raw snapshot ---
@@ -272,6 +273,7 @@ def plot_interpolated_z_time_evolution(
     channel_alias: str = None,
     vmin: float = None,
     vmax: float = None,
+    vcenter: float = None,
     figsize: tuple = None,
     base_size: float = 8.0,
     min_size: float = 3.0,
@@ -310,11 +312,20 @@ def plot_interpolated_z_time_evolution(
         figsize = (fig_width, fig_height)
 
     fig, ax = plt.subplots(figsize=figsize)
+    
+    plot_kwargs = {'shading': 'gouraud', 'cmap': cmap}
+    if vcenter is not None and vmin is not None and vmax is not None:
+        plot_kwargs['norm'] = TwoSlopeNorm(vmin=vmin, vcenter=vcenter, vmax=vmax)
+    else:
+        plot_kwargs['vmin'] = vmin
+        plot_kwargs['vmax'] = vmax
+
     im = ax.pcolormesh(
         time_coords_interp,
         z_coords_interp,
         data_interp.T,
-        shading='gouraud', cmap=cmap, vmin=vmin, vmax=vmax)
+        **plot_kwargs
+    )
         
     cbar_label = f"Value of {display_name}" + (f" [{unit_label}]" if unit_label else "")
     fig.colorbar(im, ax=ax, label=cbar_label)
@@ -336,6 +347,7 @@ def plot_interpolated_y_time_evolution(
     channel_alias: str = None,
     vmin: float = None,
     vmax: float = None,
+    vcenter: float = None,
     figsize: tuple = None,
     base_size: float = 8.0,
     min_size: float = 3.0,
@@ -374,11 +386,20 @@ def plot_interpolated_y_time_evolution(
         figsize = (fig_width, fig_height)
         
     fig, ax = plt.subplots(figsize=figsize)
+
+    plot_kwargs = {'shading': 'gouraud', 'cmap': cmap}
+    if vcenter is not None and vmin is not None and vmax is not None:
+        plot_kwargs['norm'] = TwoSlopeNorm(vmin=vmin, vcenter=vcenter, vmax=vmax)
+    else:
+        plot_kwargs['vmin'] = vmin
+        plot_kwargs['vmax'] = vmax
+
     im = ax.pcolormesh(
         time_coords_interp,
         y_coords_interp,
         data_interp.T,
-        shading='gouraud', cmap=cmap, vmin=vmin, vmax=vmax)
+        **plot_kwargs
+    )
 
     cbar_label = f"Value of {display_name}" + (f" [{unit_label}]" if unit_label else "")
     fig.colorbar(im, ax=ax, label=cbar_label)
@@ -399,6 +420,7 @@ def plot_interpolated_x_time_evolution(
     channel_alias: str = None,
     vmin: float = None,
     vmax: float = None,
+    vcenter: float = None,
     figsize: tuple = None,
     base_size: float = 8.0,
     min_size: float = 3.0,
@@ -427,11 +449,20 @@ def plot_interpolated_x_time_evolution(
         figsize = (fig_width, fig_height)
 
     fig, ax = plt.subplots(figsize=figsize)
+    
+    plot_kwargs = {'shading': 'gouraud', 'cmap': cmap}
+    if vcenter is not None and vmin is not None and vmax is not None:
+        plot_kwargs['norm'] = TwoSlopeNorm(vmin=vmin, vcenter=vcenter, vmax=vmax)
+    else:
+        plot_kwargs['vmin'] = vmin
+        plot_kwargs['vmax'] = vmax
+
     im = ax.pcolormesh(
         time_coords,
         x_coords,
         time_evolution_data.T,
-        shading='gouraud', cmap=cmap, vmin=vmin, vmax=vmax)
+        **plot_kwargs
+    )
 
     cbar_label = f"Value of {display_name}" + (f" [{unit_label}]" if unit_label else "")
     fig.colorbar(im, ax=ax, label=cbar_label)
