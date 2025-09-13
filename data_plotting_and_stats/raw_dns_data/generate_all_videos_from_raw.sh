@@ -41,6 +41,7 @@ NUM_WORKERS=64
 VMIN=-5
 VMAX=6
 UNIT_LABEL="" # Set to "" or "m/s", etc.
+COLOR_MAP="coolwarm" # E.g., coolwarm, bwr, seismic, plasma, viridis
 
 # Interpolation parameters
 INTERP_Y=1024
@@ -101,7 +102,8 @@ for orientation in "${orientations[@]}"; do
             --interp-z $INTERP_Z \
             --num-workers $NUM_WORKERS \
             --vmin $VMIN \
-            --vmax $VMAX"
+            --vmax $VMAX \
+            --cmap \"$COLOR_MAP\""
 
         # Print the command to the console and then execute it
         echo "=============================================================================="
@@ -115,3 +117,4 @@ for orientation in "${orientations[@]}"; do
 done
 
 echo "All video generation tasks are complete."
+

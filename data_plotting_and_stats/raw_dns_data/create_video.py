@@ -35,6 +35,7 @@ def main():
     parser.add_argument("--unit-label", type=str, default="", help="Unit label to display on the color bar (e.g., 'm/s').")
     parser.add_argument("--vmin", type=float, default=None, help="Override for the minimum value of the color scale.")
     parser.add_argument("--vmax", type=float, default=None, help="Override for the maximum value of the color scale.")
+    parser.add_argument("--cmap", type=str, default="viridis", help="The colormap to use for the plot (e.g., coolwarm, plasma).")
     
     # --- Parallelization Argument ---
     parser.add_argument("--num-workers", type=int, default=1, help="Number of parallel worker processes for frame generation. Set to -1 to use all available CPU cores.")
@@ -64,6 +65,7 @@ def main():
         vmin_override=args.vmin,
         vmax_override=args.vmax,
         num_workers=num_workers,
+        cmap=args.cmap,
     )
 
 if __name__ == "__main__":
@@ -95,7 +97,8 @@ python create_video.py \
     --interp-z 1024 \
     --num-workers 64 \
     --vmin -5 \
-    --vmax 6
+    --vmax 6 \
+    --cmap coolwarm
 ```
 """
 

@@ -26,7 +26,7 @@ def _get_slice_data(
     num_channels: int, channel_idx: int,
     slice_orientation: str, slice_index: int
 ) -> tuple[np.ndarray, dict]:
-    """Loads a single snapshot and extracts the required 2D data slice and full coordinates."""
+    """Loads a single snapshot and extracts the required 2D data slice and coordinates."""
     input_dtype = np.float64
     with open(snapshot_file, 'rb') as f:
         coords = {
@@ -41,14 +41,17 @@ def _get_slice_data(
 
     if slice_orientation == 'xz':
         data_slice = snapshot_3d[:, slice_index, :, channel_idx]
+        slice_coords = {'x': coords['x'], 'y': coords['z']} # y-axis of plot is z-data
     elif slice_orientation == 'xy':
         data_slice = snapshot_3d[:, :, slice_index, channel_idx]
+        slice_coords = {'x': coords['x'], 'y': coords['y']}
     elif slice_orientation == 'yz':
         data_slice = snapshot_3d[slice_index, :, :, channel_idx]
+        slice_coords = {'x': coords['y'], 'y': coords['z']} # x-axis of plot is y-data
     else:
         raise ValueError(f"Invalid slice orientation: {slice_orientation}")
 
-    return data_slice.astype(np.float32), coords
+    return data_slice.astype(np.float32), slice_coords
 
 
 def _create_frame_from_raw(
@@ -64,6 +67,7 @@ def _create_frame_from_raw(
     vmax: float,
     base_size: float,
     min_size: float,
+    cmap: str = "viridis",
 ):
     """Interpolates a 2D slice and plots it to a file."""
     # Interpolate data
@@ -106,7 +110,7 @@ def _create_frame_from_raw(
     # Plotting
     fig, ax = plt.subplots(figsize=figsize)
     im = ax.pcolormesh(x_coords_interp, y_coords_interp, data_interp.T,
-                       shading='gouraud', cmap='viridis', vmin=vmin, vmax=vmax)
+                       shading='gouraud', cmap=cmap, vmin=vmin, vmax=vmax)
     
     fig.colorbar(im, ax=ax, label=cbar_label)
     ax.set_title(title)
@@ -123,7 +127,7 @@ def _generate_frame_worker_from_raw(args_tuple, common_args):
     """A wrapper function for multiprocessing to generate a single frame from raw data."""
     i, f_path, time_val = args_tuple
     
-    data_slice, raw_coords = _get_slice_data(
+    data_slice, slice_coords = _get_slice_data(
         snapshot_file=f_path,
         nx=common_args['nx'], ny=common_args['ny'], nz=common_args['nz'],
         num_channels=len(common_args['source_channel_labels']),
@@ -134,37 +138,19 @@ def _generate_frame_worker_from_raw(args_tuple, common_args):
     
     frame_path = common_args['frame_dir'] / f"frame_{i:04d}.png"
     display_name = common_args['display_name']
-    slice_orientation = common_args['slice_orientation']
-    slice_index = common_args['slice_index']
-
-    # Construct detailed title
-    title_suffix = ""
-    if slice_orientation == 'xz':
-        coord_val = raw_coords['y'][slice_index]
-        title_suffix = f"at y={coord_val:.2f} (idx={slice_index})"
-        plot_coords = {'x': raw_coords['x'], 'y': raw_coords['z']}
-    elif slice_orientation == 'xy':
-        coord_val = raw_coords['z'][slice_index]
-        title_suffix = f"at z={coord_val:.2f} (idx={slice_index})"
-        plot_coords = {'x': raw_coords['x'], 'y': raw_coords['y']}
-    elif slice_orientation == 'yz':
-        coord_val = raw_coords['x'][slice_index]
-        title_suffix = f"at x={coord_val:.2f} (idx={slice_index})"
-        plot_coords = {'x': raw_coords['y'], 'y': raw_coords['z']}
-    
-    title = f"Slice of '{display_name}' at Time Index {time_val}\n{title_suffix}"
 
     _create_frame_from_raw(
         frame_path=frame_path,
         data_slice_raw=data_slice,
-        slice_coords=plot_coords,
+        slice_coords=slice_coords,
         interp_points=common_args['plot_labels']['interp'],
-        title=title,
+        title=f"Slice of '{display_name}' at Time Index {time_val}",
         xlabel=common_args['plot_labels']['xlabel'],
         ylabel=common_args['plot_labels']['ylabel'],
         cbar_label=common_args['cbar_label'],
         vmin=common_args['vmin'], vmax=common_args['vmax'],
         base_size=common_args['base_size'], min_size=common_args['min_size'],
+        cmap=common_args['cmap'],
     )
     return frame_path
 
@@ -189,6 +175,7 @@ def generate_slice_video(
     vmin_override: float = None,
     vmax_override: float = None,
     num_workers: int = 1,
+    cmap: str = "viridis",
 ):
     """
     Generates a 2D video of a slice evolving over time from raw snapshot files.
@@ -239,7 +226,7 @@ def generate_slice_video(
             'channel_idx': channel_idx, 'slice_orientation': slice_orientation,
             'slice_index': slice_index, 'frame_dir': frame_dir, 'display_name': display_name,
             'plot_labels': plot_labels, 'cbar_label': cbar_label, 'vmin': vmin, 'vmax': vmax,
-            'base_size': base_size, 'min_size': min_size,
+            'base_size': base_size, 'min_size': min_size, 'cmap': cmap,
         }
         
         tasks = [(i, f_path, time_val) for i, (f_path, time_val) in enumerate(zip(snapshot_files, time_indices))]
@@ -287,6 +274,7 @@ def _create_frame_from_npz(
     vmax: float,
     base_size: float,
     min_size: float,
+    cmap: str = "viridis",
 ):
     """Plots a 2D slice from npz data to a file (no interpolation needed)."""
     x_coords = coords['x']
@@ -316,7 +304,7 @@ def _create_frame_from_npz(
 
     fig, ax = plt.subplots(figsize=figsize)
     im = ax.pcolormesh(x_coords, y_coords, data_slice.T,
-                       shading='gouraud', cmap='viridis', vmin=vmin, vmax=vmax)
+                       shading='gouraud', cmap=cmap, vmin=vmin, vmax=vmax)
     
     fig.colorbar(im, ax=ax, label=cbar_label)
     ax.set_title(title)
@@ -374,6 +362,7 @@ def _generate_frame_worker_from_npz(relative_time_index, common_args):
         cbar_label=common_args['cbar_label'],
         vmin=common_args['vmin'], vmax=common_args['vmax'],
         base_size=common_args['base_size'], min_size=common_args['min_size'],
+        cmap=common_args['cmap'],
     )
     return frame_path
 
@@ -394,6 +383,7 @@ def generate_slice_video_from_npz(
     vmin_override: float = None,
     vmax_override: float = None,
     num_workers: int = 1,
+    cmap: str = "viridis",
 ):
     """
     Generates a 2D video of a slice evolving over time from a preprocessed .npz file.
@@ -460,6 +450,7 @@ def generate_slice_video_from_npz(
             'frame_dir': frame_dir, 'display_name': display_name, 'plot_labels': plot_labels,
             'cbar_label': cbar_label, 'vmin': vmin, 'vmax': vmax,
             'base_size': base_size, 'min_size': min_size, 'time_offset': time_offset,
+            'cmap': cmap,
         }
         
         worker_func = partial(_generate_frame_worker_from_npz, common_args=common_args)
