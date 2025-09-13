@@ -3,6 +3,7 @@ import tempfile
 from pathlib import Path
 import numpy as np
 import matplotlib.pyplot as plt
+from matplotlib.colors import TwoSlopeNorm
 from scipy.interpolate import griddata
 from tqdm import tqdm
 import imageio.v2 as imageio
@@ -26,7 +27,7 @@ def _get_slice_data(
     num_channels: int, channel_idx: int,
     slice_orientation: str, slice_index: int
 ) -> tuple[np.ndarray, dict]:
-    """Loads a single snapshot and extracts the required 2D data slice and coordinates."""
+    """Loads a single snapshot and extracts the required 2D data slice and full coordinates."""
     input_dtype = np.float64
     with open(snapshot_file, 'rb') as f:
         coords = {
@@ -41,17 +42,14 @@ def _get_slice_data(
 
     if slice_orientation == 'xz':
         data_slice = snapshot_3d[:, slice_index, :, channel_idx]
-        slice_coords = {'x': coords['x'], 'y': coords['z']} # y-axis of plot is z-data
     elif slice_orientation == 'xy':
         data_slice = snapshot_3d[:, :, slice_index, channel_idx]
-        slice_coords = {'x': coords['x'], 'y': coords['y']}
     elif slice_orientation == 'yz':
         data_slice = snapshot_3d[slice_index, :, :, channel_idx]
-        slice_coords = {'x': coords['y'], 'y': coords['z']} # x-axis of plot is y-data
     else:
         raise ValueError(f"Invalid slice orientation: {slice_orientation}")
 
-    return data_slice.astype(np.float32), slice_coords
+    return data_slice.astype(np.float32), coords
 
 
 def _create_frame_from_raw(
@@ -65,6 +63,7 @@ def _create_frame_from_raw(
     cbar_label: str,
     vmin: float,
     vmax: float,
+    vcenter: float,
     base_size: float,
     min_size: float,
     cmap: str = "viridis",
@@ -82,6 +81,9 @@ def _create_frame_from_raw(
     points_raw = np.array([X_raw.flatten(), Y_raw.flatten()]).T
     values_raw = data_slice_raw.flatten()
     data_interp = griddata(points_raw, values_raw, (X_interp, Y_interp), method='cubic')
+    
+    if vcenter is not None:
+        np.nan_to_num(data_interp, copy=False, nan=vcenter)
 
     # Determine figure size
     dpi = 150 # Standard DPI for saving frames
@@ -109,8 +111,15 @@ def _create_frame_from_raw(
 
     # Plotting
     fig, ax = plt.subplots(figsize=figsize)
-    im = ax.pcolormesh(x_coords_interp, y_coords_interp, data_interp.T,
-                       shading='gouraud', cmap=cmap, vmin=vmin, vmax=vmax)
+    
+    plot_kwargs = {'shading': 'gouraud', 'cmap': cmap}
+    if vcenter is not None and vmin is not None and vmax is not None:
+        plot_kwargs['norm'] = TwoSlopeNorm(vmin=vmin, vcenter=vcenter, vmax=vmax)
+    else:
+        plot_kwargs['vmin'] = vmin
+        plot_kwargs['vmax'] = vmax
+
+    im = ax.pcolormesh(x_coords_interp, y_coords_interp, data_interp.T, **plot_kwargs)
     
     fig.colorbar(im, ax=ax, label=cbar_label)
     ax.set_title(title)
@@ -127,7 +136,7 @@ def _generate_frame_worker_from_raw(args_tuple, common_args):
     """A wrapper function for multiprocessing to generate a single frame from raw data."""
     i, f_path, time_val = args_tuple
     
-    data_slice, slice_coords = _get_slice_data(
+    data_slice, raw_coords = _get_slice_data(
         snapshot_file=f_path,
         nx=common_args['nx'], ny=common_args['ny'], nz=common_args['nz'],
         num_channels=len(common_args['source_channel_labels']),
@@ -138,17 +147,36 @@ def _generate_frame_worker_from_raw(args_tuple, common_args):
     
     frame_path = common_args['frame_dir'] / f"frame_{i:04d}.png"
     display_name = common_args['display_name']
+    slice_orientation = common_args['slice_orientation']
+    slice_index = common_args['slice_index']
+    
+    # Construct detailed title
+    title_suffix = ""
+    if slice_orientation == 'xz':
+        coord_val = raw_coords['y'][slice_index]
+        title_suffix = f"at y={coord_val:.2f} (idx={slice_index})"
+        plot_coords = {'x': raw_coords['x'], 'y': raw_coords['z']}
+    elif slice_orientation == 'xy':
+        coord_val = raw_coords['z'][slice_index]
+        title_suffix = f"at z={coord_val:.2f} (idx={slice_index})"
+        plot_coords = {'x': raw_coords['x'], 'y': raw_coords['y']}
+    elif slice_orientation == 'yz':
+        coord_val = raw_coords['x'][slice_index]
+        title_suffix = f"at x={coord_val:.2f} (idx={slice_index})"
+        plot_coords = {'x': raw_coords['y'], 'y': raw_coords['z']}
+    
+    title = f"Slice of '{display_name}' at Time Index {time_val}\n{title_suffix}"
 
     _create_frame_from_raw(
         frame_path=frame_path,
         data_slice_raw=data_slice,
-        slice_coords=slice_coords,
+        slice_coords=plot_coords,
         interp_points=common_args['plot_labels']['interp'],
-        title=f"Slice of '{display_name}' at Time Index {time_val}",
+        title=title,
         xlabel=common_args['plot_labels']['xlabel'],
         ylabel=common_args['plot_labels']['ylabel'],
         cbar_label=common_args['cbar_label'],
-        vmin=common_args['vmin'], vmax=common_args['vmax'],
+        vmin=common_args['vmin'], vmax=common_args['vmax'], vcenter=common_args['vcenter'],
         base_size=common_args['base_size'], min_size=common_args['min_size'],
         cmap=common_args['cmap'],
     )
@@ -172,8 +200,9 @@ def generate_slice_video(
     unit_label: str = "",
     base_size: float = 10.0,
     min_size: float = 3.0,
-    vmin_override: float = None,
-    vmax_override: float = None,
+    vmins_override: dict = None,
+    vmaxs_override: dict = None,
+    vcenters: dict = None,
     num_workers: int = 1,
     cmap: str = "viridis",
 ):
@@ -192,17 +221,22 @@ def generate_slice_video(
         return
 
     # Determine global color scale
-    vmin, vmax = vmin_override, vmax_override
+    vmin = vmins_override.get(channel) if vmins_override else None
+    vmax = vmaxs_override.get(channel) if vmaxs_override else None
+    
     if vmin is None or vmax is None:
-        logging.info("Calculating global color scale across all timesteps...")
+        logging.info("Calculating color scale for the selected channel...")
         all_slice_data = []
         for f_path in tqdm(snapshot_files, desc="Scanning for color scale"):
             data_slice, _ = _get_slice_data(f_path, nx, ny, nz, len(source_channel_labels), 
                                             channel_idx, slice_orientation, slice_index)
             all_slice_data.append(data_slice)
-        vmin = min(d.min() for d in all_slice_data)
-        vmax = max(d.max() for d in all_slice_data)
-        logging.info(f"Global color scale set to: [{vmin:.3f}, {vmax:.3f}]")
+        
+        if vmin is None: vmin = min(d.min() for d in all_slice_data)
+        if vmax is None: vmax = max(d.max() for d in all_slice_data)
+        logging.info(f"Final color scale set to: [{vmin:.3f}, {vmax:.3f}]")
+    
+    vcenter = vcenters.get(channel) if vcenters else None
 
     # Setup plot labels
     display_name = channel_alias if channel_alias else channel
@@ -226,7 +260,7 @@ def generate_slice_video(
             'channel_idx': channel_idx, 'slice_orientation': slice_orientation,
             'slice_index': slice_index, 'frame_dir': frame_dir, 'display_name': display_name,
             'plot_labels': plot_labels, 'cbar_label': cbar_label, 'vmin': vmin, 'vmax': vmax,
-            'base_size': base_size, 'min_size': min_size, 'cmap': cmap,
+            'vcenter': vcenter, 'base_size': base_size, 'min_size': min_size, 'cmap': cmap,
         }
         
         tasks = [(i, f_path, time_val) for i, (f_path, time_val) in enumerate(zip(snapshot_files, time_indices))]
@@ -272,6 +306,7 @@ def _create_frame_from_npz(
     cbar_label: str,
     vmin: float,
     vmax: float,
+    vcenter: float,
     base_size: float,
     min_size: float,
     cmap: str = "viridis",
@@ -303,8 +338,15 @@ def _create_frame_from_npz(
     figsize = (width_px / dpi, height_px / dpi)
 
     fig, ax = plt.subplots(figsize=figsize)
-    im = ax.pcolormesh(x_coords, y_coords, data_slice.T,
-                       shading='gouraud', cmap=cmap, vmin=vmin, vmax=vmax)
+    
+    plot_kwargs = {'shading': 'gouraud', 'cmap': cmap}
+    if vcenter is not None and vmin is not None and vmax is not None:
+        plot_kwargs['norm'] = TwoSlopeNorm(vmin=vmin, vcenter=vcenter, vmax=vmax)
+    else:
+        plot_kwargs['vmin'] = vmin
+        plot_kwargs['vmax'] = vmax
+
+    im = ax.pcolormesh(x_coords, y_coords, data_slice.T, **plot_kwargs)
     
     fig.colorbar(im, ax=ax, label=cbar_label)
     ax.set_title(title)
@@ -360,7 +402,7 @@ def _generate_frame_worker_from_npz(relative_time_index, common_args):
         xlabel=common_args['plot_labels']['xlabel'],
         ylabel=common_args['plot_labels']['ylabel'],
         cbar_label=common_args['cbar_label'],
-        vmin=common_args['vmin'], vmax=common_args['vmax'],
+        vmin=common_args['vmin'], vmax=common_args['vmax'], vcenter=common_args['vcenter'],
         base_size=common_args['base_size'], min_size=common_args['min_size'],
         cmap=common_args['cmap'],
     )
@@ -380,8 +422,9 @@ def generate_slice_video_from_npz(
     unit_label: str = "",
     base_size: float = 10.0,
     min_size: float = 3.0,
-    vmin_override: float = None,
-    vmax_override: float = None,
+    vmins_override: dict = None,
+    vmaxs_override: dict = None,
+    vcenters: dict = None,
     num_workers: int = 1,
     cmap: str = "viridis",
 ):
@@ -420,13 +463,19 @@ def generate_slice_video_from_npz(
         logging.error(f"Channel '{channel}' not found in NPZ labels: {coords['labels']}. Aborting.")
         return
 
-    vmin, vmax = vmin_override, vmax_override
-    if vmin is None or vmax is None:
-        logging.info("Calculating global color scale for the selected time range...")
-        channel_data = timeseries_data[..., channel_idx]
-        vmin, vmax = channel_data.min(), channel_data.max()
-        logging.info(f"Color scale for '{channel}' set to: [{vmin:.3f}, {vmax:.3f}]")
+    vmin = vmins_override.get(channel) if vmins_override else None
+    vmax = vmaxs_override.get(channel) if vmaxs_override else None
 
+    if vmin is None or vmax is None:
+        logging.info("Calculating color scale for the selected time range...")
+        channel_data = timeseries_data[..., channel_idx]
+        auto_vmin, auto_vmax = channel_data.min(), channel_data.max()
+        if vmin is None: vmin = auto_vmin
+        if vmax is None: vmax = auto_vmax
+        logging.info(f"Final color scale for '{channel}' set to: [{vmin:.3f}, {vmax:.3f}]")
+
+    vcenter = vcenters.get(channel) if vcenters else None
+    
     display_name = channel_alias if channel_alias else channel
     cbar_label = f"Value of {display_name}" + (f" [{unit_label}]" if unit_label else "")
     
@@ -448,7 +497,7 @@ def generate_slice_video_from_npz(
             'coords': coords, 'channel_idx': channel_idx,
             'slice_orientation': slice_orientation, 'slice_index': slice_index,
             'frame_dir': frame_dir, 'display_name': display_name, 'plot_labels': plot_labels,
-            'cbar_label': cbar_label, 'vmin': vmin, 'vmax': vmax,
+            'cbar_label': cbar_label, 'vmin': vmin, 'vmax': vmax, 'vcenter': vcenter,
             'base_size': base_size, 'min_size': min_size, 'time_offset': time_offset,
             'cmap': cmap,
         }

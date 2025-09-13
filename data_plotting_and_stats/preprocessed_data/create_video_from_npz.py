@@ -1,6 +1,7 @@
 import argparse
 from pathlib import Path
 import multiprocessing
+import logging
 from mhd_surrogate_core.plotting import generate_slice_video_from_npz
 
 def main():
@@ -24,14 +25,33 @@ def main():
     parser.add_argument("--fps", type=int, default=15, help="Frames per second for the output video.")
     parser.add_argument("--channel-alias", type=str, default=None, help="Display name for the channel in titles (e.g., 'u' for 'vx').")
     parser.add_argument("--unit-label", type=str, default="", help="Unit label to display on the color bar (e.g., 'm/s').")
-    parser.add_argument("--vmin", type=float, default=None, help="Override for the minimum value of the color scale.")
-    parser.add_argument("--vmax", type=float, default=None, help="Override for the maximum value of the color scale.")
+    parser.add_argument("--vmins", type=str, nargs='+', default=None, help="Per-channel minimum values for the color scale. Format: vx:-5 vy:-1")
+    parser.add_argument("--vmaxs", type=str, nargs='+', default=None, help="Per-channel maximum values for the color scale. Format: vx:6 vy:1")
+    parser.add_argument("--vcenters", type=str, nargs='+', default=None, help="Per-channel center values for diverging colormaps. Format: vx:0.84 vy:0.0")
     parser.add_argument("--cmap", type=str, default="viridis", help="The colormap to use for the plot (e.g., coolwarm, plasma).")
     
     # --- Parallelization Argument ---
     parser.add_argument("--num-workers", type=int, default=1, help="Number of parallel worker processes for frame generation. Set to -1 to use all available CPU cores.")
 
     args = parser.parse_args()
+    
+    # --- Main Logic ---
+    # Helper function to parse channel-value arguments
+    def parse_channel_value_arg(arg_list):
+        if not arg_list:
+            return {}
+        value_map = {}
+        for item in arg_list:
+            try:
+                key, value = item.split(':')
+                value_map[key] = float(value)
+            except ValueError:
+                logging.error(f"Invalid format for argument: '{item}'. Please use 'channel:value'.")
+        return value_map
+
+    vcenter_map = parse_channel_value_arg(args.vcenters)
+    vmin_map = parse_channel_value_arg(args.vmins)
+    vmax_map = parse_channel_value_arg(args.vmaxs)
     
     num_workers = args.num_workers
     if num_workers == -1:
@@ -49,8 +69,9 @@ def main():
         fps=args.fps,
         channel_alias=args.channel_alias,
         unit_label=args.unit_label,
-        vmin_override=args.vmin,
-        vmax_override=args.vmax,
+        vmins_override=vmin_map,
+        vmaxs_override=vmax_map,
+        vcenters=vcenter_map,
         num_workers=num_workers,
         cmap=args.cmap,
     )
@@ -63,7 +84,7 @@ if __name__ == "__main__":
 
 1.  Place this script inside your `scripts` directory.
 2.  From your terminal, navigate **inside the `scripts` directory** and run a command like this.
-    The new `--time-start` and `--time-end` flags are optional.
+    The new `--vmins`, `--vmaxs`, and `--vcenters` flags allow per-component control.
 
 ```bash
 python create_video_from_npz.py \
@@ -76,8 +97,9 @@ python create_video_from_npz.py \
     --unit-label "" \
     --fps 16 \
     --num-workers 64 \
-    --vmin -5 \
-    --vmax 5 \
+    --vmins vx:-2.16 vy:-3 vz:-3 \
+    --vmaxs vx:3.84 vy:3 vz:3 \
+    --vcenters vx:0.84 vy:0.0 vz:0.0 \
     --cmap seismic
 ```
 """
