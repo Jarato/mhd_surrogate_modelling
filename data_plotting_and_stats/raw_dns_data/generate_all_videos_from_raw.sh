@@ -38,10 +38,13 @@ SOURCE_CHANNELS="vx vy vz T"
 # Video and color scale parameters
 FPS=16
 NUM_WORKERS=64
-VMIN=-5
-VMAX=5
 UNIT_LABEL="" # Set to "" or "m/s", etc.
 COLOR_MAP="seismic" # E.g., coolwarm, bwr, seismic, plasma, viridis
+
+# Per-component min/max/center values for the color scale. Use space-separated "channel:value".
+VMINS="vx:-2.16 vy:-3 vz:-3"
+VMAXS="vx:3.84 vy:3 vz:3"
+VCENTERS="vx:0.84 vy:0.0 vz:0.0"
 
 # Interpolation parameters
 INTERP_Y=1024
@@ -101,8 +104,9 @@ for orientation in "${orientations[@]}"; do
             --interp-y $INTERP_Y \
             --interp-z $INTERP_Z \
             --num-workers $NUM_WORKERS \
-            --vmin $VMIN \
-            --vmax $VMAX \
+            --vmins $VMINS \
+            --vmaxs $VMAXS \
+            --vcenters $VCENTERS \
             --cmap \"$COLOR_MAP\""
 
         # Print the command to the console and then execute it
