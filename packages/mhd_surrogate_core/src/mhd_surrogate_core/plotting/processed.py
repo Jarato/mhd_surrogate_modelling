@@ -2,6 +2,7 @@ import logging
 from pathlib import Path
 import numpy as np
 import matplotlib.pyplot as plt
+from matplotlib.colors import TwoSlopeNorm
 
 # --- Helper to load data for visualization functions ---
 def _load_data_for_viz(data_path, timeseries_data, coords):
@@ -38,6 +39,7 @@ def plot_z_time_evolution(
     channel_alias: str = None,
     vmin: float = None,
     vmax: float = None,
+    vcenter: float = None,
     figsize: tuple = None,
     base_size: float = 8.0,
     min_size: float = 3.0,
@@ -76,12 +78,18 @@ def plot_z_time_evolution(
     plt.style.use('seaborn-v0_8-whitegrid')
     fig, ax = plt.subplots(figsize=figsize)
 
+    plot_kwargs = {'shading': 'gouraud', 'cmap': cmap}
+    if vcenter is not None and vmin is not None and vmax is not None:
+        plot_kwargs['norm'] = TwoSlopeNorm(vmin=vmin, vcenter=vcenter, vmax=vmax)
+    else:
+        plot_kwargs['vmin'] = vmin
+        plot_kwargs['vmax'] = vmax
+
     im = ax.pcolormesh(
         range(data_slice.shape[0]),  # Time
         coords['z'],                 # Z-axis
         data_slice.T,                # Transpose for correct orientation
-        shading='gouraud',
-        cmap=cmap, vmin=vmin, vmax=vmax
+        **plot_kwargs
     )
 
     cbar_label = f"Value of {display_name}" + (f" [{unit_label}]" if unit_label else "")
@@ -106,6 +114,7 @@ def plot_x_time_evolution(
     channel_alias: str = None,
     vmin: float = None,
     vmax: float = None,
+    vcenter: float = None,
     figsize: tuple = None,
     base_size: float = 8.0,
     min_size: float = 3.0,
@@ -143,12 +152,18 @@ def plot_x_time_evolution(
     plt.style.use('seaborn-v0_8-whitegrid')
     fig, ax = plt.subplots(figsize=figsize)
 
+    plot_kwargs = {'shading': 'gouraud', 'cmap': cmap}
+    if vcenter is not None and vmin is not None and vmax is not None:
+        plot_kwargs['norm'] = TwoSlopeNorm(vmin=vmin, vcenter=vcenter, vmax=vmax)
+    else:
+        plot_kwargs['vmin'] = vmin
+        plot_kwargs['vmax'] = vmax
+
     im = ax.pcolormesh(
         range(data_slice.shape[0]),
         coords['x'],
         data_slice.T,
-        shading='gouraud',
-        cmap=cmap, vmin=vmin, vmax=vmax
+        **plot_kwargs
     )
     
     cbar_label = f"Value of {display_name}" + (f" [{unit_label}]" if unit_label else "")
@@ -173,6 +188,7 @@ def plot_y_time_evolution(
     channel_alias: str = None,
     vmin: float = None,
     vmax: float = None,
+    vcenter: float = None,
     figsize: tuple = None,
     base_size: float = 8.0,
     min_size: float = 3.0,
@@ -210,12 +226,18 @@ def plot_y_time_evolution(
     plt.style.use('seaborn-v0_8-whitegrid')
     fig, ax = plt.subplots(figsize=figsize)
 
+    plot_kwargs = {'shading': 'gouraud', 'cmap': cmap}
+    if vcenter is not None and vmin is not None and vmax is not None:
+        plot_kwargs['norm'] = TwoSlopeNorm(vmin=vmin, vcenter=vcenter, vmax=vmax)
+    else:
+        plot_kwargs['vmin'] = vmin
+        plot_kwargs['vmax'] = vmax
+
     im = ax.pcolormesh(
         range(data_slice.shape[0]),
         coords['y'],
         data_slice.T,
-        shading='gouraud',
-        cmap=cmap, vmin=vmin, vmax=vmax
+        **plot_kwargs
     )
 
     cbar_label = f"Value of {display_name}" + (f" [{unit_label}]" if unit_label else "")
@@ -240,6 +262,7 @@ def plot_xz_slice(
     channel_alias: str = None,
     vmin: float = None,
     vmax: float = None,
+    vcenter: float = None,
     figsize: tuple = None,
     base_size: float = 8.0,
     min_size: float = 3.0,
@@ -277,12 +300,18 @@ def plot_xz_slice(
     plt.style.use('seaborn-v0_8-whitegrid')
     fig, ax = plt.subplots(figsize=figsize)
 
+    plot_kwargs = {'shading': 'gouraud', 'cmap': cmap}
+    if vcenter is not None and vmin is not None and vmax is not None:
+        plot_kwargs['norm'] = TwoSlopeNorm(vmin=vmin, vcenter=vcenter, vmax=vmax)
+    else:
+        plot_kwargs['vmin'] = vmin
+        plot_kwargs['vmax'] = vmax
+
     im = ax.pcolormesh(
         coords['x'],
         coords['z'],
         data_slice.T,
-        shading='gouraud',
-        cmap=cmap, vmin=vmin, vmax=vmax
+        **plot_kwargs
     )
 
     cbar_label = f"Value of {display_name}" + (f" [{unit_label}]" if unit_label else "")
@@ -307,6 +336,7 @@ def plot_xy_slice(
     channel_alias: str = None,
     vmin: float = None,
     vmax: float = None,
+    vcenter: float = None,
     figsize: tuple = None,
     base_size: float = 8.0,
     min_size: float = 3.0,
@@ -344,12 +374,18 @@ def plot_xy_slice(
     plt.style.use('seaborn-v0_8-whitegrid')
     fig, ax = plt.subplots(figsize=figsize)
 
+    plot_kwargs = {'shading': 'gouraud', 'cmap': cmap}
+    if vcenter is not None and vmin is not None and vmax is not None:
+        plot_kwargs['norm'] = TwoSlopeNorm(vmin=vmin, vcenter=vcenter, vmax=vmax)
+    else:
+        plot_kwargs['vmin'] = vmin
+        plot_kwargs['vmax'] = vmax
+
     im = ax.pcolormesh(
         coords['x'],
         coords['y'],
         data_slice.T,
-        shading='gouraud',
-        cmap=cmap, vmin=vmin, vmax=vmax
+        **plot_kwargs
     )
     
     cbar_label = f"Value of {display_name}" + (f" [{unit_label}]" if unit_label else "")
@@ -374,6 +410,7 @@ def plot_yz_slice(
     channel_alias: str = None,
     vmin: float = None,
     vmax: float = None,
+    vcenter: float = None,
     figsize: tuple = None,
     base_size: float = 8.0,
     min_size: float = 3.0,
@@ -411,12 +448,18 @@ def plot_yz_slice(
     plt.style.use('seaborn-v0_8-whitegrid')
     fig, ax = plt.subplots(figsize=figsize)
 
+    plot_kwargs = {'shading': 'gouraud', 'cmap': cmap}
+    if vcenter is not None and vmin is not None and vmax is not None:
+        plot_kwargs['norm'] = TwoSlopeNorm(vmin=vmin, vcenter=vcenter, vmax=vmax)
+    else:
+        plot_kwargs['vmin'] = vmin
+        plot_kwargs['vmax'] = vmax
+
     im = ax.pcolormesh(
         coords['y'],
         coords['z'],
         data_slice.T,
-        shading='gouraud',
-        cmap=cmap, vmin=vmin, vmax=vmax
+        **plot_kwargs
     )
     
     cbar_label = f"Value of {display_name}" + (f" [{unit_label}]" if unit_label else "")
