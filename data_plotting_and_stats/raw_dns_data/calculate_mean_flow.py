@@ -15,7 +15,7 @@ logging.basicConfig(
 def _process_snapshot_for_mean_flow(args):
     """
     Worker function to load one snapshot, calculate the y-z mean of the vx
-    channel, and return the resulting 1D array.
+    channel, and return the profile along with the snapshot's min and max values.
     """
     f_path, nx, ny, nz, num_channels, vx_channel_idx = args
     try:
@@ -28,18 +28,24 @@ def _process_snapshot_for_mean_flow(args):
         data_4d_physical = channel_data_1d.reshape((nz, num_channels, ny, nx))
         snapshot_3d = data_4d_physical.transpose(3, 2, 0, 1) # -> (x, y, z, chan)
         
-        # Isolate vx data and calculate the mean over the y and z axes
+        # Isolate vx data
         vx_data = snapshot_3d[:, :, :, vx_channel_idx]
+        
+        # Calculate the mean over the y and z axes
         mean_vx_profile = vx_data.mean(axis=(1, 2))
+        
+        # Find the min and max for this specific snapshot
+        snapshot_min = vx_data.min()
+        snapshot_max = vx_data.max()
             
-        return mean_vx_profile
+        return (mean_vx_profile, snapshot_min, snapshot_max)
     except Exception as e:
         logging.error(f"Worker failed on file {f_path.name}: {e}")
         return None
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Calculate and print a single scalar value for the time-and-space-averaged mean flow in the x-direction (vx).",
+        description="Calculate and print the mean flow, global vmin, and global vmax for the x-direction (vx).",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter
     )
 
@@ -76,31 +82,42 @@ def main():
 
     # Parallel data extraction
     workers = args.num_workers if args.num_workers != -1 else multiprocessing.cpu_count()
-    logging.info(f"Extracting mean profiles in parallel using {workers} workers...")
+    logging.info(f"Extracting profiles and stats in parallel using {workers} workers...")
     
     tasks = [(f, args.nx, args.ny, args.nz, len(args.source_channels), vx_channel_idx) for f in snapshot_files]
     
     all_profiles = []
+    all_mins = []
+    all_maxs = []
+    
     with multiprocessing.Pool(processes=workers) as pool:
         results = list(tqdm(pool.imap(_process_snapshot_for_mean_flow, tasks), total=len(tasks), desc="Processing snapshots"))
 
-    all_profiles = [res for res in results if res is not None]
+    # Unpack the results from the workers
+    for res in results:
+        if res is not None:
+            profile, s_min, s_max = res
+            all_profiles.append(profile)
+            all_mins.append(s_min)
+            all_maxs.append(s_max)
 
     if len(all_profiles) != len(snapshot_files):
         raise RuntimeError("One or more snapshot files failed to load. Check logs.")
 
-    # Calculate the time-averaged profile (still a 1D array)
-    logging.info("Calculating time-averaged profile...")
+    # Calculate the final statistics
+    logging.info("Calculating final statistics...")
     time_averaged_profile = np.mean(all_profiles, axis=0)
-
-    # Calculate the final, single scalar value by averaging over the x-axis
     overall_mean_flow = np.mean(time_averaged_profile)
+    global_vmin = min(all_mins)
+    global_vmax = max(all_maxs)
 
-    logging.info("Mean flow calculation complete.")
+    logging.info("Calculation complete.")
     
-    # Print the final result to the console
+    # Print the final results to the console
     print("\n--------------------------------------------------")
     print(f"Overall Mean Flow (vx): {overall_mean_flow}")
+    print(f"Global Minimum (vmin):  {global_vmin}")
+    print(f"Global Maximum (vmax):  {global_vmax}")
     print("--------------------------------------------------")
 
 
