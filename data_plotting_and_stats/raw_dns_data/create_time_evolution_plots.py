@@ -81,6 +81,7 @@ def main():
     parser.add_argument("--vmax", type=float, default=None, help="Override for the maximum value of the color scale.")
     parser.add_argument("--interp-y", type=int, default=1024, help="Number of interpolation points for the y-axis.")
     parser.add_argument("--interp-z", type=int, default=1024, help="Number of interpolation points for the z-axis.")
+    parser.add_argument("--cmap", type=str, default="viridis", help="The colormap to use for the plot (e.g., coolwarm, plasma).")
     
     # --- Parallelization ---
     parser.add_argument("--num-workers", type=int, default=1, help="Number of parallel worker processes for data extraction. Set to -1 to use all available CPU cores.")
@@ -147,7 +148,7 @@ def main():
             channel=args.channel, x_index=x_idx, y_index=y_idx,
             num_interp_points_z=args.interp_z, channel_alias=args.channel_alias,
             vmin=vmin, vmax=vmax, unit_label=args.unit_label,
-            output_path=args.output_dir / output_filename
+            output_path=args.output_dir / output_filename, cmap=args.cmap
         )
     elif args.plot_type == 'time-y':
         x_idx, z_idx = args.slice_indices
@@ -156,7 +157,7 @@ def main():
             channel=args.channel, x_index=x_idx, z_index=z_idx,
             num_interp_points_y=args.interp_y, channel_alias=args.channel_alias,
             vmin=vmin, vmax=vmax, unit_label=args.unit_label,
-            output_path=args.output_dir / output_filename
+            output_path=args.output_dir / output_filename, cmap=args.cmap
         )
     elif args.plot_type == 'time-x':
         y_idx, z_idx = args.slice_indices
@@ -165,7 +166,7 @@ def main():
             channel=args.channel, y_index=y_idx, z_index=z_idx,
             channel_alias=args.channel_alias,
             vmin=vmin, vmax=vmax, unit_label=args.unit_label,
-            output_path=args.output_dir / output_filename
+            output_path=args.output_dir / output_filename, cmap=args.cmap
         )
         
     logging.info(f"Plot saved to {args.output_dir / output_filename}")
@@ -212,7 +213,8 @@ python create_time_evolution_plots.py \
     --channel vy \
     --channel-alias v \
     --vmin -5 --vmax 6 \
-    --num-workers 64
+    --num-workers 64 \
+    --cmap coolwarm
 ```
 """
 

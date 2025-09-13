@@ -48,6 +48,7 @@ def plot_interpolated_xz_slice(
     base_size: float = 8.0,
     min_size: float = 3.0,
     unit_label: str = "",
+    cmap: str = "viridis",
 ):
     """
     Extracts an x-z slice from raw 3D data, interpolates it onto a uniform
@@ -99,7 +100,7 @@ def plot_interpolated_xz_slice(
         z_coords_interp,
         data_interp.T,
         shading='gouraud',
-        cmap='viridis',
+        cmap=cmap,
         vmin=vmin,
         vmax=vmax,
     )
@@ -126,6 +127,7 @@ def plot_interpolated_xy_slice(
     base_size: float = 8.0,
     min_size: float = 3.0,
     unit_label: str = "",
+    cmap: str = "viridis",
 ):
     """
     Extracts an x-y slice from raw 3D data, interpolates it, and plots it.
@@ -173,7 +175,7 @@ def plot_interpolated_xy_slice(
         x_coords_interp,
         y_coords_interp,
         data_interp.T,
-        shading='gouraud', cmap='viridis', vmin=vmin, vmax=vmax)
+        shading='gouraud', cmap=cmap, vmin=vmin, vmax=vmax)
 
     cbar_label = f"Value of {display_name}" + (f" [{unit_label}]" if unit_label else "")
     fig.colorbar(im, ax=ax, label=cbar_label)
@@ -198,6 +200,7 @@ def plot_interpolated_yz_slice(
     base_size: float = 8.0,
     min_size: float = 3.0,
     unit_label: str = "",
+    cmap: str = "viridis",
 ):
     """
     Extracts a y-z slice from raw 3D data, interpolates it, and plots it.
@@ -245,7 +248,7 @@ def plot_interpolated_yz_slice(
         y_coords_interp,
         z_coords_interp,
         data_interp.T,
-        shading='gouraud', cmap='viridis', vmin=vmin, vmax=vmax)
+        shading='gouraud', cmap=cmap, vmin=vmin, vmax=vmax)
 
     cbar_label = f"Value of {display_name}" + (f" [{unit_label}]" if unit_label else "")
     fig.colorbar(im, ax=ax, label=cbar_label)
@@ -273,6 +276,7 @@ def plot_interpolated_z_time_evolution(
     base_size: float = 8.0,
     min_size: float = 3.0,
     unit_label: str = "",
+    cmap: str = "viridis",
 ):
     """
     Takes a 2D (time, z) data array, interpolates it, and saves a plot.
@@ -310,7 +314,7 @@ def plot_interpolated_z_time_evolution(
         time_coords_interp,
         z_coords_interp,
         data_interp.T,
-        shading='gouraud', cmap='viridis', vmin=vmin, vmax=vmax)
+        shading='gouraud', cmap=cmap, vmin=vmin, vmax=vmax)
         
     cbar_label = f"Value of {display_name}" + (f" [{unit_label}]" if unit_label else "")
     fig.colorbar(im, ax=ax, label=cbar_label)
@@ -336,6 +340,7 @@ def plot_interpolated_y_time_evolution(
     base_size: float = 8.0,
     min_size: float = 3.0,
     unit_label: str = "",
+    cmap: str = "viridis",
 ):
     """
     Takes a 2D (time, y) data array, interpolates it, and saves a plot.
@@ -373,7 +378,7 @@ def plot_interpolated_y_time_evolution(
         time_coords_interp,
         y_coords_interp,
         data_interp.T,
-        shading='gouraud', cmap='viridis', vmin=vmin, vmax=vmax)
+        shading='gouraud', cmap=cmap, vmin=vmin, vmax=vmax)
 
     cbar_label = f"Value of {display_name}" + (f" [{unit_label}]" if unit_label else "")
     fig.colorbar(im, ax=ax, label=cbar_label)
@@ -398,6 +403,7 @@ def plot_interpolated_x_time_evolution(
     base_size: float = 8.0,
     min_size: float = 3.0,
     unit_label: str = "",
+    cmap: str = "viridis",
 ):
     """
     Takes a 2D (time, x) data array and saves a plot. No interpolation needed.
@@ -425,7 +431,7 @@ def plot_interpolated_x_time_evolution(
         time_coords,
         x_coords,
         time_evolution_data.T,
-        shading='gouraud', cmap='viridis', vmin=vmin, vmax=vmax)
+        shading='gouraud', cmap=cmap, vmin=vmin, vmax=vmax)
 
     cbar_label = f"Value of {display_name}" + (f" [{unit_label}]" if unit_label else "")
     fig.colorbar(im, ax=ax, label=cbar_label)

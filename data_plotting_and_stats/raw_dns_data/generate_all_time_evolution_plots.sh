@@ -40,6 +40,7 @@ NUM_WORKERS=64
 VMIN=-5
 VMAX=6
 UNIT_LABEL="" # Set to "" or "m/s", etc.
+COLOR_MAP="coolwarm" # E.g., coolwarm, bwr, seismic, plasma, viridis
 
 # Interpolation parameters
 INTERP_Y=1024
@@ -95,7 +96,8 @@ for plot_type in "${plot_types[@]}"; do
             --interp-z $INTERP_Z \
             --num-workers $NUM_WORKERS \
             --vmin $VMIN \
-            --vmax $VMAX"
+            --vmax $VMAX \
+            --cmap \"$COLOR_MAP\""
 
         # Print the command to the console and then execute it
         echo "=============================================================================="
@@ -110,3 +112,4 @@ for plot_type in "${plot_types[@]}"; do
 done
 
 echo "All plot generation tasks are complete."
+
