@@ -79,6 +79,7 @@ def main():
     parser.add_argument("--unit-label", type=str, default="", help="Unit label to display on the color bar (e.g., 'm/s').")
     parser.add_argument("--vmin", type=float, default=None, help="Override for the minimum value of the color scale.")
     parser.add_argument("--vmax", type=float, default=None, help="Override for the maximum value of the color scale.")
+    parser.add_argument("--vcenters", type=str, nargs='+', default=None, help="Per-channel center values for diverging colormaps. Format: vx:0.84 vy:0.0")
     parser.add_argument("--interp-y", type=int, default=1024, help="Number of interpolation points for the y-axis.")
     parser.add_argument("--interp-z", type=int, default=1024, help="Number of interpolation points for the z-axis.")
     parser.add_argument("--cmap", type=str, default="viridis", help="The colormap to use for the plot (e.g., coolwarm, plasma).")
@@ -89,6 +90,17 @@ def main():
     args = parser.parse_args()
     
     # --- Main Logic ---
+    # Parse vcenters argument into a dictionary
+    vcenter_map = {}
+    if args.vcenters:
+        for item in args.vcenters:
+            try:
+                key, value = item.split(':')
+                vcenter_map[key] = float(value)
+            except ValueError:
+                logging.error(f"Invalid format for --vcenters argument: '{item}'. Please use 'channel:value'.")
+                return
+    
     args.output_dir.mkdir(parents=True, exist_ok=True)
     time_indices = range(args.time_start, args.time_end)
     snapshot_files = [args.snapshot_dir / f"{args.file_prefix}{i:06d}" for i in time_indices]
@@ -136,6 +148,9 @@ def main():
         vmin, vmax = time_evolution_data.min(), time_evolution_data.max()
         logging.info(f"Auto-calculated color scale: [{vmin:.3f}, {vmax:.3f}]")
 
+    # Get the specific vcenter for the current channel
+    vcenter_val = vcenter_map.get(args.channel)
+
     # Generate the plot
     logging.info("Generating final plot...")
     display_name = args.channel_alias if args.channel_alias else args.channel
@@ -147,7 +162,7 @@ def main():
             time_evolution_data=time_evolution_data, raw_coords=raw_coords,
             channel=args.channel, x_index=x_idx, y_index=y_idx,
             num_interp_points_z=args.interp_z, channel_alias=args.channel_alias,
-            vmin=vmin, vmax=vmax, unit_label=args.unit_label,
+            vmin=vmin, vmax=vmax, vcenter=vcenter_val, unit_label=args.unit_label,
             output_path=args.output_dir / output_filename, cmap=args.cmap
         )
     elif args.plot_type == 'time-y':
@@ -156,7 +171,7 @@ def main():
             time_evolution_data=time_evolution_data, raw_coords=raw_coords,
             channel=args.channel, x_index=x_idx, z_index=z_idx,
             num_interp_points_y=args.interp_y, channel_alias=args.channel_alias,
-            vmin=vmin, vmax=vmax, unit_label=args.unit_label,
+            vmin=vmin, vmax=vmax, vcenter=vcenter_val, unit_label=args.unit_label,
             output_path=args.output_dir / output_filename, cmap=args.cmap
         )
     elif args.plot_type == 'time-x':
@@ -165,7 +180,7 @@ def main():
             time_evolution_data=time_evolution_data, raw_coords=raw_coords,
             channel=args.channel, y_index=y_idx, z_index=z_idx,
             channel_alias=args.channel_alias,
-            vmin=vmin, vmax=vmax, unit_label=args.unit_label,
+            vmin=vmin, vmax=vmax, vcenter=vcenter_val, unit_label=args.unit_label,
             output_path=args.output_dir / output_filename, cmap=args.cmap
         )
         
@@ -180,10 +195,10 @@ if __name__ == "__main__":
 
 1.  Place this script inside your `scripts` directory.
 2.  From your terminal, navigate **inside the `scripts` directory** and run a command.
-    The new `--num-workers` flag controls the parallelization.
+    The new `--vcenters` flag allows per-component color centering.
 
-**Example for a Time-Z plot:**
-(Hold X and Y constant, plot Time vs. Z)
+**Example for a Time-Z plot with custom centering:**
+(Center vx at 0.84, while vy and vz would default to no special centering)
 
 ```bash
 python create_time_evolution_plots.py \
@@ -195,7 +210,9 @@ python create_time_evolution_plots.py \
     --slice-indices 1150 240 \
     --channel vx \
     --channel-alias u \
-    --vmin -5 --vmax 6 \
+    --vmin -2 --vmax 4 \
+    --vcenters vx:0.84 \
+    --cmap seismic \
     --num-workers 16
 ```
 
@@ -213,6 +230,7 @@ python create_time_evolution_plots.py \
     --channel vx \
     --channel-alias u \
     --vmin -5 --vmax 5 \
+    --vcenters vx:0.84 vy:0.0 vz:0.0 \
     --num-workers 64 \
     --cmap seismic
 ```
