@@ -26,11 +26,14 @@ OUTPUT_DIR="output/videos/"
 
 # Video and color scale parameters
 FPS=16
-NUM_WORKERS=127
-VMIN=-5
-VMAX=5
+NUM_WORKERS=64
 UNIT_LABEL="" # Set to "" or "m/s", etc.
 COLOR_MAP="seismic" # E.g., coolwarm, bwr, seismic, plasma, viridis
+
+# Per-component min/max/center values for the color scale. Use space-separated "channel:value".
+VMINS="vx:-2.16 vy:-3 vz:-3"
+VMAXS="vx:3.84 vy:3 vz:3"
+VCENTERS="vx:0.84 vy:0.0 vz:0.0"
 
 # Central slice indices.
 # NOTE: You must know the dimensions of your preprocessed data to set these.
@@ -85,14 +88,15 @@ for orientation in "${orientations[@]}"; do
             --unit-label \"$UNIT_LABEL\" \
             --fps $FPS \
             --num-workers $NUM_WORKERS \
-            --vmin $VMIN \
-            --vmax $VMAX \
+            --vmins $VMINS \
+            --vmaxs $VMAXS \
+            --vcenters $VCENTERS \
             --cmap \"$COLOR_MAP\""
 
         # Print the command to the console and then execute it
         echo "=============================================================================="
         echo "Executing command:"
-        echo "$command"
+        echo -e "$command"
         echo "=============================================================================="
         eval $command
         echo "Video saved to $output_path"
