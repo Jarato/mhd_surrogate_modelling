@@ -60,14 +60,13 @@ def plot_interpolated_xz_slice(
         return
 
     try:
-        channel_idx = raw_coords['labels'].index(channel)
         display_name = channel_alias if channel_alias else channel
     except ValueError:
         logging.error(f"Channel '{channel}' not found in labels: {raw_coords['labels']}")
         return
 
     # --- Data Extraction and Interpolation ---
-    data_slice_raw = snapshot_data_3d[:, y_index, :, channel_idx]
+    data_slice_raw = snapshot_data_3d[:, y_index, :, raw_coords['labels'].index(channel)]
     x_coords_raw = raw_coords['x']
     z_coords_raw = raw_coords['z']
 
@@ -138,13 +137,12 @@ def plot_interpolated_xy_slice(
         return
 
     try:
-        channel_idx = raw_coords['labels'].index(channel)
         display_name = channel_alias if channel_alias else channel
     except ValueError:
         logging.error(f"Channel '{channel}' not found in labels: {raw_coords['labels']}")
         return
 
-    data_slice_raw = snapshot_data_3d[:, :, z_index, channel_idx]
+    data_slice_raw = snapshot_data_3d[:, :, z_index, raw_coords['labels'].index(channel)]
     x_coords_raw = raw_coords['x']
     y_coords_raw = raw_coords['y']
 
@@ -211,13 +209,12 @@ def plot_interpolated_yz_slice(
         return
 
     try:
-        channel_idx = raw_coords['labels'].index(channel)
         display_name = channel_alias if channel_alias else channel
     except ValueError:
         logging.error(f"Channel '{channel}' not found in labels: {raw_coords['labels']}")
         return
 
-    data_slice_raw = snapshot_data_3d[x_index, :, :, channel_idx]
+    data_slice_raw = snapshot_data_3d[x_index, :, :, raw_coords['labels'].index(channel)]
     y_coords_raw = raw_coords['y']
     z_coords_raw = raw_coords['z']
 
@@ -298,6 +295,10 @@ def plot_interpolated_z_time_evolution(
     values_raw = time_evolution_data.flatten()
     data_interp = griddata(points_raw, values_raw, (T_interp, Z_interp), method='cubic')
 
+    # Handle NaNs from interpolation, which break TwoSlopeNorm
+    if vcenter is not None:
+        np.nan_to_num(data_interp, copy=False, nan=vcenter)
+
     if figsize is None:
         time_range = float(num_timesteps)
         z_range = z_coords_raw.max() - z_coords_raw.min()
@@ -310,9 +311,9 @@ def plot_interpolated_z_time_evolution(
             aspect_ratio = time_range / z_range if z_range > 0 else 1
             fig_width = max(min_size, base_size * aspect_ratio)
         figsize = (fig_width, fig_height)
-
+        
     fig, ax = plt.subplots(figsize=figsize)
-    
+
     plot_kwargs = {'shading': 'gouraud', 'cmap': cmap}
     if vcenter is not None and vmin is not None and vmax is not None:
         plot_kwargs['norm'] = TwoSlopeNorm(vmin=vmin, vcenter=vcenter, vmax=vmax)
@@ -326,10 +327,10 @@ def plot_interpolated_z_time_evolution(
         data_interp.T,
         **plot_kwargs
     )
-        
+
     cbar_label = f"Value of {display_name}" + (f" [{unit_label}]" if unit_label else "")
     cbar = fig.colorbar(im, ax=ax, label=cbar_label)
-    
+
     # Add a tick for the center value if provided
     if vcenter is not None:
         ticks = list(cbar.get_ticks())
@@ -380,6 +381,10 @@ def plot_interpolated_y_time_evolution(
     points_raw = np.array([T_raw.flatten(), Y_raw.flatten()]).T
     values_raw = time_evolution_data.flatten()
     data_interp = griddata(points_raw, values_raw, (T_interp, Y_interp), method='cubic')
+
+    # Handle NaNs from interpolation, which break TwoSlopeNorm
+    if vcenter is not None:
+        np.nan_to_num(data_interp, copy=False, nan=vcenter)
 
     if figsize is None:
         time_range = float(num_timesteps)
@@ -499,5 +504,4 @@ def plot_interpolated_x_time_evolution(
     plt.tight_layout()
     plt.savefig(output_path, dpi=150)
     plt.close(fig)
-
 
