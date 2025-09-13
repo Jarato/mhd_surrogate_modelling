@@ -77,8 +77,8 @@ def main():
     # --- Plotting Arguments ---
     parser.add_argument("--channel-alias", type=str, default=None, help="Display name for the channel in titles (e.g., 'u' for 'vx').")
     parser.add_argument("--unit-label", type=str, default="", help="Unit label to display on the color bar (e.g., 'm/s').")
-    parser.add_argument("--vmin", type=float, default=None, help="Override for the minimum value of the color scale.")
-    parser.add_argument("--vmax", type=float, default=None, help="Override for the maximum value of the color scale.")
+    parser.add_argument("--vmins", type=str, nargs='+', default=None, help="Per-channel minimum values for the color scale. Format: vx:-5 vy:-1")
+    parser.add_argument("--vmaxs", type=str, nargs='+', default=None, help="Per-channel maximum values for the color scale. Format: vx:6 vy:1")
     parser.add_argument("--vcenters", type=str, nargs='+', default=None, help="Per-channel center values for diverging colormaps. Format: vx:0.84 vy:0.0")
     parser.add_argument("--interp-y", type=int, default=1024, help="Number of interpolation points for the y-axis.")
     parser.add_argument("--interp-z", type=int, default=1024, help="Number of interpolation points for the z-axis.")
@@ -90,16 +90,22 @@ def main():
     args = parser.parse_args()
     
     # --- Main Logic ---
-    # Parse vcenters argument into a dictionary
-    vcenter_map = {}
-    if args.vcenters:
-        for item in args.vcenters:
+    # Helper function to parse channel-value arguments
+    def parse_channel_value_arg(arg_list):
+        if not arg_list:
+            return {}
+        value_map = {}
+        for item in arg_list:
             try:
                 key, value = item.split(':')
-                vcenter_map[key] = float(value)
+                value_map[key] = float(value)
             except ValueError:
-                logging.error(f"Invalid format for --vcenters argument: '{item}'. Please use 'channel:value'.")
-                return
+                logging.error(f"Invalid format for argument: '{item}'. Please use 'channel:value'.")
+        return value_map
+
+    vcenter_map = parse_channel_value_arg(args.vcenters)
+    vmin_map = parse_channel_value_arg(args.vmins)
+    vmax_map = parse_channel_value_arg(args.vmaxs)
     
     args.output_dir.mkdir(parents=True, exist_ok=True)
     time_indices = range(args.time_start, args.time_end)
@@ -142,11 +148,17 @@ def main():
 
     time_evolution_data = np.stack(all_lines, axis=0).astype(np.float32)
 
-    # Determine color scale
-    vmin, vmax = args.vmin, args.vmax
+    # Determine color scale for the specific channel
+    vmin = vmin_map.get(args.channel)
+    vmax = vmax_map.get(args.channel)
+    
     if vmin is None or vmax is None:
-        vmin, vmax = time_evolution_data.min(), time_evolution_data.max()
-        logging.info(f"Auto-calculated color scale: [{vmin:.3f}, {vmax:.3f}]")
+        auto_vmin, auto_vmax = time_evolution_data.min(), time_evolution_data.max()
+        if vmin is None:
+            vmin = auto_vmin
+        if vmax is None:
+            vmax = auto_vmax
+        logging.info(f"Auto-calculated part of color scale. Final scale: [{vmin:.3f}, {vmax:.3f}]")
 
     # Get the specific vcenter for the current channel
     vcenter_val = vcenter_map.get(args.channel)
@@ -195,10 +207,9 @@ if __name__ == "__main__":
 
 1.  Place this script inside your `scripts` directory.
 2.  From your terminal, navigate **inside the `scripts` directory** and run a command.
-    The new `--vcenters` flag allows per-component color centering.
+    The new `--vmins`, `--vmaxs`, and `--vcenters` flags allow per-component control.
 
-**Example for a Time-Z plot with custom centering:**
-(Center vx at 0.84, while vy and vz would default to no special centering)
+**Example for a Time-Z plot with custom per-component scaling:**
 
 ```bash
 python create_time_evolution_plots.py \
@@ -210,7 +221,8 @@ python create_time_evolution_plots.py \
     --slice-indices 1150 240 \
     --channel vx \
     --channel-alias u \
-    --vmin -2 --vmax 4 \
+    --vmins vx:-2 vy:-1 vz:-1 \
+    --vmaxs vx:4 vy:1 vz:1 \
     --vcenters vx:0.84 \
     --cmap seismic \
     --num-workers 16
@@ -230,6 +242,8 @@ python create_time_evolution_plots.py \
     --channel vx \
     --channel-alias u \
     --vmin -2.16 --vmax 3.84 \
+    --vmins vx:-2.16 vy:-3 vz:-3 \
+    --vmaxs vx:3.84 vy:3 vz:3 \
     --vcenters vx:0.84 vy:0.0 vz:0.0 \
     --num-workers 64 \
     --cmap seismic
