@@ -206,7 +206,7 @@ python create_time_evolution_plots.py \
     --snapshot-dir /raid/skowronek/preprocessed_dns_output/01-Cold_Runs/01-Re16K_Ha325/raw/ \
     --output-dir output/figures/ \
     --nx 2301 --ny 481 --nz 121 \
-    --time-start 609 --time-end 625 \
+    --time-start 609 --time-end 737 \
     --plot-type time-x \
     --slice-indices 240 60 \
     --channel vy \
