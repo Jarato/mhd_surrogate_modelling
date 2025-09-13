@@ -147,7 +147,7 @@ if __name__ == "__main__":
 2.  From your terminal, navigate **inside the `scripts` directory** and run a command like this:
 
 ```bash
-python calculate_mean_flow.py \
+python calculate_velocity_stats.py \
     --snapshot-dir /raid/skowronek/preprocessed_dns_output/01-Cold_Runs/01-Re16K_Ha325/raw/ \
     --nx 2301 --ny 481 --nz 121 \
     --time-start 609 --time-end 737 \
