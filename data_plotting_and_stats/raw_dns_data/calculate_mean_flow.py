@@ -4,7 +4,6 @@ import numpy as np
 from tqdm import tqdm
 import logging
 import multiprocessing
-import matplotlib.pyplot as plt
 
 # Configure basic logging
 logging.basicConfig(
@@ -12,12 +11,12 @@ logging.basicConfig(
     format="%(asctime)s - %(levelname)s - %(message)s",
 )
 
-def _process_snapshot_for_mean_flow(args):
+def _process_snapshot_for_stats(args):
     """
-    Worker function to load one snapshot, calculate the y-z mean of the vx
-    channel, and return the profile along with the snapshot's min and max values.
+    Worker function to load one snapshot and calculate statistics (mean profile,
+    min, max) for all specified velocity components.
     """
-    f_path, nx, ny, nz, num_channels, vx_channel_idx = args
+    f_path, nx, ny, nz, num_channels, channel_indices = args
     try:
         input_dtype = np.float64
         with open(f_path, 'rb') as f:
@@ -28,24 +27,28 @@ def _process_snapshot_for_mean_flow(args):
         data_4d_physical = channel_data_1d.reshape((nz, num_channels, ny, nx))
         snapshot_3d = data_4d_physical.transpose(3, 2, 0, 1) # -> (x, y, z, chan)
         
-        # Isolate vx data
-        vx_data = snapshot_3d[:, :, :, vx_channel_idx]
-        
-        # Calculate the mean over the y and z axes
-        mean_vx_profile = vx_data.mean(axis=(1, 2))
-        
-        # Find the min and max for this specific snapshot
-        snapshot_min = vx_data.min()
-        snapshot_max = vx_data.max()
+        snapshot_stats = {}
+        for channel_name, chan_idx in channel_indices.items():
+            # Isolate data for the current channel
+            channel_data = snapshot_3d[:, :, :, chan_idx]
             
-        return (mean_vx_profile, snapshot_min, snapshot_max)
+            # Calculate the mean profile over the y and z axes
+            mean_profile = channel_data.mean(axis=(1, 2))
+            
+            # Find the min and max for this snapshot
+            snapshot_min = channel_data.min()
+            snapshot_max = channel_data.max()
+            
+            snapshot_stats[channel_name] = (mean_profile, snapshot_min, snapshot_max)
+            
+        return snapshot_stats
     except Exception as e:
         logging.error(f"Worker failed on file {f_path.name}: {e}")
         return None
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Calculate and print the mean flow, global vmin, and global vmax for the x-direction (vx).",
+        description="Calculate and print statistics (mean flow, vmin, vmax) for all velocity components.",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter
     )
 
@@ -74,51 +77,64 @@ def main():
         logging.error("Not all snapshot files were found. Aborting.")
         return
 
-    try:
-        vx_channel_idx = args.source_channels.index('vx')
-    except ValueError:
-        logging.error("Channel 'vx' not found in --source-channels. Aborting.")
+    velocity_channels_to_process = ['vx', 'vy', 'vz']
+    channel_indices = {}
+    for vc in velocity_channels_to_process:
+        try:
+            channel_indices[vc] = args.source_channels.index(vc)
+        except ValueError:
+            logging.warning(f"Velocity channel '{vc}' not found in source channels. Skipping.")
+    
+    if not channel_indices:
+        logging.error("No velocity channels found to process. Aborting.")
         return
 
     # Parallel data extraction
     workers = args.num_workers if args.num_workers != -1 else multiprocessing.cpu_count()
-    logging.info(f"Extracting profiles and stats in parallel using {workers} workers...")
+    logging.info(f"Extracting stats in parallel using {workers} workers for channels: {list(channel_indices.keys())}...")
     
-    tasks = [(f, args.nx, args.ny, args.nz, len(args.source_channels), vx_channel_idx) for f in snapshot_files]
+    tasks = [(f, args.nx, args.ny, args.nz, len(args.source_channels), channel_indices) for f in snapshot_files]
     
-    all_profiles = []
-    all_mins = []
-    all_maxs = []
+    # Initialize dictionaries to hold results for each channel
+    all_profiles = {chan: [] for chan in channel_indices}
+    all_mins = {chan: [] for chan in channel_indices}
+    all_maxs = {chan: [] for chan in channel_indices}
     
     with multiprocessing.Pool(processes=workers) as pool:
-        results = list(tqdm(pool.imap(_process_snapshot_for_mean_flow, tasks), total=len(tasks), desc="Processing snapshots"))
+        results = list(tqdm(pool.imap(_process_snapshot_for_stats, tasks), total=len(tasks), desc="Processing snapshots"))
 
     # Unpack the results from the workers
-    for res in results:
-        if res is not None:
-            profile, s_min, s_max = res
-            all_profiles.append(profile)
-            all_mins.append(s_min)
-            all_maxs.append(s_max)
+    successful_runs = 0
+    for res_dict in results:
+        if res_dict is not None:
+            successful_runs += 1
+            for channel_name, (profile, s_min, s_max) in res_dict.items():
+                all_profiles[channel_name].append(profile)
+                all_mins[channel_name].append(s_min)
+                all_maxs[channel_name].append(s_max)
 
-    if len(all_profiles) != len(snapshot_files):
+    if successful_runs != len(snapshot_files):
         raise RuntimeError("One or more snapshot files failed to load. Check logs.")
 
-    # Calculate the final statistics
+    # Calculate and print the final statistics for each component
     logging.info("Calculating final statistics...")
-    time_averaged_profile = np.mean(all_profiles, axis=0)
-    overall_mean_flow = np.mean(time_averaged_profile)
-    global_vmin = min(all_mins)
-    global_vmax = max(all_maxs)
+    
+    print("\n--------------------------------------------------")
+    for channel_name in channel_indices.keys():
+        # Calculate stats for the current channel
+        time_averaged_profile = np.mean(all_profiles[channel_name], axis=0)
+        overall_mean_flow = np.mean(time_averaged_profile)
+        global_vmin = min(all_mins[channel_name])
+        global_vmax = max(all_maxs[channel_name])
+        
+        # Print the final results to the console
+        print(f"Statistics for {channel_name}:")
+        print(f"  Overall Mean Flow: {overall_mean_flow}")
+        print(f"  Global Minimum (vmin):  {global_vmin}")
+        print(f"  Global Maximum (vmax):  {global_vmax}")
+        print("--------------------------------------------------")
 
     logging.info("Calculation complete.")
-    
-    # Print the final results to the console
-    print("\n--------------------------------------------------")
-    print(f"Overall Mean Flow (vx): {overall_mean_flow}")
-    print(f"Global Minimum (vmin):  {global_vmin}")
-    print(f"Global Maximum (vmax):  {global_vmax}")
-    print("--------------------------------------------------")
 
 
 if __name__ == "__main__":
