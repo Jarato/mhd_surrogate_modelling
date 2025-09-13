@@ -37,7 +37,7 @@ SOURCE_CHANNELS="vx vy vz T"
 
 # Plotting and color scale parameters
 NUM_WORKERS=64
-VMIN=-4
+VMIN=-5
 VMAX=5
 UNIT_LABEL="" # Set to "" or "m/s", etc.
 COLOR_MAP="seismic" # E.g., coolwarm, bwr, seismic, plasma, viridis
