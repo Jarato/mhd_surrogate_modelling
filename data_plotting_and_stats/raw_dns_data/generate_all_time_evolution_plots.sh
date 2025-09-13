@@ -37,8 +37,9 @@ SOURCE_CHANNELS="vx vy vz T"
 
 # Plotting and color scale parameters
 NUM_WORKERS=64
-VMIN=-5
-VMAX=5
+# Per-component min/max values for the color scale. Use space-separated "channel:value".
+VMINS="vx:-2.16 vy:-3 vz:-3"
+VMAXS="vx:3.84 vy:3 vz:3"
 UNIT_LABEL="" # Set to "" or "m/s", etc.
 COLOR_MAP="seismic" # E.g., coolwarm, bwr, seismic, plasma, viridis
 # Per-component center values for the colormap. Use space-separated "channel:value".
@@ -97,9 +98,9 @@ for plot_type in "${plot_types[@]}"; do
             --interp-y $INTERP_Y \
             --interp-z $INTERP_Z \
             --num-workers $NUM_WORKERS \
-            --vmin $VMIN \
-            --vmax $VMAX \
-            --vcenters $VCENTERS \
+            --vmins \"$VMINS\" \
+            --vmaxs \"$VMAXS\" \
+            --vcenters \"$VCENTERS\" \
             --cmap \"$COLOR_MAP\""
 
         # Print the command to the console and then execute it
