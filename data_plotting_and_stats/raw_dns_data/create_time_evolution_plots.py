@@ -142,3 +142,44 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+"""
+#### How to Use It
+
+1.  Place this script inside your `scripts` directory.
+2.  From your terminal, navigate **inside the `scripts` directory** and run a command.
+    Note that `--slice-indices` expects two values corresponding to the axes that are held constant.
+
+**Example for a Time-Z plot:**
+(Hold X and Y constant, plot Time vs. Z)
+
+```bash
+python create_time_evolution_plots.py \
+    --snapshot-dir /path/to/your/raw/snapshots/ \
+    --output-dir output/time_evolution_plots/ \
+    --nx 2301 --ny 481 --nz 121 \
+    --time-start 609 --time-end 737 \
+    --plot-type time-z \
+    --slice-indices 1150 240 \
+    --channel vx \
+    --channel-alias u \
+    --vmin -5 --vmax 6
+```
+
+**Example for a Time-X plot:**
+(Hold Y and Z constant, plot Time vs. X)
+
+```bash
+python create_time_evolution_plots.py \
+    --snapshot-dir /path/to/your/raw/snapshots/ \
+    --output-dir output/time_evolution_plots/ \
+    --nx 2301 --ny 481 --nz 121 \
+    --time-start 609 --time-end 737 \
+    --plot-type time-x \
+    --slice-indices 240 60 \
+    --channel vy \
+    --channel-alias v \
+    --vmin -5 --vmax 6
+```
+"""
+
