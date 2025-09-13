@@ -41,6 +41,8 @@ VMIN=-5
 VMAX=5
 UNIT_LABEL="" # Set to "" or "m/s", etc.
 COLOR_MAP="seismic" # E.g., coolwarm, bwr, seismic, plasma, viridis
+# Per-component center values for the colormap. Use space-separated "channel:value".
+VCENTERS="vx:0.84 vy:0.0 vz:0.0"
 
 # Interpolation parameters
 INTERP_Y=1024
@@ -97,6 +99,7 @@ for plot_type in "${plot_types[@]}"; do
             --num-workers $NUM_WORKERS \
             --vmin $VMIN \
             --vmax $VMAX \
+            --vcenters $VCENTERS \
             --cmap \"$COLOR_MAP\""
 
         # Print the command to the console and then execute it
