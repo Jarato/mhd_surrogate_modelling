@@ -55,15 +55,22 @@ def main():
     train_size = total_timesteps - val_size
     
     train_data = timeseries[:train_size]
-    logging.info(f"Temporal split identified: Using first {train_size} of {total_timesteps} timesteps for stats calculation.")
+    logging.info(f"Temporal split identified: Using first {train_size} of {total_timemsteps} timesteps for stats calculation.")
 
     if train_size < 1:
         raise ValueError("The training set is empty. Cannot compute statistics.")
 
     # Compute statistics on the training set ONLY
     logging.info("Calculating min/max statistics per channel on the training set...")
-    min_vals = np.min(train_data, axis=(0, 1, 2, 3))
-    max_vals = np.max(train_data, axis=(0, 1, 2, 3))
+    
+    # KEY CHANGE: Dynamically determine the axes for reduction. This works for both
+    # 4D (T, X, Z, C) and 5D (T, X, Y, Z, C) data by selecting all axes except
+    # the last one (the channel axis).
+    stat_axes = tuple(range(train_data.ndim - 1))
+    logging.info(f"Input data has {train_data.ndim} dimensions. Calculating stats over axes: {stat_axes}")
+
+    min_vals = np.min(train_data, axis=stat_axes)
+    max_vals = np.max(train_data, axis=stat_axes)
 
     logging.info("Min/Max calculation complete.")
     logging.info("--- Per-Channel Statistics (from Training Set) ---")
