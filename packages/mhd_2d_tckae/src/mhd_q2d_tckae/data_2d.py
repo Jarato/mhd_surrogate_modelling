@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
-# packages/mhd_q2d_tckae/src/mhd_q2d_tckae/data.py
+# packages/mhd_q2d_tckae/src/mhd_q2d_tckae/data_2d.py
+# Note: This is a modified version for 2D data (X, Z spatial dims).
 
 import logging
 from pathlib import Path
@@ -16,10 +17,10 @@ logging.basicConfig(
 )
 
 
-class tcKAEMHDDataset(Dataset):
+class tcKAEMHDDataset2D(Dataset):
     """
-    Custom Dataset for tcKAE training.
-    Each sample is a block of M consecutive sequences, each of length K+1.
+    Custom Dataset for 2D tcKAE training.
+    The Y-dimension of the original data is expected to be 1 and is squeezed out.
     """
 
     def __init__(
@@ -46,17 +47,25 @@ class tcKAEMHDDataset(Dataset):
             self.data = full_timeseries
             self.channel_names = self.all_channel_names
 
+        # Squeeze the Y dimension, assuming it's of size 1
+        if self.data.ndim == 5 and self.data.shape[2] == 1:
+            self.data = np.squeeze(self.data, axis=2)
+            logging.info(f"Squeezed data shape from 5D to 4D. New shape: {self.data.shape}")
+
+
         self.min_vals, self.max_vals, self.range = None, None, None
         if norm_stats:
+            # Reshape stats to be broadcastable over 4D tensor (C, X, Z)
+            view_shape = (1, -1, 1, 1)
             all_min = torch.from_numpy(norm_stats['min_vals']).float()
             all_max = torch.from_numpy(norm_stats['max_vals']).float()
             if channels_to_use:
                 indices = [self.all_channel_names.index(name) for name in channels_to_use]
-                self.min_vals = all_min[indices].view(1, -1, 1, 1, 1)
-                self.max_vals = all_max[indices].view(1, -1, 1, 1, 1)
+                self.min_vals = all_min[indices].view(*view_shape)
+                self.max_vals = all_max[indices].view(*view_shape)
             else:
-                self.min_vals = all_min.view(1, -1, 1, 1, 1)
-                self.max_vals = all_max.view(1, -1, 1, 1, 1)
+                self.min_vals = all_min.view(*view_shape)
+                self.max_vals = all_max.view(*view_shape)
             self.range = self.max_vals - self.min_vals + 1e-8
 
     def __len__(self) -> int:
@@ -83,13 +92,14 @@ class tcKAEMHDDataset(Dataset):
         strides = (snapshots.strides[0],) + snapshots.strides
         sequences = as_strided(snapshots, shape=shape, strides=strides)
         
-        tensor_block = torch.from_numpy(sequences.copy()).float().permute(0, 1, 5, 2, 3, 4)
+        # Permute to (M, K+1, C, X, Z)
+        tensor_block = torch.from_numpy(sequences.copy()).float().permute(0, 1, 4, 2, 3)
         return self._normalize(tensor_block)
 
 
-class RolloutMHDDataset(Dataset):
+class RolloutMHDDataset2D(Dataset):
     """
-    Simpler Dataset for validation/testing via auto-regressive rollout.
+    Simpler Dataset for validation/testing for 2D data.
     """
     def __init__(
         self,
@@ -113,17 +123,23 @@ class RolloutMHDDataset(Dataset):
             self.data = full_timeseries
             self.channel_names = self.all_channel_names
 
+        # Squeeze the Y dimension, assuming it's of size 1
+        if self.data.ndim == 5 and self.data.shape[2] == 1:
+            self.data = np.squeeze(self.data, axis=2)
+
         self.min_vals, self.max_vals, self.range = None, None, None
         if norm_stats:
+            # Reshape stats to be broadcastable over 4D tensor (C, X, Z)
+            view_shape = (1, -1, 1, 1)
             all_min = torch.from_numpy(norm_stats['min_vals']).float()
             all_max = torch.from_numpy(norm_stats['max_vals']).float()
             if channels_to_use:
                 indices = [self.all_channel_names.index(name) for name in channels_to_use]
-                self.min_vals = all_min[indices].view(1, -1, 1, 1, 1)
-                self.max_vals = all_max[indices].view(1, -1, 1, 1, 1)
+                self.min_vals = all_min[indices].view(*view_shape)
+                self.max_vals = all_max[indices].view(*view_shape)
             else:
-                self.min_vals = all_min.view(1, -1, 1, 1, 1)
-                self.max_vals = all_max.view(1, -1, 1, 1, 1)
+                self.min_vals = all_min.view(*view_shape)
+                self.max_vals = all_max.view(*view_shape)
             self.range = self.max_vals - self.min_vals + 1e-8
 
     def __len__(self) -> int:
@@ -137,7 +153,7 @@ class RolloutMHDDataset(Dataset):
         sequence = self.data[idx : idx + self.rollout_steps + 1]
         if self.process_safe_copy:
             sequence = sequence.copy()
-
-        tensor_seq = torch.from_numpy(sequence).float().permute(0, 4, 1, 2, 3)
+        
+        # Permute to (T, C, X, Z)
+        tensor_seq = torch.from_numpy(sequence).float().permute(0, 3, 1, 2)
         return self._normalize(tensor_seq)
-

@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
-# packages/mhd_q2d_tckae/src/mhd_q2d_tckae/model.py
+# packages/mhd_q2d_tckae/src/mhd_q2d_tckae/model_2d.py
+# Note: This is a modified version for 2D data (X, Z spatial dims).
 
 from collections import OrderedDict
 from typing import Any, Dict, List
@@ -7,28 +8,21 @@ from typing import Any, Dict, List
 import torch
 import torch.nn as nn
 
-# --- Encoder and Decoder definitions from your original model ---
-# These are assumed to be defined as you provided them earlier.
-
-class EncoderQ2D(nn.Module):
+class Encoder2D(nn.Module):
     """
-    A Quasi-2D CNN Encoder with a progressive linear bottleneck.
+    A true 2D CNN Encoder.
     """
     def __init__(
         self,
         in_channels: int,
-        y_dim: int,
         latent_dim: int,
     ):
         super().__init__()
         self.latent_dim = latent_dim
         self.in_channels = in_channels
-        self.y_dim = y_dim
-
-        effective_channels = self.in_channels * self.y_dim
 
         self.conv_network = nn.Sequential(
-            nn.Conv2d(effective_channels, 32, kernel_size=3, stride=2, padding=1),
+            nn.Conv2d(self.in_channels, 32, kernel_size=3, stride=2, padding=1),
             nn.GELU(),
             nn.BatchNorm2d(32),
             nn.Conv2d(32, 64, kernel_size=3, stride=2, padding=1),
@@ -51,32 +45,29 @@ class EncoderQ2D(nn.Module):
         self,
         x: torch.Tensor,
     ) -> torch.Tensor:
-        B, C, X, Y, Z = x.shape
-        x = x.permute(0, 1, 3, 2, 4).reshape(B, C * Y, X, Z)
+        # Input x is expected to be (B, C, X, Z)
         x = self.conv_network(x)
         x = self.fc_network(x)
         return x
 
 
-class DecoderQ2D(nn.Module):
+class Decoder2D(nn.Module):
     """
-    A Quasi-2D CNN Decoder with an optional progressive linear bottleneck.
+    A true 2D CNN Decoder.
     """
     def __init__(
         self,
         latent_dim: int,
         bottleneck_dim: int,
         out_channels: int,
-        y_dim: int,
         encoder_flattened_size: int,
         conv_output_shape: tuple[int, ...],
-        target_spatial_dims: tuple[int, int, int],
+        target_spatial_dims: tuple[int, int],
         use_bottleneck: bool = True,
     ):
         super().__init__()
         self.latent_dim = latent_dim
         self.out_channels = out_channels
-        self.y_dim = y_dim
         self.encoder_flattened_size = encoder_flattened_size
         self.conv_output_shape = conv_output_shape
         self.target_spatial_dims = target_spatial_dims
@@ -104,7 +95,7 @@ class DecoderQ2D(nn.Module):
             nn.ConvTranspose2d(64, 32, kernel_size=3, stride=2, padding=1, output_padding=1),
             nn.GELU(),
             nn.BatchNorm2d(32),
-            nn.ConvTranspose2d(32, self.out_channels * self.y_dim, kernel_size=3, stride=2, padding=1, output_padding=1),
+            nn.ConvTranspose2d(32, self.out_channels, kernel_size=3, stride=2, padding=1, output_padding=1),
             nn.Tanh(),
         )
 
@@ -116,23 +107,20 @@ class DecoderQ2D(nn.Module):
         x = x.view(-1, *self.conv_output_shape)
         x = self.conv_transpose_network(x)
         
-        B, _, X, Z = x.shape
-        x = x.view(B, self.out_channels, self.y_dim, X, Z)
-        x = x.permute(0, 1, 3, 2, 4)
-        
-        s_x, s_y, s_z = self.target_spatial_dims
-        x = x[:, :, :s_x, :s_y, :s_z]
+        # Crop to target dimension if necessary (due to conv arithmetic)
+        s_x, s_z = self.target_spatial_dims
+        x = x[:, :, :s_x, :s_z]
         
         return x
 
 
-class tcKoopmanAutoencoderQ2D(nn.Module):
-    """The main Temporally-Consistent Quasi-2D Koopman Autoencoder model."""
+class tcKoopmanAutoencoder2D(nn.Module):
+    """The main Temporally-Consistent 2D Koopman Autoencoder model."""
     def __init__(
         self,
         in_channels: int,
         latent_dim: int,
-        input_spatial_dims: tuple[int, int, int],
+        input_spatial_dims: tuple[int, int],
         steps: int,
         steps_back: int,
         steps_tc: int,
@@ -147,16 +135,14 @@ class tcKoopmanAutoencoderQ2D(nn.Module):
         self.steps_tc = steps_tc
         self.latent_dim = latent_dim
         
-        x_dim, y_dim, z_dim = input_spatial_dims
+        x_dim, z_dim = input_spatial_dims
         
-        self.encoder = EncoderQ2D(in_channels, y_dim, latent_dim)
+        self.encoder = Encoder2D(in_channels, latent_dim)
         
         with torch.no_grad():
-            dummy_input = torch.zeros(1, in_channels, x_dim, y_dim, z_dim)
-            B, C, X, Y, Z = dummy_input.shape
-            dummy_reshaped = dummy_input.permute(0, 1, 3, 2, 4).reshape(B, C * Y, X, Z)
+            dummy_input = torch.zeros(1, in_channels, x_dim, z_dim)
             
-            conv_output = self.encoder.conv_network(dummy_reshaped)
+            conv_output = self.encoder.conv_network(dummy_input)
             flattened_size = conv_output.flatten(1).shape[1]
             
             if self.use_bottleneck:
@@ -174,11 +160,10 @@ class tcKoopmanAutoencoderQ2D(nn.Module):
 
             conv_output_shape = conv_output.shape[1:]
 
-        self.decoder = DecoderQ2D(
+        self.decoder = Decoder2D(
             latent_dim=latent_dim,
             bottleneck_dim=bottleneck_dim,
             out_channels=in_channels,
-            y_dim=y_dim,
             encoder_flattened_size=flattened_size,
             conv_output_shape=conv_output_shape,
             target_spatial_dims=input_spatial_dims,
@@ -210,16 +195,6 @@ class tcKoopmanAutoencoderQ2D(nn.Module):
         x: torch.Tensor,
         mode: str = 'forward',
     ) -> Dict[str, List[torch.Tensor]]:
-        """
-        Performs a multi-step forward or backward pass.
-        
-        Args:
-            x (torch.Tensor): The initial state tensor of shape (B, C, X, Y, Z).
-            mode (str): 'forward' or 'backward'.
-        
-        Returns:
-            A dictionary containing lists of predicted states and latent states.
-        """
         if mode == 'forward':
             max_steps = max(self.steps, self.steps_tc)
             op = self.koopman_step
@@ -247,4 +222,3 @@ class tcKoopmanAutoencoderQ2D(nn.Module):
         predicted_states.append(self.decode(z))
         
         return {state_key: predicted_states, latent_key: latent_states}
-

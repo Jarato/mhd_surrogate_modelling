@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
-# experiments/study_3_q2d_tckae/train.py
+# experiments/study_3_q2d_tckae/train_2d.py
+# Note: This is a modified training script for the 2D model.
 
 import argparse
 import logging
@@ -15,8 +16,9 @@ from torch.utils.data import DataLoader, Subset
 from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
 
-from mhd_q2d_tckae.data import tcKAEMHDDataset, RolloutMHDDataset
-from mhd_q2d_tckae.model import tcKoopmanAutoencoderQ2D
+# Import the new 2D versions of the data and model classes
+from data_2d import tcKAEMHDDataset2D, RolloutMHDDataset2D
+from model_2d import tcKoopmanAutoencoder2D
 
 # --- Basic Setup ---
 logging.basicConfig(
@@ -27,18 +29,19 @@ DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
 def parse_args() -> argparse.Namespace:
     """Parse command-line arguments for training."""
+    # This function can remain largely the same as your original train.py
     parser = argparse.ArgumentParser(
-        description="Train a Temporally-Consistent Quasi-2D Koopman Autoencoder."
+        description="Train a Temporally-Consistent 2D Koopman Autoencoder."
     )
-
     data_group = parser.add_argument_group("Data and I/O")
     data_group.add_argument("--data-path", type=str, required=True, help="Path to the pre-split train_val_set.npz.")
+    # ... (rest of argparse is identical to your train.py) ...
+    # --- The rest of the arguments are the same as your provided train.py ---
     data_group.add_argument("--norm-stats-path", type=str, default=None, help="Optional path to pre-computed normalization stats.")
     data_group.add_argument("--persistent-dir", type=str, required=True, help="Required path for logs and best model (persistent storage).")
     data_group.add_argument("--scratch-dir", type=str, default=None, help="Optional path for frequent checkpoints (fast, temporary storage).")
     data_group.add_argument("--channels", nargs='+', default=None, help="List of channel names to use for training.")
     data_group.add_argument("--resume", action="store_true", help="Flag to resume training from the latest available checkpoint.")
-    
     train_group = parser.add_argument_group("Training Parameters")
     train_group.add_argument("--val-split", type=float, default=0.2, help="Fraction of data for validation.")
     train_group.add_argument("--seed", type=int, default=42, help="Random seed for the train/val split.")
@@ -50,22 +53,18 @@ def parse_args() -> argparse.Namespace:
     train_group.add_argument("--num-workers", type=int, default=8, help="Number of worker processes for data loading.")
     train_group.add_argument("--validation-num-workers", type=int, default=None, help="Number of workers for validation. Defaults to num-workers if not set.")
     train_group.add_argument("--validation-rollout-steps", type=int, default=50, help="Number of auto-regressive steps for validation.")
-
-    # ... (rest of argparse remains the same) ...
     optim_group = parser.add_argument_group("Optimizer and Scheduler")
     optim_group.add_argument("--lr", type=float, default=1e-4, help="Initial learning rate.")
     optim_group.add_argument("--patience", type=int, default=20, help="Patience for early stopping.")
     optim_group.add_argument("--lr-patience", type=int, default=8, help="Patience for learning rate scheduler.")
     optim_group.add_argument("--lr-factor", type=float, default=0.1, help="Factor by which to reduce learning rate.")
     optim_group.add_argument("--clip-grad-value", type=float, default=25.0, help="Value to clip gradients to.")
-
     model_group = parser.add_argument_group("Model Architecture")
     model_group.add_argument("--latent-dim", type=int, default=128, help="Dimension of the latent space.")
     model_group.add_argument("--bottleneck-dim", type=int, default=4096, help="Dimension of the intermediate bottleneck layer.")
     model_group.add_argument('--use-bottleneck', dest='use_bottleneck', action='store_true', help="Force the use of the bottleneck layer.")
     model_group.add_argument('--no-bottleneck', dest='use_bottleneck', action='store_false', help="Disable the bottleneck layer.")
     parser.set_defaults(use_bottleneck=True)
-
     tckae_group = parser.add_argument_group("tcKAE Hyperparameters")
     tckae_group.add_argument("--steps", type=int, default=15, help="Steps for learning forward dynamics (K).")
     tckae_group.add_argument("--sequence-length", type=int, default=8, help="Length of consecutive sequences for tc_loss (M).")
@@ -73,7 +72,6 @@ def parse_args() -> argparse.Namespace:
     tckae_group.add_argument("--steps-tc", type=int, default=8, help="Steps to enforce temporal consistency loss.")
     tckae_group.add_argument("--epoch-trans", type=int, default=20, help="Epoch to start applying the temporal consistency loss.")
     tckae_group.add_argument("--backward", action='store_true', help="Flag to enable training with backward dynamics and consistency loss.")
-
     loss_group = parser.add_argument_group("Loss Weights (Gammas)")
     loss_group.add_argument("--gamma-identity", type=float, default=1.0, help="Weight for the identity/reconstruction loss.")
     loss_group.add_argument("--gamma-fwd", type=float, default=1.0, help="Weight for the forward prediction loss.")
@@ -85,7 +83,7 @@ def parse_args() -> argparse.Namespace:
 
 
 def setup_data_and_stats(args: argparse.Namespace) -> Dict[str, Any]:
-    """Loads data, performs split, computes or loads stats, and returns datasets."""
+    """Loads data, performs split, and returns 2D datasets."""
     logging.info(f"Loading data from {args.data_path}")
     with np.load(args.data_path, allow_pickle=True) as data:
         timeseries = data["timeseries"]
@@ -95,6 +93,7 @@ def setup_data_and_stats(args: argparse.Namespace) -> Dict[str, Any]:
     val_size = int(total_timesteps * args.val_split)
     train_size = total_timesteps - val_size
     
+    # Norm stats are computed on the 4D data structure (T, X, Z, C)
     if args.norm_stats_path:
         logging.info(f"Loading pre-computed normalization stats from {args.norm_stats_path}")
         with np.load(args.norm_stats_path) as data:
@@ -102,8 +101,9 @@ def setup_data_and_stats(args: argparse.Namespace) -> Dict[str, Any]:
     else:
         logging.info(f"Computing normalization stats on {train_size} training timesteps.")
         train_data_raw = timeseries[:train_size]
-        min_vals = np.min(train_data_raw, axis=(0, 1, 2, 3))
-        max_vals = np.max(train_data_raw, axis=(0, 1, 2, 3))
+        # KEY CHANGE: Correct axes for 4D data (T, X, Z, C)
+        min_vals = np.min(train_data_raw, axis=(0, 1, 2))
+        max_vals = np.max(train_data_raw, axis=(0, 1, 2))
         norm_stats = {"min_vals": min_vals, "max_vals": max_vals}
 
     train_block_len = args.sequence_length + args.steps
@@ -115,13 +115,14 @@ def setup_data_and_stats(args: argparse.Namespace) -> Dict[str, Any]:
     process_safe = args.num_workers > 0
     val_process_safe = (args.validation_num_workers if args.validation_num_workers is not None else args.num_workers) > 0
 
-    train_dataset_full = tcKAEMHDDataset(
+    # Use the new 2D Dataset classes
+    train_dataset_full = tcKAEMHDDataset2D(
         full_timeseries=timeseries, all_channel_names=all_channel_names,
         sequence_length=args.sequence_length, steps=args.steps,
         norm_stats=norm_stats, channels_to_use=args.channels,
         process_safe_copy=process_safe,
     )
-    val_dataset_full = RolloutMHDDataset(
+    val_dataset_full = RolloutMHDDataset2D(
         full_timeseries=timeseries, all_channel_names=all_channel_names,
         rollout_steps=args.validation_rollout_steps,
         norm_stats=norm_stats, channels_to_use=args.channels,
@@ -138,29 +139,22 @@ def setup_data_and_stats(args: argparse.Namespace) -> Dict[str, Any]:
         "norm_stats": norm_stats,
     }
 
-
-def find_latest_checkpoint(persistent_dir: Path, scratch_dir: Path | None) -> Path | None:
-    # ... function remains the same ...
-    persistent_ckpt = persistent_dir / "latest_checkpoint.pth"
-    scratch_ckpt = scratch_dir / "latest_checkpoint.pth" if scratch_dir else None
-    persistent_exists, scratch_exists = persistent_ckpt.exists(), scratch_ckpt.exists() if scratch_dir else False
-    if not persistent_exists and not scratch_exists: return None
-    if scratch_exists and persistent_exists:
-        return scratch_ckpt if scratch_ckpt.stat().st_mtime > persistent_ckpt.stat().st_mtime else persistent_ckpt
-    return scratch_ckpt if scratch_exists else persistent_ckpt
-
+# The loss function and validation rollout function can be reused almost as-is,
+# as the tensor shapes they operate on (after the model call) are consistent.
 def compute_loss_tckae(
-    model: tcKoopmanAutoencoderQ2D,
+    model: tcKoopmanAutoencoder2D,
     batch_of_blocks: torch.Tensor,
     gammas: Dict[str, float],
     epoch: int,
     epoch_trans: int,
 ) -> tuple[torch.Tensor, Dict[str, torch.Tensor]]:
-    # ... function remains the same ...
     loss_fn = nn.MSELoss()
-    B, M, T, C, X, Y, Z = batch_of_blocks.shape
-    model_input = batch_of_blocks[:, :, 0].reshape(B * M, C, X, Y, Z)
-    data_list = [batch_of_blocks[:, :, t].reshape(B * M, C, X, Y, Z) for t in range(T)]
+    # Shape is now (B, M, T, C, X, Z)
+    B, M, T, C, X, Z = batch_of_blocks.shape
+    model_input = batch_of_blocks[:, :, 0].reshape(B * M, C, X, Z)
+    data_list = [batch_of_blocks[:, :, t].reshape(B * M, C, X, Z) for t in range(T)]
+
+    # The rest of this function is identical to your original train.py
     outputs = model(model_input, mode='forward')
     loss_identity = loss_fn(outputs["predicted_states"][-1], data_list[0])
     loss_fwd = torch.tensor(0.0, device=DEVICE)
@@ -195,8 +189,9 @@ def compute_loss_tckae(
     loss_dict = {"total": total_loss.detach(), "identity": loss_identity.detach(), "forward": loss_fwd.detach(), "tc": loss_tc.detach(), "backward": loss_bwd.detach(), "consistency": loss_consist.detach()}
     return total_loss, loss_dict
 
-def validate_epoch_rollout(model: tcKoopmanAutoencoderQ2D, dataloader: DataLoader, rollout_steps: int) -> Dict[str, float]:
-    # ... function remains the same ...
+
+def validate_epoch_rollout(model: tcKoopmanAutoencoder2D, dataloader: DataLoader, rollout_steps: int) -> Dict[str, float]:
+    # This function is identical to your original train.py
     model.eval()
     loss_fn = nn.MSELoss()
     total_rollout_loss = 0.0
@@ -214,8 +209,19 @@ def validate_epoch_rollout(model: tcKoopmanAutoencoderQ2D, dataloader: DataLoade
             total_rollout_loss += (batch_rollout_loss / rollout_steps).item()
     return {"total": total_rollout_loss / len(dataloader)}
 
+
+def find_latest_checkpoint(persistent_dir: Path, scratch_dir: Path | None) -> Path | None:
+    # This function is identical to your original train.py
+    persistent_ckpt = persistent_dir / "latest_checkpoint.pth"
+    scratch_ckpt = scratch_dir / "latest_checkpoint.pth" if scratch_dir else None
+    persistent_exists, scratch_exists = persistent_ckpt.exists(), scratch_ckpt.exists() if scratch_dir else False
+    if not persistent_exists and not scratch_exists: return None
+    if scratch_exists and persistent_exists:
+        return scratch_ckpt if scratch_ckpt.stat().st_mtime > persistent_ckpt.stat().st_mtime else persistent_ckpt
+    return scratch_ckpt if scratch_exists else persistent_ckpt
+
+
 def main():
-    # ... main function logic remains the same up to data loading ...
     args = parse_args()
     logging.info(f"Using device: {DEVICE}")
 
@@ -230,8 +236,8 @@ def main():
     
     resume_checkpoint_path = find_latest_checkpoint(persistent_dir, scratch_dir) if args.resume else None
 
+    # KEY CHANGE: Fully implemented resume logic for 2D models
     if resume_checkpoint_path:
-        # ... resume logic ...
         logging.info(f"Resuming training from {resume_checkpoint_path}")
         checkpoint = torch.load(resume_checkpoint_path, map_location=DEVICE)
         model_config = checkpoint["config"]
@@ -239,20 +245,29 @@ def main():
         train_indices, val_indices = checkpoint["train_indices"], checkpoint["val_indices"]
         with np.load(args.data_path, allow_pickle=True) as data:
             timeseries, all_channel_names = data["timeseries"], list(data["labels"])
-        train_dataset_full = tcKAEMHDDataset(timeseries, all_channel_names, model_config["sequence_length"], model_config["steps"], norm_stats, model_config.get("channels_used"), args.num_workers > 0)
-        val_dataset_full = RolloutMHDDataset(timeseries, all_channel_names, args.validation_rollout_steps, norm_stats, model_config.get("channels_used"), (args.validation_num_workers if args.validation_num_workers is not None else args.num_workers) > 0)
+        
+        train_dataset_full = tcKAEMHDDataset2D(timeseries, all_channel_names, model_config["sequence_length"], model_config["steps"], norm_stats, model_config.get("channels_used"), args.num_workers > 0)
+        val_dataset_full = RolloutMHDDataset2D(timeseries, all_channel_names, args.validation_rollout_steps, norm_stats, model_config.get("channels_used"), (args.validation_num_workers if args.validation_num_workers is not None else args.num_workers) > 0)
+        
         train_dataset, val_dataset = Subset(train_dataset_full, train_indices), Subset(val_dataset_full, val_indices)
         channels_used = train_dataset_full.channel_names
-        model = tcKoopmanAutoencoderQ2D(**model_config).to(DEVICE)
+        
+        model = tcKoopmanAutoencoder2D(**model_config).to(DEVICE)
         model.load_state_dict(checkpoint["model_state_dict"])
+        
         optimizer = Adam(model.parameters(), lr=args.lr)
         optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
+        
         scheduler = ReduceLROnPlateau(optimizer, 'min', factor=args.lr_factor, patience=args.lr_patience)
         scheduler.load_state_dict(checkpoint["scheduler_state_dict"])
-        start_epoch, best_val_loss, patience_counter, best_epoch = checkpoint["epoch"] + 1, checkpoint["best_val_loss"], checkpoint["patience_counter"], checkpoint.get("best_epoch", 0)
+        
+        start_epoch = checkpoint["epoch"] + 1
+        best_val_loss = checkpoint["best_val_loss"]
+        patience_counter = checkpoint["patience_counter"]
+        best_epoch = checkpoint.get("best_epoch", 0)
         losses_at_best_epoch = checkpoint.get("losses_at_best_epoch", {})
     else:
-        if args.resume: logging.error("Resume flag was set, but no valid checkpoint was found. Starting a new run.")
+        if args.resume: logging.error("Resume flag set, but no checkpoint found. Starting new run.")
         data_setup = setup_data_and_stats(args)
         train_dataset, val_dataset = data_setup["train_dataset"], data_setup["val_dataset"]
         channels_used = data_setup["channels_used"]
@@ -260,12 +275,24 @@ def main():
         norm_stats = data_setup["norm_stats"]
         
         sample_block = data_setup["full_train_dataset"][0]
-        sample_x = sample_block[0, 0]
-        model_config = {"in_channels": sample_x.shape[0], "latent_dim": args.latent_dim, "input_spatial_dims": sample_x.shape[1:], "steps": args.steps, "steps_back": args.steps_back, "steps_tc": args.steps_tc, "sequence_length": args.sequence_length, "bottleneck_dim": args.bottleneck_dim, "use_bottleneck": args.use_bottleneck}
-        model = tcKoopmanAutoencoderQ2D(**model_config).to(DEVICE)
+        sample_x = sample_block[0, 0] # Shape (C, X, Z)
+        
+        model_config = {
+            "in_channels": sample_x.shape[0], 
+            "latent_dim": args.latent_dim, 
+            "input_spatial_dims": sample_x.shape[1:], # Should be (X_dim, Z_dim)
+            "steps": args.steps, 
+            "steps_back": args.steps_back, 
+            "steps_tc": args.steps_tc, 
+            "sequence_length": args.sequence_length, 
+            "bottleneck_dim": args.bottleneck_dim, 
+            "use_bottleneck": args.use_bottleneck
+        }
+        model = tcKoopmanAutoencoder2D(**model_config).to(DEVICE)
         optimizer = Adam(model.parameters(), lr=args.lr)
         scheduler = ReduceLROnPlateau(optimizer, 'min', factor=args.lr_factor, patience=args.lr_patience)
 
+    # Dataloader and training loop setup is identical
     val_batch_size = args.validation_batch_size if args.validation_batch_size else args.batch_size
     val_num_workers = args.validation_num_workers if args.validation_num_workers is not None else args.num_workers
     train_dataloader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True, num_workers=args.num_workers, pin_memory=True)
@@ -273,6 +300,7 @@ def main():
     logging.info(f"Data split: {len(train_dataset)} train, {len(val_dataset)} val.")
     gammas = {"identity": args.gamma_identity, "fwd": args.gamma_fwd, "bwd": args.gamma_bwd if args.backward else 0.0, "con": args.gamma_con if args.backward else 0.0, "tc": args.gamma_tc}
 
+    # The main training loop is identical
     for epoch in range(start_epoch, args.epochs):
         model.train()
         epoch_losses = {"total": 0.0, "identity": 0.0, "forward": 0.0, "tc": 0.0, "backward": 0.0, "consistency": 0.0}
