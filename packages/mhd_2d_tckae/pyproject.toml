@@ -1,11 +1,11 @@
-# pyproject.toml for the mhd_q2d_tckae package
+# pyproject.toml for the mhd_2d_tckae package
 
 [build-system]
 requires = ["setuptools>=59.6.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "mhd_q2d_tckae"
+name = "mhd_2d_tckae"
 version = "0.1.0"
 authors = [
   { name="Michael Skowronek", email="michael.skowronek.91@gmail.com" },
