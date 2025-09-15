@@ -53,11 +53,15 @@ def main():
     with np.load(args.data_path, allow_pickle=True) as raw_data:
         full_timeseries = raw_data["timeseries"]
         full_labels = raw_data["labels"]
-        # --- THE FIX IS HERE (Part 1: Load coordinates) ---
-        x_coords = raw_data["x_coords"]
-        y_coords = raw_data["y_coords"]
-        z_coords = raw_data["z_coords"]
-    
+        
+        # KEY CHANGE: Conditionally load coordinates that exist in the file
+        coords_to_save = {}
+        for coord in ["x_coords", "y_coords", "z_coords"]:
+            if coord in raw_data:
+                coords_to_save[coord] = raw_data[coord]
+        
+        logging.info(f"Found coordinate arrays: {list(coords_to_save.keys())}")
+
     num_timesteps = full_timeseries.shape[0]
     logging.info(f"Full dataset loaded with {num_timesteps} snapshots.")
 
@@ -69,9 +73,9 @@ def main():
 
     if len(train_val_timeseries) < 2 or len(test_timeseries) < 2:
          raise ValueError(
-            "The dataset is too small to create a non-empty train/val and test split. "
-            "Please use a larger dataset or adjust the split ratio."
-        )
+             "The dataset is too small to create a non-empty train/val and test split. "
+             "Please use a larger dataset or adjust the split ratio."
+         )
 
     logging.info(
         f"Splitting data chronologically: "
@@ -83,13 +87,12 @@ def main():
     train_val_path = output_dir / "train_val_set.npz"
     test_path = output_dir / "test_set.npz"
 
+    # KEY CHANGE: Use the dictionary of existing coordinates when saving
     np.savez(
         train_val_path,
         timeseries=train_val_timeseries,
         labels=full_labels,
-        x_coords=x_coords,
-        y_coords=y_coords,
-        z_coords=z_coords,
+        **coords_to_save,
     )
     logging.info(f"Train/Validation set saved to {train_val_path}")
 
@@ -97,9 +100,7 @@ def main():
         test_path,
         timeseries=test_timeseries,
         labels=full_labels,
-        x_coords=x_coords,
-        y_coords=y_coords,
-        z_coords=z_coords,
+        **coords_to_save,
     )
     logging.info(f"Contiguous test set saved to {test_path}")
 
