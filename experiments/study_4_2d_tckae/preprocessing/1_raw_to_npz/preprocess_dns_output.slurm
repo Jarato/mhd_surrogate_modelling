@@ -23,10 +23,10 @@
 #SBATCH --time=00:30:00
 
 # -- Resource Allocation (Optimized for Test Partition) --
-# Requesting 14 CPU cores, the optimal number for an 80GB memory footprint.
+# Requesting 10 CPU cores as per your last configuration.
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
-#SBATCH --cpus-per-task=13
+#SBATCH --cpus-per-task=10
 
 # -- Memory Request --
 # Requesting 80GB, the empirically determined maximum for this job on the test partition.
@@ -51,7 +51,6 @@
 #==============================================================================
 # Job Execution
 #==============================================================================
-
 echo "Job started on $(hostname) at $(date)"
 echo "SLURM assigned me ${SLURM_CPUS_PER_TASK} CPUs on ${SLURM_NODELIST}."
 
@@ -67,23 +66,27 @@ cd $SLURM_SUBMIT_DIR
 
 # Define paths for input and output data.
 INPUT_DATA_DIR="/hppfs/work/pn67la/di97yic/01-Cold_Runs/01-Re16K_Ha325/"
-OUTPUT_FILE="/hppfs/work/pn67la/di97hev/output/01-Cold_Runs/01-Re16K_Ha325.npz"
+OUTPUT_FILE="/hppfs/work/pn67la/di97hev/output/01-Cold_Runs/01-Re16K_Ha325/T1492_x1151_y1_z127_c2.npz"
 
 # --- Production Run ---
-# Execute the Python script on all 575 timesteps.
-# The number of workers is set to the number of CPUs allocated by SLURM (14).
-echo "Running Python script for all 575 timesteps..."
+# Execute the Python script on all timesteps.
+# The number of workers is set to the number of CPUs allocated by SLURM.
+echo "Running Python script ..."
 python preprocess_dns_output.py \
-    --nx 2301 --ny 481 --nz 121 \
+    --nx 2301 \
+    --ny 481 \
+    --nz 121 \
     --input-dir ${INPUT_DATA_DIR} \
     --output-file ${OUTPUT_FILE} \
-    --time-start 0 \
-    --time-end 575 \
+    --time-start 200 \
+    --time-end 1693 \
     --num-workers ${SLURM_CPUS_PER_TASK} \
     --source-channel-labels vx vy vz T \
-    --channel-indices-to-keep 0 1 2 \
-    --num-x-samples 32 \
-    --y-indices-to-keep 3 240 477
+    --channel-indices-to-keep 0 2 \
+    --x-stride 1 \
+    --y-index-to-select 240 \
+    --interpolate-z \
+    --num-z-samples 255
 
 echo "Job finished at $(date)"
 
