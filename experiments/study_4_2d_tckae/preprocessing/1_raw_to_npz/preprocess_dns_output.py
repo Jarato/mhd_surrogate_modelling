@@ -47,7 +47,7 @@ def generate_mock_data(
     source_labels: List[str],
 ) -> None:
     """
-    Generates a mock dataset that mimics the Fortran binary output.
+    Generates a mock 3D dataset that mimics the Fortran binary output.
     """
     if dir_path.exists() and any(dir_path.iterdir()):
         logging.critical(
@@ -56,7 +56,7 @@ def generate_mock_data(
         )
         raise SystemExit()
 
-    logging.info(f"Generating mock data in '{dir_path}' with channels: {source_labels}")
+    logging.info(f"Generating mock 3D data in '{dir_path}' with channels: {source_labels}")
     dir_path.mkdir(parents=True, exist_ok=True)
 
     for t in tqdm(time_indices, desc="Generating mock files"):
@@ -64,7 +64,6 @@ def generate_mock_data(
         with open(filename, 'wb') as f:
             x_coords = np.linspace(0, 1, nx_points, dtype=np.float64)
             y_coords = np.linspace(0, 1, ny_points, dtype=np.float64)
-            # Create a non-uniform z-grid for a better interpolation test case
             z_coords = np.geomspace(1, 10, nz_points, dtype=np.float64) - 1
             x_coords.tofile(f)
             y_coords.tofile(f)
@@ -78,9 +77,6 @@ def generate_mock_data(
                     time_independent_val = channel_val + z * 0.01
                     if z == 0 or z == nz_points - 1:
                         data_slice.fill(time_independent_val)
-                    
-                    data_slice[:, 0] = time_independent_val
-                    data_slice[:, -1] = time_independent_val
                     
                     f.write(data_slice.tobytes(order='F'))
     logging.info("Mock data generation complete.")
@@ -101,24 +97,24 @@ def process_single_file(
     nx: int,
     ny: int,
     nz: int,
+    y_index_to_select: int,
     num_input_channels: int,
     itemsize: int,
     coord_offset_count: int,
     input_dtype: np.dtype,
     output_dtype: np.dtype,
     channel_indices_to_keep: List[int],
-    y_indices: List[int],
     x_subsample_indices: np.ndarray,
     total_expected_bytes: int,
     z_coords_full: np.ndarray,
     new_z_coords: np.ndarray,
 ) -> None:
     """
-    Worker function that processes a single timestep file.
+    Worker function that processes a single timestep file, extracting one y-slice.
     """
     i, t = time_index_tuple
     filename = input_dir / f"{prefix}{t:06d}"
-
+    
     actual_bytes = filename.stat().st_size
     if actual_bytes != total_expected_bytes:
         tqdm.write(
@@ -134,25 +130,24 @@ def process_single_file(
         data_4d_physical = channel_data_1d.reshape((nz, num_input_channels, ny, nx))
         data_4d_logical = data_4d_physical.transpose(1, 0, 2, 3)
         selected_channels_data = data_4d_logical[channel_indices_to_keep, :, :, :]
-        subsampled_spatial_data = selected_channels_data[:, :, y_indices, :][:, :, :, x_subsample_indices]
+        
+        # Select the single y-slice and subsample x
+        y_slice_data = selected_channels_data[:, :, [y_index_to_select], :][:, :, :, x_subsample_indices]
 
-        # --- Z-Interpolation Step ---
         if new_z_coords is not None:
-            # The data to be interpolated has shape (channels, z, y, x)
-            # We need to interpolate along the z-axis (axis=1)
-            spline = make_interp_spline(z_coords_full, subsampled_spatial_data, k=1, axis=1)
+            spline = make_interp_spline(z_coords_full, y_slice_data, k=1, axis=1)
             interpolated_data = spline(new_z_coords)
         else:
-            interpolated_data = subsampled_spatial_data
+            interpolated_data = y_slice_data
 
-        # Final transpose to get C-style order: (x, y, z, channel)
         transposed_timestep = interpolated_data.transpose(3, 2, 1, 0)
+        final_timestep_2d = np.squeeze(transposed_timestep, axis=1)
 
     except ValueError as e:
         tqdm.write(f"ERROR: Failed to reshape or process data for {filename}. Check dimensions and source channel list.")
         raise e
     
-    memmap_array[i] = transposed_timestep.astype(output_dtype)
+    memmap_array[i] = final_timestep_2d.astype(output_dtype)
 
 
 def process_and_subsample(
@@ -163,8 +158,8 @@ def process_and_subsample(
     nx: int,
     ny: int,
     nz: int,
+    y_index_to_select: int,
     x_stride: int,
-    y_indices: List[int],
     channel_indices_to_keep: List[int],
     num_input_channels: int,
     num_output_channels: int,
@@ -174,9 +169,9 @@ def process_and_subsample(
     num_z_samples: int,
 ) -> None:
     """
-    The core function to read, subsample, and save the data in parallel.
+    The core function to read, subsample, and save a 2D slice from 3D data in parallel.
     """
-    logging.info("Starting subsampling process (Parallel, Memory-Safe, float32 output)...")
+    logging.info("Starting 2D subsampling process (Parallel, Memory-Safe, float32 output)...")
     
     x_subsample_indices = np.arange(0, nx, x_stride)
     num_x_samples = len(x_subsample_indices)
@@ -196,11 +191,10 @@ def process_and_subsample(
     first_file_path = input_dir / f"{prefix}{time_indices[0]:06d}"
     with open(first_file_path, 'rb') as f:
         x_coords_full = np.fromfile(f, dtype=input_dtype, count=nx)
-        y_coords_full = np.fromfile(f, dtype=input_dtype, count=ny)
+        _ = np.fromfile(f, dtype=input_dtype, count=ny)
         z_coords_full = np.fromfile(f, dtype=input_dtype, count=nz)
 
     x_coords_sub = x_coords_full[x_subsample_indices].astype(output_dtype)
-    y_coords_sub = y_coords_full[y_indices].astype(output_dtype)
     
     if interpolate_z:
         logging.info(f"Z-axis interpolation enabled. Creating uniform grid with {num_z_samples} points.")
@@ -211,9 +205,8 @@ def process_and_subsample(
         z_coords_final = z_coords_full.astype(output_dtype)
         final_nz = nz
 
-    logging.info(f"Final coordinate shapes: x={x_coords_sub.shape}, y={y_coords_sub.shape}, z={z_coords_final.shape}")
-    
-    final_shape = (len(time_indices), num_x_samples, len(y_indices), final_nz, num_output_channels)
+    final_shape = (len(time_indices), num_x_samples, final_nz, num_output_channels)
+    logging.info(f"Final coordinate shapes: x={x_coords_sub.shape}, z={z_coords_final.shape}")
     
     temp_filename = output_file.with_suffix(output_file.suffix + ".tmp")
     
@@ -228,13 +221,13 @@ def process_and_subsample(
         nx=nx,
         ny=ny,
         nz=nz,
+        y_index_to_select=y_index_to_select,
         num_input_channels=num_input_channels,
         itemsize=itemsize,
         coord_offset_count=coord_offset_count,
         input_dtype=input_dtype,
         output_dtype=output_dtype,
         channel_indices_to_keep=channel_indices_to_keep,
-        y_indices=y_indices,
         x_subsample_indices=x_subsample_indices,
         total_expected_bytes=total_expected_bytes,
         z_coords_full=z_coords_full,
@@ -246,12 +239,12 @@ def process_and_subsample(
 
     logging.info(f"Packaging final data into {output_file}...")
     final_timeseries = np.memmap(temp_filename, dtype=output_dtype, mode='r', shape=final_shape)
+    
     np.savez_compressed(
         output_file,
         timeseries=final_timeseries,
         labels=np.array(final_channel_labels),
         x_coords=x_coords_sub,
-        y_coords=y_coords_sub,
         z_coords=z_coords_final,
     )
     
@@ -283,30 +276,28 @@ def verify_output(output_file: Path):
 
     with np.load(output_file) as data:
         logging.info("Successfully loaded archive.")
-        logging.info(f"Keys found in file: {list(data.keys())}")
+        keys = list(data.keys())
+        logging.info(f"Keys found in file: {keys}")
+
+        if 'y_coords' in keys:
+            logging.error("FAILURE: 'y_coords' key found in output, which is not expected for 2D data.")
+            return
 
         timeseries_data = data['timeseries']
-        labels = data['labels']
-        x_coords = data['x_coords']
-        y_coords = data['y_coords']
-        z_coords = data['z_coords']
+        z_axis_index = 2
 
         logging.info(f"Shape of 'timeseries' array: {timeseries_data.shape}")
         logging.info(f"Data type of 'timeseries' array: {timeseries_data.dtype}")
-        logging.info(f"Content of 'labels' array: {labels}")
-        logging.info(f"Shape of 'x_coords' array: {x_coords.shape}")
-        logging.info(f"Shape of 'y_coords' array: {y_coords.shape}")
-        logging.info(f"Shape of 'z_coords' array: {z_coords.shape}")
-
+        
         logging.info("Verifying boundary conditions...")
         all_boundaries_ok = True
         num_timesteps = timeseries_data.shape[0]
 
         if num_timesteps > 1:
             for z_boundary_idx in [0, -1]:
-                first_step_slice = timeseries_data[0, :, :, z_boundary_idx, :]
+                first_step_slice = timeseries_data[0, :, z_boundary_idx, :]
                 for t in range(1, num_timesteps):
-                    current_step_slice = timeseries_data[t, :, :, z_boundary_idx, :]
+                    current_step_slice = timeseries_data[t, :, z_boundary_idx, :]
                     if not np.allclose(first_step_slice, current_step_slice):
                         logging.error(f"FAILURE: Z-boundary at index {z_boundary_idx} is NOT constant across timesteps.")
                         all_boundaries_ok = False
@@ -326,14 +317,14 @@ def main():
     Main function to parse arguments and run the subsampling process.
     """
     parser = argparse.ArgumentParser(
-        description="Subsample 3D timeseries data from Fortran-style binary files.",
+        description="Subsample a 2D slice from 3D timeseries data from Fortran-style binary files.",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter
     )
 
     # --- Dimension Arguments ---
-    parser.add_argument('--nx', type=int, required=True, help="Number of grid POINTS (not spaces) on the x-axis.")
-    parser.add_argument('--ny', type=int, required=True, help="Number of grid POINTS (not spaces) on the y-axis.")
-    parser.add_argument('--nz', type=int, required=True, help="Number of grid POINTS (not spaces) on the z-axis.")
+    parser.add_argument('--nx', type=int, required=True, help="Number of original grid POINTS on the x-axis.")
+    parser.add_argument('--ny', type=int, required=True, help="Number of original grid POINTS on the y-axis.")
+    parser.add_argument('--nz', type=int, required=True, help="Number of original grid POINTS on the z-axis.")
 
     # --- I/O Arguments ---
     parser.add_argument('--input-dir', type=Path, default=Path("./output/timeseries_data/"), help="Directory containing the input timeseries files.")
@@ -344,16 +335,16 @@ def main():
     parser.add_argument('--generate-mock-data', action='store_true', help="If set, generate a local test dataset before running.")
 
     # --- Channel Arguments ---
-    parser.add_argument('--source-channel-labels', type=str, nargs='+', default=['vx', 'vy', 'vz', 'T'], help="Space-separated list of ALL channel labels in the source data order.")
-    parser.add_argument('--channel-indices-to-keep', type=int, nargs='+', default=[0, 1, 2, 3], help="Space-separated list of channel indices to keep in the final output.")
+    parser.add_argument('--source-channel-labels', type=str, nargs='+', default=['vx', 'vz', 'T'], help="Space-separated list of ALL channel labels in the source data order.")
+    parser.add_argument('--channel-indices-to-keep', type=int, nargs='+', default=[0, 1], help="Space-separated list of channel indices to keep in the final output.")
 
     # --- Timeseries Arguments ---
     parser.add_argument('--time-start', type=int, default=0, help="Starting time index to process.")
     parser.add_argument('--time-end', type=int, default=4, help="Ending time index to process (exclusive).")
 
     # --- Subsampling Arguments ---
+    parser.add_argument('--y-index-to-select', type=int, required=True, help="The single y-index to select to create the x-z slice.")
     parser.add_argument('--x-stride', type=int, default=1, help="Step size for subsampling the x-axis. 1 keeps all points, 2 keeps every second point, etc.")
-    parser.add_argument('--y-indices-to-keep', type=int, nargs='+', default=[3, 10, 17], help="Space-separated list of specific y-indices to keep.")
     parser.add_argument('--num-workers', type=int, default=1, help="Number of parallel worker processes to use. Set to -1 to use all available cores.")
     
     # --- Interpolation Arguments ---
@@ -364,9 +355,11 @@ def main():
 
     setup_logging()
 
-    # --- Input Validation ---
     if args.time_start >= args.time_end:
         parser.error(f"--time-start ({args.time_start}) must be less than --time-end ({args.time_end}).")
+    if not 0 <= args.y_index_to_select < args.ny:
+        parser.error(f"--y-index-to-select ({args.y_index_to_select}) is out of bounds for --ny ({args.ny}).")
+
 
     num_workers = args.num_workers
     if num_workers == -1:
@@ -387,6 +380,7 @@ def main():
 
     Nx, Ny, Nz = args.nx, args.ny, args.nz
     logging.info(f"Using provided dimensions: Nx={Nx}, Ny={Ny}, Nz={Nz}")
+    logging.info(f"Selecting y-index: {args.y_index_to_select}")
 
     final_channel_labels = [args.source_channel_labels[i] for i in args.channel_indices_to_keep]
     num_input_channels = len(args.source_channel_labels)
@@ -402,8 +396,8 @@ def main():
         nx=Nx,
         ny=Ny,
         nz=Nz,
+        y_index_to_select=args.y_index_to_select,
         x_stride=args.x_stride,
-        y_indices=args.y_indices_to_keep,
         channel_indices_to_keep=args.channel_indices_to_keep,
         num_input_channels=num_input_channels,
         num_output_channels=num_output_channels,
@@ -418,3 +412,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
