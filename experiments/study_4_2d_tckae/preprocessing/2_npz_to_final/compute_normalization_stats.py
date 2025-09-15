@@ -55,7 +55,7 @@ def main():
     train_size = total_timesteps - val_size
     
     train_data = timeseries[:train_size]
-    logging.info(f"Temporal split identified: Using first {train_size} of {total_timemsteps} timesteps for stats calculation.")
+    logging.info(f"Temporal split identified: Using first {train_size} of {total_timesteps} timesteps for stats calculation.")
 
     if train_size < 1:
         raise ValueError("The training set is empty. Cannot compute statistics.")
@@ -89,3 +89,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
