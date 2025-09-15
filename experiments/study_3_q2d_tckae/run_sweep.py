@@ -14,8 +14,8 @@ import argparse
 
 # --- Script and Data Paths ---
 TRAIN_SCRIPT = "train.py"
-DATA_PATH = "/raid/skowronek/preprocessed_dns_output/01-Cold_Runs/01-Re16K_Ha325/T1220_x2301_y5_z256_c3/preprocessed/train_val_set.npz"
-NORM_STATS_PATH = "/raid/skowronek/preprocessed_dns_output/01-Cold_Runs/01-Re16K_Ha325/T1220_x2301_y5_z256_c3/preprocessed/normalization_stats.npz"
+DATA_PATH = "/raid/skowronek/preprocessed_dns_output/01-Cold_Runs/01-Re16K_Ha325/T1220_x1151_y5_z127_c3/preprocessed/train_val_set.npz"
+NORM_STATS_PATH = "/raid/skowronek/preprocessed_dns_output/01-Cold_Runs/01-Re16K_Ha325/T1220_x1151_y5_z127_c3/preprocessed/normalization_stats.npz"
 # DATA_PATH = "/raid/skowronek/preprocessed_dns_output/01-Cold_Runs/01-Re16K_Ha325/interp/prep2/train_val_set.npz"
 # NORM_STATS_PATH = "/raid/skowronek/preprocessed_dns_output/01-Cold_Runs/01-Re16K_Ha325/interp/prep2/normalization_stats.npz"
 
@@ -30,20 +30,21 @@ BASE_SCRATCH_DIR = None
 # Define the parameter space for the grid search.
 param_grid = {
     'lr': [1e-4],
-    'latent_dim': [128],
+    'latent_dim': [256],
     'bottleneck_dim': [4096],
-    'use_bottleneck': [False],
-    'batch_size': [1],
-    'validation_batch_size': [1],
-    'sequence_length': [2], # This is M - Reduced from 4 to 2 to lower memory usage
-    'steps': [2],              # This is K for forward dynamics
-    'steps_back': [2],         # K for backward dynamics
-    'steps_tc': [2],
+    'use_bottleneck': [True],
+    'batch_size': [8],
+    'validation_batch_size': [8],
+    'sequence_length': [8], # This is M - Reduced from 4 to 2 to lower memory usage
+    'steps': [8],              # This is K for forward dynamics
+    'steps_back': [0],         # K for backward dynamics
+    'steps_tc': [8],
+    'epoch-trans': [0],
     'gamma_identity': [1.0],
     'gamma_fwd': [1.0],
     'gamma_tc': [1.0],
-    'gamma_bwd': [1.0],         # Used only if backward=True
-    'gamma_con': [1e-4],        # Used only if backward=True
+    'gamma_bwd': [0],         # Used only if backward=True
+    'gamma_con': [0],        # Used only if backward=True
     'backward': [False],  # Sweep between tcKAE and tcKAE+cKAE
 }
 
@@ -53,13 +54,13 @@ fixed_args = {
     "epochs": 2,
     "patience": 40,
     "lr_patience": 10,
-    "clip_grad_value": 1,
+    "clip_grad_value": 128,
     "lr_factor": 0.1,
-    "num_workers": 0,
-    "validation_num_workers": 0,
+    "num_workers": 2,
+    "validation_num_workers": 2,
     "checkpoint_save_freq": 32,
     "persistent_save_freq": 1024,
-    "validation_rollout_steps": 64,
+    "validation_rollout_steps": 8,
 }
 
 
@@ -75,7 +76,7 @@ def main():
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
     logging.info("Starting tcKAE hyperparameter sweep...")
-
+    
     # Create a list of all hyperparameter combinations
     keys, values = zip(*param_grid.items())
     run_configs = [dict(zip(keys, v)) for v in itertools.product(*values)]
