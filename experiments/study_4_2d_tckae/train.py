@@ -17,8 +17,8 @@ from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
 
 # Import the new 2D versions of the data and model classes
-from data_2d import tcKAEMHDDataset2D, RolloutMHDDataset2D
-from model_2d import tcKoopmanAutoencoder2D
+from mhd_2d_tckae.data import tcKAEMHDDataset2D, RolloutMHDDataset2D
+from mhd_2d_tckae.model import tcKoopmanAutoencoder2D
 
 # --- Basic Setup ---
 logging.basicConfig(
