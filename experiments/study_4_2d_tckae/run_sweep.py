@@ -14,14 +14,14 @@ import argparse
 
 # --- Script and Data Paths ---
 TRAIN_SCRIPT = "train.py"
-DATA_PATH = "/raid/skowronek/preprocessed_dns_output/01-Cold_Runs/01-Re16K_Ha325/T1220_x1151_y5_z127_c3/preprocessed/train_val_set.npz"
-NORM_STATS_PATH = "/raid/skowronek/preprocessed_dns_output/01-Cold_Runs/01-Re16K_Ha325/T1220_x1151_y5_z127_c3/preprocessed/normalization_stats.npz"
+DATA_PATH = "/raid/skowronek/preprocessed_dns_output/01-Cold_Runs/01-Re16K_Ha325/T1492_x1151_y1_z127_c2/preprocessed/train_val_set.npz"
+NORM_STATS_PATH = "/raid/skowronek/preprocessed_dns_output/01-Cold_Runs/01-Re16K_Ha325/T1492_x1151_y1_z127_c2/preprocessed/normalization_stats.npz"
 # DATA_PATH = "/raid/skowronek/preprocessed_dns_output/01-Cold_Runs/01-Re16K_Ha325/interp/prep2/train_val_set.npz"
 # NORM_STATS_PATH = "/raid/skowronek/preprocessed_dns_output/01-Cold_Runs/01-Re16K_Ha325/interp/prep2/normalization_stats.npz"
 
 # Define the mandatory persistent directory and optional scratch directory
 # These will be the top-level directories for all sweep runs.
-BASE_PERSISTENT_DIR = Path("/cephfs/users/skowronek/Documents/PhD/nuclear_fusion_cooling/prediction/mhd_surrogate_modelling/experiments/study_3_q2d_tckae/output/test/")
+BASE_PERSISTENT_DIR = Path("/cephfs/users/skowronek/Documents/PhD/nuclear_fusion_cooling/prediction/mhd_surrogate_modelling/experiments/study_4_2d_tckae/output/test/")
 
 # BASE_SCRATCH_DIR = Path("/raid/skowronek/mhd_surrogate_modelling/experiments/study_3_q2d_tckae/output/test/")
 BASE_SCRATCH_DIR = None
@@ -32,7 +32,7 @@ param_grid = {
     'lr': [1e-4],
     'latent_dim': [256],
     'bottleneck_dim': [4096],
-    'use_bottleneck': [True],
+    'use_bottleneck': [False],
     'batch_size': [8],
     'validation_batch_size': [8],
     'sequence_length': [8], # This is M - Reduced from 4 to 2 to lower memory usage
@@ -61,6 +61,7 @@ fixed_args = {
     "checkpoint_save_freq": 32,
     "persistent_save_freq": 1024,
     "validation_rollout_steps": 8,
+    "val-split": 0.1,
 }
 
 
