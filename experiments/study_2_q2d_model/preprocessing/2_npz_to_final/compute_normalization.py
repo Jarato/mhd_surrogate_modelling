@@ -35,8 +35,13 @@ def parse_args():
     parser.add_argument(
         "--output-path",
         type=str,
-        default="data/processed/normalization_stats.npz",
-        help="Path to save the computed statistics and indices.",
+        default="data/processed/",
+        help=(
+            "Path to save the computed statistics. Can be a directory "
+            "(e.g., 'data/processed/') or a full file path (e.g., "
+            "'data/processed/stats.npz'). If a directory is provided, "
+            "the file will be named 'normalization_stats.npz'."
+        ),
     )
     parser.add_argument(
         "--val-split",
@@ -59,7 +64,16 @@ def main():
 
     # --- Setup ---
     output_path = Path(args.output_path)
+    # If the provided path has no file extension (suffix), we treat it as a directory
+    # and append the default filename.
+    if not output_path.suffix:
+        logging.info(
+            f"Output path '{output_path}' has no file suffix. Assuming it's a directory."
+        )
+        output_path = output_path / "normalization_stats.npz"
+
     output_path.parent.mkdir(parents=True, exist_ok=True)
+    logging.info(f"Final output path has been resolved to: {output_path}")
     generator = torch.Generator().manual_seed(args.seed)
 
     # --- Data Loading and Splitting ---
@@ -79,20 +93,28 @@ def main():
 
     # --- Compute Statistics on Training Set ONLY ---
     logging.info("Calculating min/max statistics per channel on the training set...")
-    
-    num_channels = train_dataset[0][0].shape[-1]
-    min_vals = np.full(num_channels, float('inf'))
-    max_vals = np.full(num_channels, float('-inf'))
+
+    # Get a sample to determine dimensionality for stat calculation.
+    sample_snapshot = train_dataset[0][0]
+    # The axes for reduction will be all except the last (channel) axis.
+    stat_axes = tuple(range(sample_snapshot.ndim - 1))
+    logging.info(
+        f"Sample data has {sample_snapshot.ndim} dimensions. Calculating stats over axes: {stat_axes}"
+    )
+
+    num_channels = sample_snapshot.shape[-1]
+    min_vals = np.full(num_channels, float("inf"))
+    max_vals = np.full(num_channels, float("-inf"))
 
     for x_t, x_t_plus_1 in train_dataset:
         for snapshot in (x_t, x_t_plus_1):
-            current_min = np.min(snapshot.numpy(), axis=(0, 1, 2))
-            current_max = np.max(snapshot.numpy(), axis=(0, 1, 2))
+            current_min = np.min(snapshot.numpy(), axis=stat_axes)
+            current_max = np.max(snapshot.numpy(), axis=stat_axes)
             min_vals = np.minimum(min_vals, current_min)
             max_vals = np.maximum(max_vals, current_max)
 
     logging.info("Min/Max calculation complete.")
-    
+
     # Log the computed statistics for each channel by name
     logging.info("--- Per-Channel Statistics ---")
     # The original dataset object holds the channel names
@@ -100,7 +122,6 @@ def main():
     for i, name in enumerate(channel_names):
         logging.info(f"Channel '{name}': Min = {min_vals[i]:.6f}, Max = {max_vals[i]:.6f}")
     logging.info("-----------------------------")
-
 
     # --- Save the Statistics and Indices ---
     np.savez(
