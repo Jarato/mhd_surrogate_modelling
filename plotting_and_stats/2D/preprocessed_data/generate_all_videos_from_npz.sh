@@ -29,7 +29,7 @@ OUTPUT_DIR="output/videos/"
 
 # Video and color scale parameters
 FPS=16
-NUM_WORKERS=64
+NUM_WORKERS=31
 UNIT_LABEL="" # Set to "" or "m/s", etc.
 COLOR_MAP="seismic" # E.g., coolwarm, bwr, seismic, plasma, viridis
 
