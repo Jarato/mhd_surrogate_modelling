@@ -57,7 +57,7 @@ for i in "${!channels[@]}"; do
     output_path="${OUTPUT_DIR}/${output_filename}"
 
     # Construct the full command for the 2D script
-    command="python create_video_from_npz_2d.py \
+    command="python create_video_from_npz.py \
         --input-npz \"$INPUT_NPZ\" \
         --output-path \"$output_path\" \
         --channel \"$channel\" \
