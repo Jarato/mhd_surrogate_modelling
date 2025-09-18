@@ -1,25 +1,26 @@
 #!/bin/bash
 
 # ==============================================================================
-# Batch Video Generation Script for Preprocessed NPZ Data
+# Batch Video Generation Script for Preprocessed 2D NPZ Data
 #
-# This script automatically generates videos for all three velocity components
-# (u, v, w) across all three slice orientations (xz, xy, yz).
+# This script automatically generates videos for all specified velocity components
+# (e.g., u, v, w).
 #
 # USAGE:
 # 1. Make this script executable:
-#    chmod +x generate_all_videos_from_npz.sh
+#    chmod +x generate_all_videos_from_npz_2d.sh
 #
 # 2. Modify the parameters in the "USER CONFIGURATION" section below.
 #
 # 3. Run the script from within the 'scripts' directory:
-#    ./generate_all_videos_from_npz.sh
+#    ./generate_all_videos_from_npz_2d.sh
 # ==============================================================================
 
 # --- USER CONFIGURATION ---
 
-# Path to the input NPZ file
-INPUT_NPZ="/raid/skowronek/preprocessed_dns_output/01-Cold_Runs/01-Re16K_Ha325/T1220_x1151_y5_z127_c3/T1220_x1151_y5_z127_c3.npz"
+# Path to the input 2D NPZ file
+INPUT_NPZ="/cephfs/users/skowronek/Documents/PhD/nuclear_fusion_cooling/data/preprocessed_dns_output/01-Cold_Runs/01-Re16K_Ha325/T1492_x1151_y1_z127_c2/T1492_x1151_y1_z127_c2.npz"
+# INPUT_NPZ="/cephfs/users/skowronek/Documents/PhD/nuclear_fusion_cooling/data/preprocessed_dns_output/01-Cold_Runs/01-Re16K_Ha325/T1492_x1151_y1_z127_c2/preprocessed/test_set.npz"
 
 # Directory to save the output videos
 OUTPUT_DIR="output/videos/"
@@ -31,78 +32,53 @@ UNIT_LABEL="" # Set to "" or "m/s", etc.
 COLOR_MAP="seismic" # E.g., coolwarm, bwr, seismic, plasma, viridis
 
 # Per-component min/max/center values for the color scale. Use space-separated "channel:value".
-VMINS="vx:-2.16 vy:-3 vz:-3"
-VMAXS="vx:3.84 vy:3 vz:3"
-VCENTERS="vx:0.84 vy:0.0 vz:0.0"
+# Adjust these channels and values to match your 2D dataset.
+VMINS="vx:-2.16 vz:-3"
+VMAXS="vx:3.84 vz:3"
+VCENTERS="vx:0.84 vz:0.0"
 
-# Central slice indices.
-# NOTE: You must know the dimensions of your preprocessed data to set these.
-# Based on your filename "T1220_x1151_y5_z127_c3", we assume:
-# - 5 points on the y-axis (indices 0-4), so central index is 2.
-# - 127 points on the z-axis (indices 0-126), so central index is 63.
-# - We don't need the x-index for a central slice, but it would be 1151/2 = 575.
-CENTRAL_Y_INDEX=2
-CENTRAL_Z_INDEX=63
-CENTRAL_X_INDEX=575 # This corresponds to the middle of the original 2301 points with a stride of 2.
 
 # --- SCRIPT LOGIC ---
 
 # Create the output directory if it doesn't exist
 mkdir -p "$OUTPUT_DIR"
 
-# Define the loops
-orientations=("xz" "xy" "yz")
-channels=("vx" "vy" "vz")
-aliases=("u" "v" "w")
+# Define the channels and their display aliases.
+# IMPORTANT: Adjust these to match the channels available in your 2D NPZ file.
+channels=("vx" "vz")
+aliases=("u" "w")
 
-# Loop through each slice orientation
-for orientation in "${orientations[@]}"; do
-    
-    # Determine the correct slice index for the current orientation
-    slice_index=0
-    if [ "$orientation" == "xz" ]; then
-        slice_index=$CENTRAL_Y_INDEX
-    elif [ "$orientation" == "xy" ]; then
-        slice_index=$CENTRAL_Z_INDEX
-    elif [ "$orientation" == "yz" ]; then
-        slice_index=$CENTRAL_X_INDEX
-    fi
+# Loop through each velocity component
+for i in "${!channels[@]}"; do
+    channel=${channels[$i]}
+    alias=${aliases[$i]}
 
-    # Loop through each velocity component
-    for i in "${!channels[@]}"; do
-        channel=${channels[$i]}
-        alias=${aliases[$i]}
+    # Construct the output filename dynamically
+    output_filename="preprocessed_2d_video_${alias}.mp4"
+    output_path="${OUTPUT_DIR}/${output_filename}"
 
-        # Construct the output filename dynamically
-        output_filename="preprocessed_${orientation}_slice_${alias}.mp4"
-        output_path="${OUTPUT_DIR}/${output_filename}"
+    # Construct the full command for the 2D script
+    command="python create_video_from_npz_2d.py \
+        --input-npz \"$INPUT_NPZ\" \
+        --output-path \"$output_path\" \
+        --channel \"$channel\" \
+        --channel-alias \"$alias\" \
+        --unit-label \"$UNIT_LABEL\" \
+        --fps $FPS \
+        --num-workers $NUM_WORKERS \
+        --vmins $VMINS \
+        --vmaxs $VMAXS \
+        --vcenters $VCENTERS \
+        --cmap \"$COLOR_MAP\""
 
-        # Construct the full command
-        command="python create_video_from_npz.py \
-            --input-npz \"$INPUT_NPZ\" \
-            --output-path \"$output_path\" \
-            --slice-orientation \"$orientation\" \
-            --slice-index $slice_index \
-            --channel \"$channel\" \
-            --channel-alias \"$alias\" \
-            --unit-label \"$UNIT_LABEL\" \
-            --fps $FPS \
-            --num-workers $NUM_WORKERS \
-            --vmins $VMINS \
-            --vmaxs $VMAXS \
-            --vcenters $VCENTERS \
-            --cmap \"$COLOR_MAP\""
-
-        # Print the command to the console and then execute it
-        echo "=============================================================================="
-        echo "Executing command:"
-        echo -e "$command"
-        echo "=============================================================================="
-        eval $command
-        echo "Video saved to $output_path"
-        echo ""
-    done
+    # Print the command to the console and then execute it
+    echo "=============================================================================="
+    echo "Executing command:"
+    echo -e "$command"
+    echo "=============================================================================="
+    eval $command
+    echo "Video saved to $output_path"
+    echo ""
 done
 
-echo "All video generation tasks are complete."
-
+echo "All 2D video generation tasks are complete."
