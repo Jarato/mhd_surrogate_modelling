@@ -26,6 +26,7 @@ def parse_args():
 
     # --- Output Paths ---
     out_group = parser.add_argument_group("Output Paths")
+    out_group.add_argument("--output-dir", type=str, default=None, help="Optional. A single directory to save all output files. Overrides specific path arguments.")
     out_group.add_argument("--stats-output-path", type=str, default=None, help="Path for the .npz file with analysis statistics. Defaults to 'eval/prediction_stats.npz' in the model's directory.")
     out_group.add_argument("--pred-output-path", type=str, default=None, help="Path for the .npz file with the predicted timeseries. Defaults to 'eval/predicted_timeseries.npz'.")
     out_group.add_argument("--diff-output-path", type=str, default=None, help="Path for the .npz file with the difference timeseries. Defaults to 'eval/difference_timeseries.npz'.")
@@ -40,12 +41,19 @@ def main():
     model_path = Path(args.model_path)
     
     # --- Setup Output Paths ---
-    eval_dir = model_path.parent / "eval"
-    eval_dir.mkdir(parents=True, exist_ok=True)
-    
-    stats_path = Path(args.stats_output_path) if args.stats_output_path else eval_dir / "prediction_stats.npz"
-    pred_path = Path(args.pred_output_path) if args.pred_output_path else eval_dir / "predicted_timeseries.npz"
-    diff_path = Path(args.diff_output_path) if args.diff_output_path else eval_dir / "difference_timeseries.npz"
+    if args.output_dir:
+        output_dir = Path(args.output_dir)
+        output_dir.mkdir(parents=True, exist_ok=True)
+        stats_path = output_dir / "prediction_stats.npz"
+        pred_path = output_dir / "predicted_timeseries.npz"
+        diff_path = output_dir / "difference_timeseries.npz"
+    else:
+        eval_dir = model_path.parent / "eval"
+        eval_dir.mkdir(parents=True, exist_ok=True)
+        stats_path = Path(args.stats_output_path) if args.stats_output_path else eval_dir / "prediction_stats.npz"
+        pred_path = Path(args.pred_output_path) if args.pred_output_path else eval_dir / "predicted_timeseries.npz"
+        diff_path = Path(args.diff_output_path) if args.diff_output_path else eval_dir / "difference_timeseries.npz"
+
 
     # --- Load Model from Checkpoint ---
     logging.info(f"Loading model from {model_path}")
@@ -173,3 +181,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
