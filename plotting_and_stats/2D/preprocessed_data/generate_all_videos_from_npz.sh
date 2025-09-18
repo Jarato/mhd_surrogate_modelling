@@ -20,7 +20,6 @@
 
 # Path to the input 2D NPZ file
 INPUT_NPZ="/cephfs/users/skowronek/Documents/PhD/nuclear_fusion_cooling/data/preprocessed_dns_output/01-Cold_Runs/01-Re16K_Ha325/T1492_x1151_y1_z127_c2/T1492_x1151_y1_z127_c2.npz"
-# INPUT_NPZ="/cephfs/users/skowronek/Documents/PhD/nuclear_fusion_cooling/data/preprocessed_dns_output/01-Cold_Runs/01-Re16K_Ha325/T1492_x1151_y1_z127_c2/preprocessed/test_set.npz"
 
 # Directory to save the output videos
 OUTPUT_DIR="output/videos/"
