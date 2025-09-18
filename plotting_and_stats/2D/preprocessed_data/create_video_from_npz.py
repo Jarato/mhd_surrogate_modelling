@@ -94,8 +94,8 @@ if __name__ == "__main__":
 
 ```bash
 python create_video_from_npz.py \
-    --input-npz /cephfs/users/skowronek/Documents/PhD/nuclear_fusion_cooling/prediction/mhd_surrogate_modelling/experiments/study_4_2d_tckae/output/ld512_M8_K8_Ktc8_gtc1.0_bwd_False/eval/predicted_timeseries.npz \
-    --output-path output/videos/preprocessed_xz_slice_u.mp4 \
+    --input-npz ~/Documents/PhD/nuclear_fusion_cooling/prediction/mhd_surrogate_modelling/experiments/study_4_2d_tckae/output/no_grad_clipping/ld512_M8_K8_Ktc8_gtc1.0_bwd_False/eval/predicted_timeseries.npz \
+    --output-path ~/Documents/PhD/nuclear_fusion_cooling/prediction/mhd_surrogate_modelling/experiments/study_4_2d_tckae/output/no_grad_clipping/ld512_M8_K8_Ktc8_gtc1.0_bwd_False/eval/videos/predicted_timeseries.mp4 \
     --channel vx \
     --channel-alias u \
     --unit-label "" \
