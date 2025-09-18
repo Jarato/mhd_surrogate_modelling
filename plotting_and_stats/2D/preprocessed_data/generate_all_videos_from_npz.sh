@@ -32,6 +32,9 @@ FPS=16
 NUM_WORKERS=31
 UNIT_LABEL="" # Set to "" or "m/s", etc.
 COLOR_MAP="seismic" # E.g., coolwarm, bwr, seismic, plasma, viridis
+BASE_SIZE=20.0 # The base size (in inches) for the longest dimension of the plot.
+MIN_SIZE=2.0 # The minimum size (in inches) for the shortest dimension of the plot.
+
 
 # Per-component min/max/center values for the color scale. Use space-separated "channel:value".
 # Adjust these channels and values to match your 2D dataset.
@@ -71,7 +74,9 @@ for i in "${!channels[@]}"; do
         --vmins $VMINS \
         --vmaxs $VMAXS \
         --vcenters $VCENTERS \
-        --cmap \"$COLOR_MAP\""
+        --cmap \"$COLOR_MAP\" \
+        --base-size $BASE_SIZE \
+        --min-size $MIN_SIZE"
 
     # Print the command to the console and then execute it
     echo "=============================================================================="
