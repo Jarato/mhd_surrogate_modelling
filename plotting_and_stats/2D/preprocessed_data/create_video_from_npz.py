@@ -104,7 +104,7 @@ python create_video_from_npz.py \
     --channel-alias u \
     --unit-label "" \
     --fps 16 \
-    --num-workers 16 \
+    --num-workers 31 \
     --vmins vx:-2.16 vz:-3 \
     --vmaxs vx:3.84 vz:3 \
     --vcenters vx:0.84 vz:0.0 \
