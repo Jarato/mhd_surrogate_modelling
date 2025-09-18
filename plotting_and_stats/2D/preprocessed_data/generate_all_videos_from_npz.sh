@@ -18,6 +18,9 @@
 
 # --- USER CONFIGURATION ---
 
+# Path to the Python script that generates the video
+VIDEO_SCRIPT_PATH="create_video_from_npz_2d.py"
+
 # Path to the input 2D NPZ file
 INPUT_NPZ="/cephfs/users/skowronek/Documents/PhD/nuclear_fusion_cooling/data/preprocessed_dns_output/01-Cold_Runs/01-Re16K_Ha325/T1492_x1151_y1_z127_c2/T1492_x1151_y1_z127_c2.npz"
 
@@ -57,7 +60,7 @@ for i in "${!channels[@]}"; do
     output_path="${OUTPUT_DIR}/${output_filename}"
 
     # Construct the full command for the 2D script
-    command="python create_video_from_npz.py \
+    command="python $VIDEO_SCRIPT_PATH \
         --input-npz \"$INPUT_NPZ\" \
         --output-path \"$output_path\" \
         --channel \"$channel\" \
@@ -81,3 +84,4 @@ for i in "${!channels[@]}"; do
 done
 
 echo "All 2D video generation tasks are complete."
+
