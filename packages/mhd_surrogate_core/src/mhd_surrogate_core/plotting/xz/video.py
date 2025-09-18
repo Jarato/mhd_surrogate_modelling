@@ -2,19 +2,119 @@
 # mhd_surrogate_core/plotting/xz/video.py
 
 import logging
+import tempfile
 from pathlib import Path
 from typing import Dict, Optional
-
 import numpy as np
 import matplotlib.pyplot as plt
-from matplotlib.animation import FuncAnimation
+from matplotlib.colors import TwoSlopeNorm
 from tqdm import tqdm
-from concurrent.futures import ProcessPoolExecutor
+import imageio.v2 as imageio
+import multiprocessing
+from functools import partial
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
-# This is a placeholder implementation.
-# The actual plotting logic will be adapted from your 3D version.
+# Global variable to hold the shared data for worker processes
+worker_data = {}
+
+def _init_worker_from_npz(timeseries_data_shared):
+    """Initializer for each worker process. Puts the shared data into a global variable."""
+    worker_data['timeseries_data'] = timeseries_data_shared
+
+def _create_frame_from_npz(
+    frame_path: Path,
+    data_slice: np.ndarray,
+    coords: Dict[str, np.ndarray],
+    title: str,
+    xlabel: str,
+    ylabel: str,
+    cbar_label: str,
+    vmin: float,
+    vmax: float,
+    vcenter: Optional[float],
+    base_size: float,
+    min_size: float,
+    cmap: str = "viridis",
+):
+    """Plots a 2D data slice from npz data to a file."""
+    x_coords = coords['x']
+    z_coords = coords['z']
+    
+    dpi = 150
+    macro_block_size = 16
+    
+    x_range = x_coords.max() - x_coords.min() if len(x_coords) > 1 else 1
+    z_range = z_coords.max() - z_coords.min() if len(z_coords) > 1 else 1
+    
+    if x_range >= z_range:
+        fig_width_in = base_size
+        aspect_ratio = z_range / x_range if x_range > 0 else 1
+        fig_height_in = max(min_size, base_size * aspect_ratio)
+    else:
+        fig_height_in = base_size
+        aspect_ratio = x_range / z_range if z_range > 0 else 1
+        fig_width_in = max(min_size, base_size * aspect_ratio)
+
+    width_px = int(fig_width_in * dpi)
+    height_px = int(fig_height_in * dpi)
+    
+    width_px = (width_px + macro_block_size - 1) // macro_block_size * macro_block_size
+    height_px = (height_px + macro_block_size - 1) // macro_block_size * macro_block_size
+    
+    figsize = (width_px / dpi, height_px / dpi)
+
+    fig, ax = plt.subplots(figsize=figsize)
+    
+    plot_kwargs = {'shading': 'gouraud', 'cmap': cmap}
+    if vcenter is not None and vmin is not None and vmax is not None:
+        plot_kwargs['norm'] = TwoSlopeNorm(vmin=vmin, vcenter=vcenter, vmax=vmax)
+    else:
+        plot_kwargs['vmin'] = vmin
+        plot_kwargs['vmax'] = vmax
+
+    im = ax.pcolormesh(x_coords, z_coords, data_slice.T, **plot_kwargs)
+    
+    fig.colorbar(im, ax=ax, label=cbar_label)
+    ax.set_title(title)
+    ax.set_xlabel(xlabel)
+    ax.set_ylabel(ylabel)
+    ax.set_aspect('equal', adjustable='box')
+    plt.tight_layout()
+    
+    plt.savefig(frame_path, dpi=dpi)
+    plt.close(fig)
+
+def _generate_frame_worker_from_npz(relative_time_index, common_args):
+    """Wrapper function for multiprocessing to generate a single frame from 2D npz data."""
+    timeseries_data = worker_data['timeseries_data']
+    
+    time_offset = common_args['time_offset']
+    absolute_time_index = relative_time_index + time_offset
+    
+    frame_path = common_args['frame_dir'] / f"frame_{absolute_time_index:05d}.png"
+    display_name = common_args['display_name']
+    channel_idx = common_args['channel_idx']
+    
+    # Directly get the 2D data slice (X, Z) for the current timestep and channel
+    data_slice = timeseries_data[relative_time_index, :, :, channel_idx]
+    
+    title = f"'{display_name}' at Time Index {absolute_time_index}"
+        
+    _create_frame_from_npz(
+        frame_path=frame_path,
+        data_slice=data_slice,
+        coords=common_args['coords'],
+        title=title,
+        xlabel=common_args['plot_labels']['xlabel'],
+        ylabel=common_args['plot_labels']['ylabel'],
+        cbar_label=common_args['cbar_label'],
+        vmin=common_args['vmin'], vmax=common_args['vmax'], vcenter=common_args['vcenter'],
+        base_size=common_args['base_size'], min_size=common_args['min_size'],
+        cmap=common_args['cmap'],
+    )
+    return frame_path
+
 def generate_video_from_npz(
     npz_path: Path,
     output_path: Path,
@@ -24,6 +124,8 @@ def generate_video_from_npz(
     fps: int = 15,
     channel_alias: Optional[str] = None,
     unit_label: str = "",
+    base_size: float = 8.0,
+    min_size: float = 3.0,
     vmins_override: Optional[Dict[str, float]] = None,
     vmaxs_override: Optional[Dict[str, float]] = None,
     vcenters: Optional[Dict[str, float]] = None,
@@ -31,32 +133,92 @@ def generate_video_from_npz(
     cmap: str = "viridis",
 ):
     """
-    Generates a 2D video from a .npz file. (Placeholder)
-
-    This function currently serves as a structural placeholder. The full
-    implementation for generating frames and compiling the video will be
-    added based on the 3D equivalent.
+    Generates a 2D video from a preprocessed .npz file.
     """
-    logging.warning("This is a placeholder function for 2D video generation.")
-    logging.info(f"--- Video Generation Parameters ---")
-    logging.info(f"Input NPZ: {npz_path}")
-    logging.info(f"Output Video: {output_path}")
-    logging.info(f"Channel: {channel} (Alias: {channel_alias})")
-    logging.info(f"FPS: {fps}")
-    logging.info(f"Workers: {num_workers}")
-    logging.info("---------------------------------")
-    
-    # In the full implementation, this is where you would load the npz,
-    # create a figure, generate each frame in parallel, and then
-    # compile the frames into an mp4 video.
-    
-    # Example of creating a dummy file to ensure the script runs end-to-end
-    try:
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(output_path, 'w') as f:
-            f.write(f"This is a placeholder for the video for channel '{channel}'.\n")
-        logging.info(f"Created a dummy output file at: {output_path}")
-    except Exception as e:
-        logging.error(f"Failed to create dummy output file: {e}")
+    if not npz_path.exists():
+        logging.error(f"NPZ file not found at {npz_path}. Aborting.")
+        return
 
-    return
+    logging.info(f"Loading data from {npz_path}...")
+    with np.load(npz_path) as data:
+        timeseries_data_full = data['timeseries']
+        all_labels = list(data['labels'])
+        
+        # Handle coordinates: load if they exist, otherwise create integer ranges
+        if 'x_coords' in data and 'z_coords' in data:
+            coords = {'x': data['x_coords'], 'z': data['z_coords']}
+        else:
+            logging.warning("Coordinate arrays ('x_coords', 'z_coords') not found in NPZ. Using integer indices.")
+            coords = {
+                'x': np.arange(timeseries_data_full.shape[1]),
+                'z': np.arange(timeseries_data_full.shape[2]),
+            }
+
+    # --- Apply time slicing if specified ---
+    time_offset = 0
+    if time_start is not None or time_end is not None:
+        start = time_start if time_start is not None else 0
+        end = time_end if time_end is not None else timeseries_data_full.shape[0]
+        time_offset = start
+        logging.info(f"Slicing timeseries from index {start} to {end}.")
+        timeseries_data = timeseries_data_full[start:end]
+    else:
+        timeseries_data = timeseries_data_full
+
+    try:
+        channel_idx = all_labels.index(channel)
+    except ValueError:
+        logging.error(f"Channel '{channel}' not found in NPZ labels: {all_labels}. Aborting.")
+        return
+
+    # --- Determine Color Scale ---
+    vmin = vmins_override.get(channel) if vmins_override else None
+    vmax = vmaxs_override.get(channel) if vmaxs_override else None
+    if vmin is None or vmax is None:
+        logging.info("Calculating color scale for the selected time range...")
+        channel_data = timeseries_data[..., channel_idx]
+        auto_vmin, auto_vmax = np.min(channel_data), np.max(channel_data)
+        if vmin is None: vmin = auto_vmin
+        if vmax is None: vmax = auto_vmax
+        logging.info(f"Final color scale for '{channel}' set to: [{vmin:.3f}, {vmax:.3f}]")
+    
+    vcenter = vcenters.get(channel) if vcenters else None
+    
+    display_name = channel_alias if channel_alias else channel
+    cbar_label = f"{display_name}" + (f" [{unit_label}]" if unit_label else "")
+    plot_labels = {'xlabel': 'X Coordinate', 'ylabel': 'Z Coordinate'}
+
+    # --- Generate and Compile Frames ---
+    with tempfile.TemporaryDirectory() as temp_dir:
+        frame_dir = Path(temp_dir)
+        num_frames = timeseries_data.shape[0]
+        
+        logging.info(f"Generating {num_frames} frames in parallel using {num_workers} workers...")
+        common_args = {
+            'coords': coords, 'channel_idx': channel_idx, 'frame_dir': frame_dir,
+            'display_name': display_name, 'plot_labels': plot_labels,
+            'cbar_label': cbar_label, 'vmin': vmin, 'vmax': vmax, 'vcenter': vcenter,
+            'base_size': base_size, 'min_size': min_size, 'time_offset': time_offset,
+            'cmap': cmap,
+        }
+        
+        worker_func = partial(_generate_frame_worker_from_npz, common_args=common_args)
+        
+        frame_paths = []
+        with multiprocessing.Pool(processes=num_workers, initializer=_init_worker_from_npz, initargs=(timeseries_data,)) as pool:
+            with tqdm(total=num_frames, desc="Generating frames") as pbar:
+                for frame_path in pool.imap_unordered(worker_func, range(num_frames)):
+                    frame_paths.append(frame_path)
+                    pbar.update(1)
+
+        frame_paths.sort()
+
+        logging.info(f"Assembling video at {output_path} with {fps} FPS...")
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        with imageio.get_writer(output_path, fps=fps, macro_block_size=None) as writer:
+            for frame_path in tqdm(frame_paths, desc="Writing video"):
+                image = imageio.imread(frame_path)
+                writer.append_data(image)
+
+    logging.info("Video generation complete.")
+
