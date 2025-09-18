@@ -36,6 +36,8 @@ def main():
     parser.add_argument("--vmaxs", type=str, nargs='+', default=None, help="Per-channel maximum values for the color scale. Format: 'vx:6' 'vy:1'")
     parser.add_argument("--vcenters", type=str, nargs='+', default=None, help="Per-channel center values for diverging colormaps. Format: 'vx:0.84' 'vy:0.0'")
     parser.add_argument("--cmap", type=str, default="viridis", help="The colormap to use for the plot (e.g., coolwarm, plasma, seismic).")
+    parser.add_argument("--base-size", type=float, default=8.0, help="The base size (in inches) for the longest dimension of the plot.")
+    parser.add_argument("--min-size", type=float, default=3.0, help="The minimum size (in inches) for the shortest dimension of the plot.")
     
     # --- Parallelization Argument ---
     parser.add_argument("--num-workers", type=int, default=1, help="Number of parallel worker processes for frame generation. Set to -1 to use all available CPU cores.")
@@ -80,6 +82,8 @@ def main():
         vcenters=vcenter_map,
         num_workers=num_workers,
         cmap=args.cmap,
+        base_size=args.base_size,
+        min_size=args.min_size,
     )
 
 if __name__ == "__main__":
@@ -94,8 +98,8 @@ if __name__ == "__main__":
 
 ```bash
 python create_video_from_npz.py \
-    --input-npz ~/Documents/PhD/nuclear_fusion_cooling/prediction/mhd_surrogate_modelling/experiments/study_4_2d_tckae/output/no_grad_clipping/ld512_M8_K8_Ktc8_gtc1.0_bwd_False/eval/predicted_timeseries.npz \
-    --output-path ~/Documents/PhD/nuclear_fusion_cooling/prediction/mhd_surrogate_modelling/experiments/study_4_2d_tckae/output/no_grad_clipping/ld512_M8_K8_Ktc8_gtc1.0_bwd_False/eval/videos/predicted_timeseries.mp4 \
+    --input-npz /cephfs/users/skowronek/Documents/PhD/nuclear_fusion_cooling/data/preprocessed_dns_output/01-Cold_Runs/01-Re16K_Ha325/T1492_x1151_y1_z127_c2/T1492_x1151_y1_z127_c2.npz \
+    --output-path output/videos/ \
     --channel vx \
     --channel-alias u \
     --unit-label "" \
@@ -104,7 +108,9 @@ python create_video_from_npz.py \
     --vmins vx:-2.16 vz:-3 \
     --vmaxs vx:3.84 vz:3 \
     --vcenters vx:0.84 vz:0.0 \
-    --cmap seismic
+    --cmap seismic \
+    --base-size 25 \
+    --min-size 2
 ```
 """
 
