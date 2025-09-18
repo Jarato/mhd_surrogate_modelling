@@ -21,7 +21,7 @@ def main():
 
     # --- I/O Arguments ---
     parser.add_argument("--input-npz", type=Path, required=True, help="Path to the input .npz file (must contain 'timeseries' and 'labels' arrays).")
-    parser.add_argument("--output-path", type=Path, required=True, help="Path to save the output .mp4 video file.")
+    parser.add_argument("--output-path", type=Path, required=True, help="Path to save the output .mp4 video file or a directory to save it in.")
     
     # --- Data Selection Arguments ---
     parser.add_argument("--channel", type=str, required=True, help="The channel to plot (e.g., 'vx').")
@@ -45,6 +45,19 @@ def main():
     args = parser.parse_args()
     
     # --- Main Logic ---
+    output_path = args.output_path
+
+    # If the provided path is a directory, create a default filename.
+    if output_path.is_dir():
+        logging.info(f"Output path '{output_path}' is a directory. Creating a default filename.")
+        channel_name = args.channel_alias if args.channel_alias else args.channel
+        default_filename = f"video_{channel_name}.mp4"
+        output_path = output_path / default_filename
+        logging.info(f"Resolved output path to: {output_path}")
+
+    # Ensure the parent directory for the output file exists.
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
     # Helper function to parse channel-value arguments (e.g., 'vx:0.5')
     def parse_channel_value_arg(arg_list):
         if not arg_list:
@@ -67,10 +80,9 @@ def main():
         num_workers = multiprocessing.cpu_count()
 
     # --- Run the video generation ---
-    # KEY CHANGE: Call the 2D video function without slice arguments.
     generate_video_from_npz(
         npz_path=args.input_npz,
-        output_path=args.output_path,
+        output_path=output_path, # Use the resolved file path
         channel=args.channel,
         time_start=args.time_start,
         time_end=args.time_end,
