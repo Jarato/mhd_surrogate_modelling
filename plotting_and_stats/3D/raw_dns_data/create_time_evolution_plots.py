@@ -4,7 +4,7 @@ import numpy as np
 from tqdm import tqdm
 import logging
 import multiprocessing
-from mhd_surrogate_core.plotting import (
+from mhd_surrogate_core.plotting.xyz import (
     plot_interpolated_z_time_evolution,
     plot_interpolated_y_time_evolution,
     plot_interpolated_x_time_evolution,

@@ -10,7 +10,7 @@ import torch
 import matplotlib.pyplot as plt
 
 from mhd_canonical_kae.model import KoopmanAutoencoder
-from mhd_surrogate_core.plotting import plot_prediction_comparison
+from mhd_surrogate_core.plotting.xyz import plot_prediction_comparison
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 

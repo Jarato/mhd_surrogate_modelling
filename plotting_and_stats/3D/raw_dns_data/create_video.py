@@ -2,7 +2,7 @@ import argparse
 from pathlib import Path
 import multiprocessing
 import logging
-from mhd_surrogate_core.plotting import generate_slice_video
+from mhd_surrogate_core.plotting.xyz import generate_slice_video
 
 def main():
     parser = argparse.ArgumentParser(
