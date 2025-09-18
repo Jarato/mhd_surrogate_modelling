@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# scripts/create_video_from_npz_2d.py
+# scripts/create_video_from_npz.py
 
 import argparse
 from pathlib import Path
