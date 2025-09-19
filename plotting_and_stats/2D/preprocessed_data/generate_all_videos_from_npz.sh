@@ -33,7 +33,7 @@ NUM_WORKERS=31
 UNIT_LABEL="" # Set to "" or "m/s", etc.
 COLOR_MAP="seismic" # E.g., coolwarm, bwr, seismic, plasma, viridis
 BASE_SIZE=20.0 # The base size (in inches) for the longest dimension of the plot.
-MIN_SIZE=2.0 # The minimum size (in inches) for the shortest dimension of the plot.
+MIN_SIZE=4.0 # The minimum size (in inches) for the shortest dimension of the plot.
 
 
 # Per-component min/max/center values for the color scale. Use space-separated "channel:value".
