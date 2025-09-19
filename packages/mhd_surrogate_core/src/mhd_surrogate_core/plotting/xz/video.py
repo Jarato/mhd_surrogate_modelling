@@ -79,7 +79,6 @@ def _create_frame_from_npz(
     ax.set_title(title)
     ax.set_xlabel(xlabel)
     ax.set_ylabel(ylabel)
-    ax.set_aspect('equal', adjustable='box')
     plt.tight_layout()
     
     plt.savefig(frame_path, dpi=dpi)
@@ -221,4 +220,5 @@ def generate_video_from_npz(
                 writer.append_data(image)
 
     logging.info("Video generation complete.")
+
 
