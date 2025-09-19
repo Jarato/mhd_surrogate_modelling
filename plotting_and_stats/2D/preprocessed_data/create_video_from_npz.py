@@ -121,8 +121,8 @@ python create_video_from_npz.py \
     --vmaxs vx:3.84 vz:3 \
     --vcenters vx:0.84 vz:0.0 \
     --cmap seismic \
-    --base-size 25.0 \
-    --min-size 8.0
+    --base-size 20.0 \
+    --min-size 4.0
 ```
 """
 
