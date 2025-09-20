@@ -13,6 +13,7 @@ from .evaluation import (
     plot_prediction_rollout_error,
     plot_prediction_dashboard,
 )
+from .comparison import generate_comparison_video_from_npz
 
 __all__ = [
     # Video
@@ -25,5 +26,7 @@ __all__ = [
     "plot_r2_performance",
     "plot_prediction_rollout_error",
     "plot_prediction_dashboard",
+    # Comparison Video
+    "generate_comparison_video_from_npz",
 ]
 
