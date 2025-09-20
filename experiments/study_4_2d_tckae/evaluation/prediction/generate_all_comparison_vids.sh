@@ -33,7 +33,7 @@ GROUND_TRUTH_NPZ="/cephfs/users/skowronek/Documents/PhD/nuclear_fusion_cooling/d
 OUTPUT_DIR="${EVAL_DIR}/comparison_videos/"
 
 # --- Video Parameters ---
-FPS=8
+FPS=2
 NUM_WORKERS=128
 BASE_SIZE=20.0 # Base size (in inches) for the plot's width.
 MIN_SIZE=4.0   # Minimum size (in inches) for a single plot's height.

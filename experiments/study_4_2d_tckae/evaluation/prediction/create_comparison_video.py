@@ -113,7 +113,7 @@ python create_comparison_video_2d.py \
     --output-path "${EVAL_DIR}/comparison_videos/comparison_u.mp4" \
     --channel "vx" \
     --channel-alias "u" \
-    --fps 8 \
+    --fps 2 \
     --num-workers 128 \
     --base-size 20.0 \
     --min-size 4.0 \
