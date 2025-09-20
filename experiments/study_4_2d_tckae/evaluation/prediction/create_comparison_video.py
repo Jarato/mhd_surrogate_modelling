@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# scripts/create_comparison_video_2d.py
+# scripts/create_comparison_video.py
 
 import argparse
 from pathlib import Path
