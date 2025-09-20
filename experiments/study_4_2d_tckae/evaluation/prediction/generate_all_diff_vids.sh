@@ -38,9 +38,9 @@ MIN_SIZE=4.0 # The minimum size (in inches) for the shortest dimension of the pl
 
 # Per-component min/max/center values for the color scale. Use space-separated "channel:value".
 # Adjust these channels and values to match your 2D dataset.
-VMINS="vx:-2.16 vz:-3"
-VMAXS="vx:3.84 vz:3"
-VCENTERS="vx:0.84 vz:0.0"
+VMINS="vx:-3 vz:-3"
+VMAXS="vx:3 vz:3"
+VCENTERS="vx:0.0 vz:0.0"
 
 
 # --- SCRIPT LOGIC ---
