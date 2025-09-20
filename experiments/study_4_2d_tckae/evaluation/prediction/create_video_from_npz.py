@@ -110,13 +110,13 @@ if __name__ == "__main__":
 
 ```bash
 python create_video_from_npz.py \
-    --input-npz /cephfs/users/skowronek/Documents/PhD/nuclear_fusion_cooling/data/preprocessed_dns_output/01-Cold_Runs/01-Re16K_Ha325/T1492_x1151_y1_z127_c2/T1492_x1151_y1_z127_c2.npz \
-    --output-path output/videos/ \
+    --input-npz /cephfs/users/skowronek/Documents/PhD/nuclear_fusion_cooling/prediction/mhd_surrogate_modelling/experiments/study_4_2d_tckae/output/no_grad_clipping/ld512_M8_K8_Ktc8_gtc1.0_bwd_False/eval/predicted_timeseries.npz \
+    --output-path /cephfs/users/skowronek/Documents/PhD/nuclear_fusion_cooling/prediction/mhd_surrogate_modelling/experiments/study_4_2d_tckae/output/no_grad_clipping/ld512_M8_K8_Ktc8_gtc1.0_bwd_False/eval/videos/ \
     --channel vx \
     --channel-alias u \
     --unit-label "" \
     --fps 16 \
-    --num-workers 31 \
+    --num-workers 128 \
     --vmins vx:-2.16 vz:-3 \
     --vmaxs vx:3.84 vz:3 \
     --vcenters vx:0.84 vz:0.0 \
