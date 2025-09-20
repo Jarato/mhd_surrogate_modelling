@@ -33,7 +33,7 @@ GROUND_TRUTH_NPZ="/cephfs/users/skowronek/Documents/PhD/nuclear_fusion_cooling/d
 OUTPUT_DIR="${EVAL_DIR}/comparison_videos/"
 
 # --- Video Parameters ---
-FPS=16
+FPS=8
 NUM_WORKERS=128
 
 # --- Color Scale for Main Plots (Ground Truth & Prediction) ---

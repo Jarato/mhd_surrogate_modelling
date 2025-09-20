@@ -108,7 +108,7 @@ python create_comparison_video_2d.py \
     --output-path "${EVAL_DIR}/comparison_videos/comparison_u.mp4" \
     --channel "vx" \
     --channel-alias "u" \
-    --fps 16 \
+    --fps 8 \
     --num-workers 128 \
     --cmap "seismic" \
     --vmins 'vx:-2.16' 'vz:-3.0' \
