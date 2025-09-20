@@ -59,7 +59,7 @@ for i in "${!channels[@]}"; do
     alias=${aliases[$i]}
 
     # Construct the output filename dynamically
-    output_filename="preprocessed_2d_video_${alias}.mp4"
+    output_filename="diff_vid_${alias}.mp4"
     output_path="${OUTPUT_DIR}/${output_filename}"
 
     # Construct the full command for the 2D script
