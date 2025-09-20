@@ -1,11 +1,6 @@
 # -*- coding: utf-8 -*-
 # mhd_surrogate_core/plotting/xz/comparison.py
 
-"""
-Functions for generating side-by-side comparison videos of 2D data
-(e.g., Ground Truth vs. Prediction vs. Difference).
-"""
-
 import logging
 import tempfile
 from pathlib import Path
@@ -20,12 +15,13 @@ from functools import partial
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
-# Global variable to hold shared data for worker processes
 worker_data = {}
 
-def _init_worker_comparison(data_tuple):
-    """Initializer for each worker process. Puts the shared data into a global variable."""
-    worker_data['gt'], worker_data['pred'], worker_data['diff'] = data_tuple
+def _init_worker_for_comparison(gt_data, pred_data, diff_data):
+    """Initializer for worker processes with all three datasets."""
+    worker_data['gt'] = gt_data
+    worker_data['pred'] = pred_data
+    worker_data['diff'] = diff_data
 
 def _create_comparison_frame_from_npz(
     frame_path: Path,
@@ -34,52 +30,65 @@ def _create_comparison_frame_from_npz(
     diff_slice: np.ndarray,
     coords: Dict[str, np.ndarray],
     title: str,
-    vmin: float,
-    vmax: float,
-    vcenter: Optional[float],
-    vmin_diff: float,
-    vmax_diff: float,
-    vcenter_diff: Optional[float],
     cmap: str,
     cmap_diff: str,
+    vmin: Optional[float],
+    vmax: Optional[float],
+    vcenter: Optional[float],
+    vmin_diff: Optional[float],
+    vmax_diff: Optional[float],
+    vcenter_diff: Optional[float],
 ):
-    """Plots a 3-panel comparison frame (gt, pred, diff) to a file."""
-    x_coords = coords['x']
-    z_coords = coords['z']
-    
-    plt.style.use('seaborn-v0_8-whitegrid')
-    fig, axes = plt.subplots(1, 3, figsize=(18, 6))
+    """Plots a 3-panel comparison frame and saves it to a file."""
+    x_coords = coords.get('x', np.arange(gt_slice.shape[0]))
+    z_coords = coords.get('z', np.arange(gt_slice.shape[1]))
+
+    fig, axes = plt.subplots(1, 3, figsize=(18, 6), constrained_layout=True)
     fig.suptitle(title, fontsize=16)
 
-    # Plot 1: Ground Truth
-    im1 = axes[0].pcolormesh(x_coords, z_coords, gt_slice.T, shading='gouraud', cmap=cmap, vmin=vmin, vmax=vmax)
+    # --- Setup for Main Plots (Ground Truth & Prediction) ---
+    # KEY CHANGE: Create a dictionary of plot arguments.
+    plot_kwargs = {'shading': 'gouraud', 'cmap': cmap}
+    if vcenter is not None and vmin is not None and vmax is not None:
+        plot_kwargs['norm'] = TwoSlopeNorm(vmin=vmin, vcenter=vcenter, vmax=vmax)
+    else:
+        plot_kwargs['vmin'] = vmin
+        plot_kwargs['vmax'] = vmax
+        
+    # --- Setup for Difference Plot ---
+    # KEY CHANGE: Create a separate dictionary for the difference plot.
+    plot_kwargs_diff = {'shading': 'gouraud', 'cmap': cmap_diff}
+    if vcenter_diff is not None and vmin_diff is not None and vmax_diff is not None:
+        plot_kwargs_diff['norm'] = TwoSlopeNorm(vmin=vmin_diff, vcenter=vcenter_diff, vmax=vmax_diff)
+    else:
+        plot_kwargs_diff['vmin'] = vmin_diff
+        plot_kwargs_diff['vmax'] = vmax_diff
+
+    # --- Plotting ---
+    # Ground Truth
+    im1 = axes[0].pcolormesh(x_coords, z_coords, gt_slice.T, **plot_kwargs)
     axes[0].set_title("Ground Truth")
     axes[0].set_xlabel("X Coordinate")
     axes[0].set_ylabel("Z Coordinate")
+    fig.colorbar(im1, ax=axes[0], orientation='vertical')
 
-    # Plot 2: Prediction
-    im2 = axes[1].pcolormesh(x_coords, z_coords, pred_slice.T, shading='gouraud', cmap=cmap, vmin=vmin, vmax=vmax)
+    # Prediction
+    im2 = axes[1].pcolormesh(x_coords, z_coords, pred_slice.T, **plot_kwargs)
     axes[1].set_title("Prediction")
     axes[1].set_xlabel("X Coordinate")
-    axes[1].set_yticklabels([]) # Hide y-axis labels
+    axes[1].set_yticklabels([])
+    fig.colorbar(im2, ax=axes[1], orientation='vertical')
 
-    # Plot 3: Difference
-    norm_diff = None
-    if vcenter_diff is not None and vmin_diff is not None and vmax_diff is not None:
-        norm_diff = TwoSlopeNorm(vmin=vmin_diff, vcenter=vcenter_diff, vmax=vmax_diff)
-        
-    im3 = axes[2].pcolormesh(x_coords, z_coords, diff_slice.T, shading='gouraud', cmap=cmap_diff, norm=norm_diff, vmin=vmin_diff, vmax=vmax_diff)
+    # Difference
+    im3 = axes[2].pcolormesh(x_coords, z_coords, diff_slice.T, **plot_kwargs_diff)
     axes[2].set_title("Difference (Error)")
     axes[2].set_xlabel("X Coordinate")
     axes[2].set_yticklabels([])
+    fig.colorbar(im3, ax=axes[2], orientation='vertical')
 
-    # Add colorbars
-    fig.colorbar(im1, ax=axes[:2], location='bottom', fraction=0.05, pad=0.1, label="Value")
-    fig.colorbar(im3, ax=axes[2], location='bottom', fraction=0.05, pad=0.1, label="Error")
-
-    plt.tight_layout(rect=[0, 0.05, 1, 0.95])
     plt.savefig(frame_path, dpi=150)
     plt.close(fig)
+
 
 def _generate_comparison_frame_worker(relative_time_index, common_args):
     """Wrapper function for multiprocessing to generate a single comparison frame."""
@@ -91,23 +100,29 @@ def _generate_comparison_frame_worker(relative_time_index, common_args):
     absolute_time_index = relative_time_index + time_offset
     
     frame_path = common_args['frame_dir'] / f"frame_{absolute_time_index:05d}.png"
+    display_name = common_args['display_name']
     channel_idx = common_args['channel_idx']
     
-    gt_slice = gt_data[relative_time_index, :, :, channel_idx]
-    pred_slice = pred_data[relative_time_index, :, :, channel_idx]
-    diff_slice = diff_data[relative_time_index, :, :, channel_idx]
+    gt_slice = gt_data[relative_time_index, ..., channel_idx]
+    pred_slice = pred_data[relative_time_index, ..., channel_idx]
+    diff_slice = diff_data[relative_time_index, ..., channel_idx]
     
-    title = f"'{common_args['display_name']}' at Time Index {absolute_time_index}"
+    title = f"Comparison of '{display_name}' at Time Index {absolute_time_index}"
         
     _create_comparison_frame_from_npz(
         frame_path=frame_path,
-        gt_slice=gt_slice, pred_slice=pred_slice, diff_slice=diff_slice,
-        coords=common_args['coords'], title=title,
+        gt_slice=gt_slice,
+        pred_slice=pred_slice,
+        diff_slice=diff_slice,
+        coords=common_args['coords'],
+        title=title,
+        cmap=common_args['cmap'],
+        cmap_diff=common_args['cmap_diff'],
         vmin=common_args['vmin'], vmax=common_args['vmax'], vcenter=common_args['vcenter'],
         vmin_diff=common_args['vmin_diff'], vmax_diff=common_args['vmax_diff'], vcenter_diff=common_args['vcenter_diff'],
-        cmap=common_args['cmap'], cmap_diff=common_args['cmap_diff'],
     )
     return frame_path
+
 
 def generate_comparison_video_from_npz(
     gt_npz_path: Path,
@@ -129,86 +144,79 @@ def generate_comparison_video_from_npz(
     cmap: str = "viridis",
     cmap_diff: str = "bwr",
 ):
-    """
-    Generates a 3-panel comparison video from ground truth, prediction, and difference .npz files.
-    """
+    """Generates a 3-panel comparison video from ground truth, prediction, and difference npz files."""
     logging.info("Loading data for comparison video...")
     with np.load(gt_npz_path) as data:
         gt_full = data['timeseries']
-        coords = {'x': data['x_coords'], 'z': data['z_coords'], 'labels': list(data['labels'])}
+        if gt_full.ndim == 5: gt_full = np.squeeze(gt_full, axis=2)
+        all_labels = list(data['labels'])
+        coords = {
+            'x': data.get('x_coords', np.arange(gt_full.shape[1])),
+            'z': data.get('z_coords', np.arange(gt_full.shape[2])),
+        }
     with np.load(pred_npz_path) as data:
         pred_full = data['timeseries']
     with np.load(diff_npz_path) as data:
         diff_full = data['timeseries']
 
-    # --- Data Slicing and Validation ---
     time_offset = time_start if time_start is not None else 0
     gt_data = gt_full[time_start:time_end]
     pred_data = pred_full[time_start:time_end]
     diff_data = diff_full[time_start:time_end]
-
-    if not (gt_data.shape == pred_data.shape == diff_data.shape):
-        logging.error("Timeseries shapes are inconsistent after slicing. Aborting.")
-        return
-
+    
     try:
-        channel_idx = coords['labels'].index(channel)
+        channel_idx = all_labels.index(channel)
     except ValueError:
-        logging.error(f"Channel '{channel}' not found. Aborting.")
+        logging.error(f"Channel '{channel}' not found in labels: {all_labels}. Aborting.")
         return
 
     # --- Determine Color Scales ---
-    display_name = channel_alias if channel_alias else channel
-    
-    # Main plots (GT and Pred)
-    vmin = vmins_override.get(channel)
-    vmax = vmaxs_override.get(channel)
+    vmin = vmins_override.get(channel) if vmins_override else None
+    vmax = vmaxs_override.get(channel) if vmaxs_override else None
     if vmin is None or vmax is None:
-        gt_chan, pred_chan = gt_data[..., channel_idx], pred_data[..., channel_idx]
-        auto_vmin, auto_vmax = min(gt_chan.min(), pred_chan.min()), max(gt_chan.max(), pred_chan.max())
+        auto_vmin = min(np.min(gt_data[..., channel_idx]), np.min(pred_data[..., channel_idx]))
+        auto_vmax = max(np.max(gt_data[..., channel_idx]), np.max(pred_data[..., channel_idx]))
         if vmin is None: vmin = auto_vmin
         if vmax is None: vmax = auto_vmax
-        logging.info(f"Auto color scale for '{display_name}': [{vmin:.3f}, {vmax:.3f}]")
-
-    # Difference plot
-    vmin_diff, vmax_diff = vmins_diff_override.get(channel), vmaxs_diff_override.get(channel)
-    if vmin_diff is None or vmax_diff is None:
-        diff_chan = diff_data[..., channel_idx]
-        abs_max = np.abs(diff_chan).max()
-        auto_vmin_diff, auto_vmax_diff = -abs_max, abs_max
-        if vmin_diff is None: vmin_diff = auto_vmin_diff
-        if vmax_diff is None: vmax_diff = auto_vmax_diff
-        logging.info(f"Auto color scale for difference: [{vmin_diff:.3f}, {vmax_diff:.3f}]")
     
-    # --- Generate Frames ---
+    vmin_diff = vmins_diff_override.get(channel) if vmins_diff_override else None
+    vmax_diff = vmaxs_diff_override.get(channel) if vmaxs_diff_override else None
+    if vmin_diff is None or vmax_diff is None:
+        abs_max = np.max(np.abs(diff_data[..., channel_idx]))
+        if vmin_diff is None: vmin_diff = -abs_max
+        if vmax_diff is None: vmax_diff = abs_max
+
+    vcenter = vcenters.get(channel) if vcenters else None
+    vcenter_diff = vcenters_diff.get(channel) if vcenters_diff else 0.0
+    
+    display_name = channel_alias if channel_alias else channel
+
     with tempfile.TemporaryDirectory() as temp_dir:
         frame_dir = Path(temp_dir)
         num_frames = gt_data.shape[0]
-        logging.info(f"Generating {num_frames} frames using {num_workers} workers...")
         
+        logging.info(f"Generating {num_frames} frames using {num_workers} workers...")
         common_args = {
             'coords': coords, 'channel_idx': channel_idx, 'frame_dir': frame_dir,
             'display_name': display_name, 'time_offset': time_offset,
-            'vmin': vmin, 'vmax': vmax, 'vcenter': (vcenters or {}).get(channel),
-            'vmin_diff': vmin_diff, 'vmax_diff': vmax_diff, 'vcenter_diff': (vcenters_diff or {}).get(channel, 0.0),
-            'cmap': cmap, 'cmap_diff': cmap_diff
+            'cmap': cmap, 'cmap_diff': cmap_diff,
+            'vmin': vmin, 'vmax': vmax, 'vcenter': vcenter,
+            'vmin_diff': vmin_diff, 'vmax_diff': vmax_diff, 'vcenter_diff': vcenter_diff,
         }
         
         worker_func = partial(_generate_comparison_frame_worker, common_args=common_args)
         
-        frame_paths = []
-        init_args = (gt_data, pred_data, diff_data)
-        with multiprocessing.Pool(processes=num_workers, initializer=_init_worker_comparison, initargs=(init_args,)) as pool:
-            with tqdm(total=num_frames, desc="Generating frames") as pbar:
-                for frame_path in pool.imap_unordered(worker_func, range(num_frames)):
-                    frame_paths.append(frame_path)
-                    pbar.update(1)
+        initargs = (gt_data, pred_data, diff_data)
+        with multiprocessing.Pool(processes=num_workers, initializer=_init_worker_for_comparison, initargs=initargs) as pool:
+            frame_paths = list(tqdm(pool.imap_unordered(worker_func, range(num_frames)), total=num_frames, desc="Generating frames"))
 
         frame_paths.sort()
-        
-        logging.info(f"Assembling video at {output_path}...")
-        with imageio.get_writer(output_path, fps=fps) as writer:
+
+        logging.info(f"Assembling video at {output_path} with {fps} FPS...")
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        with imageio.get_writer(output_path, fps=fps, macro_block_size=None) as writer:
             for frame_path in tqdm(frame_paths, desc="Writing video"):
                 writer.append_data(imageio.imread(frame_path))
 
     logging.info("Comparison video generation complete.")
+
