@@ -121,7 +121,7 @@ python create_comparison_video_2d.py \
     --vmins 'vx:-2.16' 'vz:-3.0' \
     --vmaxs 'vx:3.84' 'vz:3.0' \
     --vcenters 'vx:0.84' 'vz:0.0' \
-    --cmap-diff "bwr" \
+    --cmap-diff "seismic" \
     --vmins-diff 'vx:-3.0' 'vz:-3.0' \
     --vmaxs-diff 'vx:3.0' 'vz:3.0' \
     --vcenters-diff 'vx:0.0' 'vz:0.0'

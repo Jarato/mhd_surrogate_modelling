@@ -45,7 +45,7 @@ VMAXS="vx:3.84 vz:3"
 VCENTERS="vx:0.84 vz:0.0"
 
 # --- Color Scale for Difference Plot ---
-COLOR_MAP_DIFF="bwr"
+COLOR_MAP_DIFF="seismic"
 VMINS_DIFF="vx:-3.0 vz:-3.0"
 VMAXS_DIFF="vx:3.0 vz:3.0"
 VCENTERS_DIFF="vx:0.0 vz:0.0"
