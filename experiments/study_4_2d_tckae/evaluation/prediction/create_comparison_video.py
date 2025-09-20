@@ -116,7 +116,7 @@ python create_comparison_video_2d.py \
     --fps 8 \
     --num-workers 128 \
     --base-size 20.0 \
-    --min-size 20.0 \
+    --min-size 4.0 \
     --cmap "seismic" \
     --vmins 'vx:-2.16' 'vz:-3.0' \
     --vmaxs 'vx:3.84' 'vz:3.0' \

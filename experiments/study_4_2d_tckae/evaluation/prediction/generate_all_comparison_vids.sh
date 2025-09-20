@@ -36,7 +36,7 @@ OUTPUT_DIR="${EVAL_DIR}/comparison_videos/"
 FPS=8
 NUM_WORKERS=128
 BASE_SIZE=20.0 # Base size (in inches) for the plot's width.
-MIN_SIZE=20.0   # Minimum size (in inches) for a single plot's height.
+MIN_SIZE=4.0   # Minimum size (in inches) for a single plot's height.
 
 # --- Color Scale for Main Plots (Ground Truth & Prediction) ---
 COLOR_MAP="seismic"
