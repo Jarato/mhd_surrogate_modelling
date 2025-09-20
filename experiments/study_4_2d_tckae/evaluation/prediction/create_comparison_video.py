@@ -88,3 +88,36 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+"""
+#### How to Use It
+
+1.  Place this script inside your `scripts` directory.
+2.  From your terminal, navigate to the `scripts` directory and run a command like the one below.
+    This example is generated from the parameters in your evaluation notebook.
+
+```bash
+# Define the base directory for evaluation files to avoid repetition
+EVAL_DIR="/cephfs/users/skowronek/Documents/PhD/nuclear_fusion_cooling/prediction/mhd_surrogate_modelling/experiments/study_4_2d_tckae/output/no_grad_clipping/ld512_M8_K8_Ktc8_gtc1.0_bwd_False/eval/"
+
+# Run the command to generate a comparison video for the 'u' (vx) component
+python create_comparison_video_2d.py \
+    --ground-truth-npz "/cephfs/users/skowronek/Documents/PhD/nuclear_fusion_cooling/data/preprocessed_dns_output/01-Cold_Runs/01-Re16K_Ha325/T1492_x1151_y1_z127_c2/preprocessed/test_set.npz" \
+    --predicted-npz "${EVAL_DIR}/predicted_timeseries.npz" \
+    --difference-npz "${EVAL_DIR}/difference_timeseries.npz" \
+    --output-path "${EVAL_DIR}/comparison_videos/comparison_u.mp4" \
+    --channel "vx" \
+    --channel-alias "u" \
+    --fps 16 \
+    --num-workers -1 \
+    --cmap "seismic" \
+    --vmins 'vx:-2.16' 'vz:-3.0' \
+    --vmaxs 'vx:3.84' 'vz:3.0' \
+    --vcenters 'vx:0.84' 'vz:0.0' \
+    --cmap-diff "bwr" \
+    --vmins-diff 'vx:-3.0' 'vz:-3.0' \
+    --vmaxs-diff 'vx:3.0' 'vz:3.0' \
+    --vcenters-diff 'vx:0.0' 'vz:0.0'
+```
+"""
+
