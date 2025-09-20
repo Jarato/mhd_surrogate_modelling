@@ -32,6 +32,9 @@ def main():
     parser.add_argument("--fps", type=int, default=15, help="Frames per second.")
     parser.add_argument("--channel-alias", type=str, default=None, help="Display name for the channel.")
     parser.add_argument("--num-workers", type=int, default=1, help="Number of parallel workers. -1 to use all cores.")
+    parser.add_argument("--base-size", type=float, default=8.0, help="Base size (in inches) for the plot's width.")
+    parser.add_argument("--min-size", type=float, default=3.0, help="Minimum size (in inches) for a single plot's height.")
+
 
     # --- Color Scales for Main Plots ---
     main_map = parser.add_argument_group('Color Scale (Main Plots)')
@@ -84,6 +87,8 @@ def main():
         num_workers=num_workers,
         cmap=args.cmap,
         cmap_diff=args.cmap_diff,
+        base_size=args.base_size,
+        min_size=args.min_size,
     )
 
 if __name__ == "__main__":
@@ -110,6 +115,8 @@ python create_comparison_video_2d.py \
     --channel-alias "u" \
     --fps 8 \
     --num-workers 128 \
+    --base-size 20.0 \
+    --min-size 20.0 \
     --cmap "seismic" \
     --vmins 'vx:-2.16' 'vz:-3.0' \
     --vmaxs 'vx:3.84' 'vz:3.0' \

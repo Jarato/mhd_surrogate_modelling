@@ -38,13 +38,30 @@ def _create_comparison_frame_from_npz(
     vmin_diff: Optional[float],
     vmax_diff: Optional[float],
     vcenter_diff: Optional[float],
+    base_size: float,
+    min_size: float,
 ):
     """Plots a 3-panel comparison frame (stacked vertically) and saves it to a file."""
     x_coords = coords.get('x', np.arange(gt_slice.shape[0]))
     z_coords = coords.get('z', np.arange(gt_slice.shape[1]))
 
-    # KEY CHANGE: Create a 3x1 subplot grid for vertical stacking.
-    fig, axes = plt.subplots(3, 1, figsize=(8, 18), constrained_layout=True)
+    # --- Dynamic Figure Sizing ---
+    x_range = (x_coords.max() - x_coords.min()) if len(x_coords) > 1 else 1
+    z_range = (z_coords.max() - z_coords.min()) if len(z_coords) > 1 else 1
+    
+    # For a vertical stack, the width is the primary driver.
+    fig_width_in = base_size
+    aspect_ratio = z_range / x_range if x_range > 0 else 1
+    
+    # Calculate the height of a single plot, respecting the min_size.
+    single_plot_height_in = max(min_size, base_size * aspect_ratio)
+    
+    # Total height is 3x a single plot plus padding for titles and colorbars.
+    total_fig_height_in = single_plot_height_in * 3.2
+    
+    figsize = (fig_width_in, total_fig_height_in)
+
+    fig, axes = plt.subplots(3, 1, figsize=figsize, constrained_layout=True)
     fig.suptitle(title, fontsize=16)
 
     # --- Setup for Main Plots (Ground Truth & Prediction) ---
@@ -119,6 +136,8 @@ def _generate_comparison_frame_worker(relative_time_index, common_args):
         cmap_diff=common_args['cmap_diff'],
         vmin=common_args['vmin'], vmax=common_args['vmax'], vcenter=common_args['vcenter'],
         vmin_diff=common_args['vmin_diff'], vmax_diff=common_args['vmax_diff'], vcenter_diff=common_args['vcenter_diff'],
+        base_size=common_args['base_size'],
+        min_size=common_args['min_size'],
     )
     return frame_path
 
@@ -142,6 +161,8 @@ def generate_comparison_video_from_npz(
     num_workers: int = 1,
     cmap: str = "viridis",
     cmap_diff: str = "bwr",
+    base_size: float = 8.0,
+    min_size: float = 3.0,
 ):
     """Generates a 3-panel comparison video from ground truth, prediction, and difference npz files."""
     logging.info("Loading data for comparison video...")
@@ -201,6 +222,7 @@ def generate_comparison_video_from_npz(
             'cmap': cmap, 'cmap_diff': cmap_diff,
             'vmin': vmin, 'vmax': vmax, 'vcenter': vcenter,
             'vmin_diff': vmin_diff, 'vmax_diff': vmax_diff, 'vcenter_diff': vcenter_diff,
+            'base_size': base_size, 'min_size': min_size,
         }
         
         worker_func = partial(_generate_comparison_frame_worker, common_args=common_args)
