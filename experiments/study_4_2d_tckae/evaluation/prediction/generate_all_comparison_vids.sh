@@ -35,6 +35,8 @@ OUTPUT_DIR="${EVAL_DIR}/comparison_videos/"
 # --- Video Parameters ---
 FPS=8
 NUM_WORKERS=128
+BASE_SIZE=20.0 # Base size (in inches) for the plot's width.
+MIN_SIZE=20.0   # Minimum size (in inches) for a single plot's height.
 
 # --- Color Scale for Main Plots (Ground Truth & Prediction) ---
 COLOR_MAP="seismic"
@@ -81,6 +83,8 @@ for i in "${!channels[@]}"; do
         --channel-alias \"$alias\" \
         --fps $FPS \
         --num-workers $NUM_WORKERS \
+        --base-size $BASE_SIZE \
+        --min-size $MIN_SIZE \
         --cmap \"$COLOR_MAP\" \
         --vmins $VMINS \
         --vmaxs $VMAXS \
@@ -101,3 +105,4 @@ for i in "${!channels[@]}"; do
 done
 
 echo "All comparison video generation tasks are complete."
+
