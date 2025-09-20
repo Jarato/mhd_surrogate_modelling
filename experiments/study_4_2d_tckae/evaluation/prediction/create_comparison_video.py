@@ -109,7 +109,7 @@ python create_comparison_video_2d.py \
     --channel "vx" \
     --channel-alias "u" \
     --fps 16 \
-    --num-workers -1 \
+    --num-workers 128 \
     --cmap "seismic" \
     --vmins 'vx:-2.16' 'vz:-3.0' \
     --vmaxs 'vx:3.84' 'vz:3.0' \
