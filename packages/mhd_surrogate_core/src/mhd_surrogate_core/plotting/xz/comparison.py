@@ -39,15 +39,15 @@ def _create_comparison_frame_from_npz(
     vmax_diff: Optional[float],
     vcenter_diff: Optional[float],
 ):
-    """Plots a 3-panel comparison frame and saves it to a file."""
+    """Plots a 3-panel comparison frame (stacked vertically) and saves it to a file."""
     x_coords = coords.get('x', np.arange(gt_slice.shape[0]))
     z_coords = coords.get('z', np.arange(gt_slice.shape[1]))
 
-    fig, axes = plt.subplots(1, 3, figsize=(18, 6), constrained_layout=True)
+    # KEY CHANGE: Create a 3x1 subplot grid for vertical stacking.
+    fig, axes = plt.subplots(3, 1, figsize=(8, 18), constrained_layout=True)
     fig.suptitle(title, fontsize=16)
 
     # --- Setup for Main Plots (Ground Truth & Prediction) ---
-    # KEY CHANGE: Create a dictionary of plot arguments.
     plot_kwargs = {'shading': 'gouraud', 'cmap': cmap}
     if vcenter is not None and vmin is not None and vmax is not None:
         plot_kwargs['norm'] = TwoSlopeNorm(vmin=vmin, vcenter=vcenter, vmax=vmax)
@@ -56,7 +56,6 @@ def _create_comparison_frame_from_npz(
         plot_kwargs['vmax'] = vmax
         
     # --- Setup for Difference Plot ---
-    # KEY CHANGE: Create a separate dictionary for the difference plot.
     plot_kwargs_diff = {'shading': 'gouraud', 'cmap': cmap_diff}
     if vcenter_diff is not None and vmin_diff is not None and vmax_diff is not None:
         plot_kwargs_diff['norm'] = TwoSlopeNorm(vmin=vmin_diff, vcenter=vcenter_diff, vmax=vmax_diff)
@@ -65,26 +64,26 @@ def _create_comparison_frame_from_npz(
         plot_kwargs_diff['vmax'] = vmax_diff
 
     # --- Plotting ---
-    # Ground Truth
+    # Ground Truth (Top Plot)
     im1 = axes[0].pcolormesh(x_coords, z_coords, gt_slice.T, **plot_kwargs)
     axes[0].set_title("Ground Truth")
-    axes[0].set_xlabel("X Coordinate")
     axes[0].set_ylabel("Z Coordinate")
-    fig.colorbar(im1, ax=axes[0], orientation='vertical')
+    axes[0].set_xticklabels([])
+    fig.colorbar(im1, ax=axes[0], orientation='horizontal', pad=0.1)
 
-    # Prediction
+    # Prediction (Middle Plot)
     im2 = axes[1].pcolormesh(x_coords, z_coords, pred_slice.T, **plot_kwargs)
     axes[1].set_title("Prediction")
-    axes[1].set_xlabel("X Coordinate")
-    axes[1].set_yticklabels([])
-    fig.colorbar(im2, ax=axes[1], orientation='vertical')
+    axes[1].set_ylabel("Z Coordinate")
+    axes[1].set_xticklabels([])
+    fig.colorbar(im2, ax=axes[1], orientation='horizontal', pad=0.1)
 
-    # Difference
+    # Difference (Bottom Plot)
     im3 = axes[2].pcolormesh(x_coords, z_coords, diff_slice.T, **plot_kwargs_diff)
     axes[2].set_title("Difference (Error)")
     axes[2].set_xlabel("X Coordinate")
-    axes[2].set_yticklabels([])
-    fig.colorbar(im3, ax=axes[2], orientation='vertical')
+    axes[2].set_ylabel("Z Coordinate")
+    fig.colorbar(im3, ax=axes[2], orientation='horizontal', pad=0.1)
 
     plt.savefig(frame_path, dpi=150)
     plt.close(fig)
