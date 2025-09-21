@@ -179,7 +179,6 @@ def plot_prediction_dashboard(
     plt.show()
 
 
-
 # ==============================================================================
 # LATENT SPACE VISUALIZATION FUNCTIONS
 # ==============================================================================
@@ -271,6 +270,7 @@ def plot_koopman_eigenvector_evolution(
         sort_by (str): The criterion for sorting eigenvectors. 
                          'amplitude' sorts by initial projection amplitude (descending).
                          'eigenvalue_magnitude' sorts by eigenvalue magnitude (descending).
+                         'eigenvector_magnitude' sorts by eigenvector L2 norm (descending).
     """
     eval_path = Path(eval_path)
     if not eval_path.exists():
@@ -283,6 +283,7 @@ def plot_koopman_eigenvector_evolution(
         true_proj = data['true_projected_trajectory']
         pred_proj = data['pred_projected_trajectory']
         initial_amplitudes = data.get('initial_mode_amplitudes')
+        eigenvector_magnitudes = data.get('eigenvector_magnitudes')
     
     if true_proj.size == 0 or pred_proj.size == 0 or initial_amplitudes is None:
         logging.error("Required data for eigenvector evolution plot not found in file (or eigenvector matrix was singular).")
@@ -297,14 +298,25 @@ def plot_koopman_eigenvector_evolution(
         sort_indices = np.argsort(np.abs(eigenvalues))[::-1]
         sort_title_str = "Sorted by Eigenvalue Magnitude"
         plot_title_suffix = "(Sorted by |λ|)"
+    elif sort_by == 'eigenvector_magnitude':
+        if eigenvector_magnitudes is None:
+            logging.error("Cannot sort by eigenvector magnitude: data not found in .npz file. Please re-run gen_latent_prediction.py.")
+            return
+        sort_indices = np.argsort(eigenvector_magnitudes)[::-1]
+        sort_title_str = "Sorted by Eigenvector Magnitude"
+        plot_title_suffix = "(Sorted by ||v||)"
     else:
-        logging.error(f"Invalid sort_by value: '{sort_by}'. Choose 'amplitude' or 'eigenvalue_magnitude'.")
+        logging.error(f"Invalid sort_by value: '{sort_by}'. Choose 'amplitude', 'eigenvalue_magnitude', or 'eigenvector_magnitude'.")
         return
 
     sorted_eigenvalues = eigenvalues[sort_indices]
     sorted_true_proj = true_proj[:, sort_indices]
     sorted_pred_proj = pred_proj[:, sort_indices]
     sorted_amplitudes = initial_amplitudes[sort_indices]
+    if eigenvector_magnitudes is not None:
+        sorted_eigenvector_mags = eigenvector_magnitudes[sort_indices]
+    else:
+        sorted_eigenvector_mags = [None] * len(sort_indices)
 
     num_timesteps, latent_dim = true_proj.shape
     timesteps = range(num_timesteps)
@@ -325,7 +337,11 @@ def plot_koopman_eigenvector_evolution(
         amp = sorted_amplitudes[i]
         title = (f"Eigenvector {i+1} {plot_title_suffix}\n"
                  f"λ = {eig_val.real:.3f} + {eig_val.imag:.3f}i | |λ| = {np.abs(eig_val):.4f}\n"
-                 f"Initial Projection Amplitude: {amp:.3f}")
+                 f"Initial Proj. Amp.: {amp:.3f}")
+
+        if sorted_eigenvector_mags[i] is not None and sort_by == 'eigenvector_magnitude':
+            title += f" | ||v|| = {sorted_eigenvector_mags[i]:.3f}"
+
         ax.set_title(title)
         ax.set_ylabel("Projection Amplitude")
         ax.grid(True, which="both", ls="--")
