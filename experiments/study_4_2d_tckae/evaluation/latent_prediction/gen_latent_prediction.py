@@ -254,39 +254,32 @@ def main():
 
             # --- 2. Analyze Individual High-Energy Modes (Optional) ---
             if args.reconstruct_modes:
-                # First, get the original indices sorted by energy magnitude
                 energy_sorted_indices = np.argsort(koopman_mode_magnitudes)[::-1]
-                
                 processed_indices_individual = set()
+                folder_rank_counter = 0
+                
                 logging.info("Analyzing and saving individual high-energy modes by energy rank...")
                 
-                for rank, idx in enumerate(tqdm(energy_sorted_indices, desc="Analyzing Individual Modes", ncols=80)):
-                    # Skip if already processed as part of a pair or if below threshold
-                    if idx in processed_indices_individual:
-                        continue
-                    if koopman_mode_magnitudes[idx] < args.energy_threshold:
+                for idx in tqdm(energy_sorted_indices, desc="Analyzing Individual Modes", ncols=80):
+                    if idx in processed_indices_individual or koopman_mode_magnitudes[idx] < args.energy_threshold:
                         continue
 
                     is_real = np.isclose(eigenvalues[idx].imag, 0)
                     if is_real:
                         true_recon = (true_projected_traj[:, idx].unsqueeze(1) * eigenvectors[:, idx].unsqueeze(0)).real
                         pred_recon = (pred_projected_traj[:, idx].unsqueeze(1) * eigenvectors[:, idx].unsqueeze(0)).real
-                        subdir = analysis_dir / f"mode_rank_{rank}"
+                        subdir = analysis_dir / f"mode_rank_{folder_rank_counter}"
                         processed_indices_individual.add(idx)
                     else:
-                        # Find conjugate partner
                         conj_idx = np.where((np.isclose(eigenvalues.real, eigenvalues[idx].real)) & (np.isclose(eigenvalues.imag, -eigenvalues[idx].imag)))[0][0]
-                        
                         true_recon = 2 * (true_projected_traj[:, idx].unsqueeze(1) * eigenvectors[:, idx].unsqueeze(0)).real
                         pred_recon = 2 * (pred_projected_traj[:, idx].unsqueeze(1) * eigenvectors[:, idx].unsqueeze(0)).real
-                        
-                        # Use the rank of the primary mode for naming
-                        subdir = analysis_dir / f"mode_pair_rank_{rank}"
-                        
+                        subdir = analysis_dir / f"mode_pair_rank_{folder_rank_counter}"
                         processed_indices_individual.add(idx)
                         processed_indices_individual.add(conj_idx)
 
                     analyze_and_save_reconstruction(true_recon, pred_recon, subdir, model, denormalize, channel_names, device)
+                    folder_rank_counter += 1
 
             # --- Final Summary Logging ---
             logging.info("--- PHYSICAL SPACE EVALUATION (FROM HIGH-ENERGY MODES) ---")
