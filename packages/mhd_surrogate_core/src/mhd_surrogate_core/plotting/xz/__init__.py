@@ -7,6 +7,7 @@ from .processed import (
     plot_xz_snapshot,
     plot_x_time_evolution,
     plot_z_time_evolution,
+    plot_velocity_quiver,
 )
 from .evaluation import (
     plot_r2_performance,
@@ -22,6 +23,7 @@ __all__ = [
     "plot_xz_snapshot",
     "plot_x_time_evolution",
     "plot_z_time_evolution",
+    "plot_velocity_quiver",
     # Evaluation
     "plot_r2_performance",
     "plot_prediction_rollout_error",
@@ -29,4 +31,3 @@ __all__ = [
     # Comparison Video
     "generate_comparison_video_from_npz",
 ]
-

@@ -36,6 +36,143 @@ def _load_data_for_viz(data_path, timeseries_data, coords):
 # VISUALIZATION FUNCTIONS FOR 2D PROCESSED NPZ DATA
 # ==============================================================================
 
+def plot_velocity_quiver(
+    data_path: Path | str,
+    time_index: int,
+    u_channel: str = 'vx',
+    v_channel: str = 'vz',
+    timeseries_data: Optional[np.ndarray] = None,
+    coords: Optional[Dict] = None,
+    channel_alias_map: Optional[Dict] = None,
+    mean_flow_components: Optional[Dict] = None,
+    vmin: Optional[float] = None,
+    vmax: Optional[float] = None,
+    figsize: Optional[tuple] = None,
+    base_size: float = 8.0,
+    min_size: float = 3.0,
+    unit_label: str = "",
+    cmap: str = "viridis",
+    quiver_stride: int = 10,
+    color_by: str = 'background',
+    arrow_color: str = 'white',
+    arrow_width: Optional[float] = None,
+):
+    """
+    Plots a 2D velocity field snapshot.
+
+    The visualization can be configured with `color_by`:
+    - 'background': Colors the background mesh by velocity magnitude and overlays
+                    monochromatic arrows for direction.
+    - 'arrows':     Colors the arrows themselves by velocity magnitude, leaving
+                    the background neutral.
+    """
+    timeseries_data, coords = _load_data_for_viz(data_path, timeseries_data, coords)
+    if timeseries_data is None: return
+
+    try:
+        u_idx = coords['labels'].index(u_channel)
+        v_idx = coords['labels'].index(v_channel)
+        
+        if channel_alias_map:
+            u_display = channel_alias_map.get(u_channel, u_channel)
+            v_display = channel_alias_map.get(v_channel, v_channel)
+        else:
+            u_display, v_display = u_channel, v_channel
+
+    except ValueError as e:
+        logging.error(f"Required channel not found in {coords['labels']}: {e}")
+        return
+
+    # Extract velocity components for the given time index
+    u_data = timeseries_data[time_index, :, :, u_idx]
+    v_data = timeseries_data[time_index, :, :, v_idx]
+    
+    # Calculate velocity magnitude from the full velocity field
+    magnitude = np.sqrt(u_data**2 + v_data**2)
+    
+    # Determine plot dimensions
+    if figsize is None:
+        x_range = coords['x'].max() - coords['x'].min()
+        z_range = coords['z'].max() - coords['z'].min()
+        if x_range > z_range:
+            fig_width = base_size
+            aspect_ratio = z_range / x_range if x_range > 0 else 1
+            fig_height = max(min_size, base_size * aspect_ratio)
+        else:
+            fig_height = base_size
+            aspect_ratio = x_range / z_range if z_range > 0 else 1
+            fig_width = max(min_size, base_size * aspect_ratio)
+        figsize = (fig_width, fig_height)
+
+    plt.style.use('seaborn-v0_8-whitegrid')
+    fig, ax = plt.subplots(figsize=figsize)
+
+    # --- Prepare data for quiver plot, accounting for mean flow ---
+    base_title = f"Velocity Field ({u_display}, {v_display}) Snapshot"
+    
+    # Prepare fluctuation components for quiver arrows
+    u_data_fluctuation = u_data.copy()
+    v_data_fluctuation = v_data.copy()
+    
+    subtitle = f"at time index {time_index}"
+    if mean_flow_components:
+        mean_u = mean_flow_components.get(u_channel, 0.0)
+        mean_v = mean_flow_components.get(v_channel, 0.0)
+        u_data_fluctuation -= mean_u
+        v_data_fluctuation -= mean_v
+        
+        subtracted_parts = []
+        if abs(mean_u) > 1e-9:
+            subtracted_parts.append(f"{u_display}={mean_u:.2f}")
+        if abs(mean_v) > 1e-9:
+            subtracted_parts.append(f"{v_display}={mean_v:.2f}")
+            
+        if subtracted_parts:
+            subtitle += f"\n(Arrows show fluctuations around mean {', '.join(subtracted_parts)})"
+
+    # Downsample all data for the quiver plot
+    x_coords_q = coords['x'][::quiver_stride]
+    z_coords_q = coords['z'][::quiver_stride]
+    u_data_q = u_data_fluctuation[::quiver_stride, ::quiver_stride]
+    v_data_q = v_data_fluctuation[::quiver_stride, ::quiver_stride]
+    magnitude_q = magnitude[::quiver_stride, ::quiver_stride]
+    X_q, Z_q = np.meshgrid(x_coords_q, z_coords_q, indexing='ij')
+
+    cbar_label = f"Velocity Magnitude" + (f" [{unit_label}]" if unit_label else "")
+    
+    # --- Plotting based on the chosen style ---
+    if color_by == 'background':
+        width = arrow_width if arrow_width is not None else 0.002
+        im = ax.pcolormesh(
+            coords['x'], coords['z'], magnitude.T,
+            shading='gouraud', cmap=cmap, vmin=vmin, vmax=vmax
+        )
+        fig.colorbar(im, ax=ax, label=cbar_label)
+        ax.quiver(
+            X_q, Z_q, u_data_q, v_data_q, color=arrow_color,
+            scale_units='xy', angles='xy', scale=None, width=width
+        )
+    elif color_by == 'arrows':
+        width = arrow_width if arrow_width is not None else 0.0035
+        norm = plt.Normalize(vmin=vmin, vmax=vmax)
+        q = ax.quiver(
+            X_q, Z_q, u_data_q, v_data_q, magnitude_q,
+            cmap=cmap, norm=norm,
+            scale_units='xy', angles='xy', scale=None, width=width
+        )
+        fig.colorbar(q, ax=ax, label=cbar_label)
+        ax.set_facecolor('#F0F0F0') # Use a neutral background
+    else:
+        logging.error(f"Invalid value for 'color_by': {color_by}. Choose 'background' or 'arrows'.")
+        return
+
+    ax.set_title(f"{base_title}\n{subtitle}")
+    ax.set_xlabel("X Coordinate")
+    ax.set_ylabel("Z Coordinate")
+    plt.tight_layout()
+    plt.show()
+
+
 def plot_z_time_evolution(
     data_path: Path | str,
     channel: str,
@@ -256,3 +393,7 @@ def plot_xz_snapshot(
     ax.set_ylabel("Z Coordinate")
     plt.tight_layout()
     plt.show()
+
+
+
+
