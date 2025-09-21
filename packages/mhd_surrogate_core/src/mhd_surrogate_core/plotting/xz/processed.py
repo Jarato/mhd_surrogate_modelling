@@ -53,18 +53,10 @@ def plot_velocity_quiver(
     unit_label: str = "",
     cmap: str = "viridis",
     quiver_stride: int = 10,
-    color_by: str = 'background',
-    arrow_color: str = 'white',
     arrow_width: Optional[float] = None,
 ):
     """
-    Plots a 2D velocity field snapshot.
-
-    The visualization can be configured with `color_by`:
-    - 'background': Colors the background mesh by velocity magnitude and overlays
-                    monochromatic arrows for direction.
-    - 'arrows':     Colors the arrows themselves by velocity magnitude, leaving
-                    the background neutral.
+    Plots a 2D velocity field snapshot where arrows are colored by magnitude.
     """
     timeseries_data, coords = _load_data_for_viz(data_path, timeseries_data, coords)
     if timeseries_data is None: return
@@ -140,31 +132,16 @@ def plot_velocity_quiver(
 
     cbar_label = f"Velocity Magnitude" + (f" [{unit_label}]" if unit_label else "")
     
-    # --- Plotting based on the chosen style ---
-    if color_by == 'background':
-        width = arrow_width if arrow_width is not None else 0.002
-        im = ax.pcolormesh(
-            coords['x'], coords['z'], magnitude.T,
-            shading='gouraud', cmap=cmap, vmin=vmin, vmax=vmax
-        )
-        fig.colorbar(im, ax=ax, label=cbar_label)
-        ax.quiver(
-            X_q, Z_q, u_data_q, v_data_q, color=arrow_color,
-            scale_units='xy', angles='xy', scale=None, width=width
-        )
-    elif color_by == 'arrows':
-        width = arrow_width if arrow_width is not None else 0.0035
-        norm = plt.Normalize(vmin=vmin, vmax=vmax)
-        q = ax.quiver(
-            X_q, Z_q, u_data_q, v_data_q, magnitude_q,
-            cmap=cmap, norm=norm,
-            scale_units='xy', angles='xy', scale=None, width=width
-        )
-        fig.colorbar(q, ax=ax, label=cbar_label)
-        ax.set_facecolor('#F0F0F0') # Use a neutral background
-    else:
-        logging.error(f"Invalid value for 'color_by': {color_by}. Choose 'background' or 'arrows'.")
-        return
+    # --- Plotting: Arrows colored by magnitude ---
+    width = arrow_width if arrow_width is not None else 0.0035
+    norm = plt.Normalize(vmin=vmin, vmax=vmax)
+    q = ax.quiver(
+        X_q, Z_q, u_data_q, v_data_q, magnitude_q,
+        cmap=cmap, norm=norm,
+        scale_units='xy', angles='xy', scale=None, width=width
+    )
+    fig.colorbar(q, ax=ax, label=cbar_label)
+    ax.set_facecolor('#F0F0F0') # Use a neutral background
 
     ax.set_title(f"{base_title}\n{subtitle}")
     ax.set_xlabel("X Coordinate")
@@ -393,6 +370,7 @@ def plot_xz_snapshot(
     ax.set_ylabel("Z Coordinate")
     plt.tight_layout()
     plt.show()
+
 
 
 
