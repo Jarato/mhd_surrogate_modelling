@@ -228,7 +228,7 @@ def main():
 
             r2_comb, mse_comb = analyze_and_save_reconstruction(
                 combined_true_recon_latent, combined_pred_recon_latent,
-                output_dir / "combined_high_energy_modes",
+                analysis_dir / "combined_high_energy_modes",
                 model, denormalize, channel_names, device
             )
 
@@ -242,13 +242,13 @@ def main():
                     if is_real:
                         true_recon = (true_projected_traj[:, idx].unsqueeze(1) * eigenvectors[:, idx].unsqueeze(0)).real
                         pred_recon = (pred_projected_traj[:, idx].unsqueeze(1) * eigenvectors[:, idx].unsqueeze(0)).real
-                        subdir = output_dir / f"mode_{idx}"
+                        subdir = analysis_dir / f"mode_{idx}"
                         processed_indices_individual.add(idx)
                     else:
                         conj_idx = np.where((np.isclose(eigenvalues.real, eigenvalues[idx].real)) & (np.isclose(eigenvalues.imag, -eigenvalues[idx].imag)))[0][0]
                         true_recon = 2 * (true_projected_traj[:, idx].unsqueeze(1) * eigenvectors[:, idx].unsqueeze(0)).real
                         pred_recon = 2 * (pred_projected_traj[:, idx].unsqueeze(1) * eigenvectors[:, idx].unsqueeze(0)).real
-                        subdir = output_dir / f"mode_pair_{idx}_{conj_idx}"
+                        subdir = analysis_dir / f"mode_pair_{idx}_{conj_idx}"
                         processed_indices_individual.add(idx)
                         processed_indices_individual.add(conj_idx)
 
