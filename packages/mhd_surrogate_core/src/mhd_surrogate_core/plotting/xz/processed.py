@@ -79,9 +79,6 @@ def plot_velocity_quiver(
     u_data = timeseries_data[time_index, :, :, u_idx]
     v_data = timeseries_data[time_index, :, :, v_idx]
     
-    # Calculate velocity magnitude from the full velocity field
-    magnitude = np.sqrt(u_data**2 + v_data**2)
-    
     # Determine plot dimensions
     if figsize is None:
         x_range = coords['x'].max() - coords['x'].min()
@@ -107,6 +104,8 @@ def plot_velocity_quiver(
     v_data_fluctuation = v_data.copy()
     
     subtitle = f"at time index {time_index}"
+    cbar_label = f"Velocity Magnitude" + (f" [{unit_label}]" if unit_label else "")
+
     if mean_flow_components:
         mean_u = mean_flow_components.get(u_channel, 0.0)
         mean_v = mean_flow_components.get(v_channel, 0.0)
@@ -125,6 +124,10 @@ def plot_velocity_quiver(
             
         if subtracted_parts:
             subtitle += f"\n(Arrows show fluctuations around mean {', '.join(subtracted_parts)})"
+            cbar_label = f"Fluctuation Magnitude" + (f" [{unit_label}]" if unit_label else "")
+
+    # Calculate magnitude from the fluctuation components
+    magnitude = np.sqrt(u_data_fluctuation**2 + v_data_fluctuation**2)
 
     # Downsample all data for the quiver plot
     x_coords_q = coords['x'][::quiver_stride]
@@ -134,8 +137,6 @@ def plot_velocity_quiver(
     magnitude_q = magnitude[::quiver_stride, ::quiver_stride]
     X_q, Z_q = np.meshgrid(x_coords_q, z_coords_q, indexing='ij')
 
-    cbar_label = f"Velocity Magnitude" + (f" [{unit_label}]" if unit_label else "")
-    
     # --- Plotting: Arrows colored by magnitude ---
     width = arrow_width if arrow_width is not None else 0.0035
     norm = plt.Normalize(vmin=vmin, vmax=vmax)
@@ -374,4 +375,5 @@ def plot_xz_snapshot(
     ax.set_ylabel("Z Coordinate")
     plt.tight_layout()
     plt.show()
+
 
