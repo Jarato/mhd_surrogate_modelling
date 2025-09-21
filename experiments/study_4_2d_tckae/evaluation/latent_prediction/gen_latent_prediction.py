@@ -51,42 +51,50 @@ def decode_timeseries(model, latent_timeseries_tensor, denormalize_fn, batch_siz
 def analyze_and_save_reconstruction(
     true_recon_latent: torch.Tensor,
     pred_recon_latent: torch.Tensor,
+    full_ground_truth_phys: torch.Tensor,
     output_subdir: Path,
     model: nn.Module,
     denormalize_fn,
     channel_names: list[str],
     device: str
 ):
-    """Decodes, analyzes, and saves a pair of true/predicted reconstructed timeseries."""
+    """
+    Decodes, analyzes, and saves a pair of true/predicted reconstructed timeseries.
+    The difference and stats are calculated against the FULL ground truth.
+    """
     logging.info(f"--- Analyzing reconstruction for: {output_subdir.name} ---")
     output_subdir.mkdir(parents=True, exist_ok=True)
     
-    # Decode both true and predicted reconstructions
-    true_phys = decode_timeseries(model, true_recon_latent, denormalize_fn, device=device)
-    pred_phys = decode_timeseries(model, pred_recon_latent, denormalize_fn, device=device)
+    # Decode both the "true" reconstruction (for visual comparison) and the predicted reconstruction
+    true_recon_phys = decode_timeseries(model, true_recon_latent, denormalize_fn, device=device)
+    pred_recon_phys = decode_timeseries(model, pred_recon_latent, denormalize_fn, device=device)
     
-    # Calculate difference and metrics
+    # --- METRICS CALCULATION (against FULL ground truth) ---
     loss_fn = nn.MSELoss(reduction='none')
-    diff_phys = pred_phys - true_phys
-    error_tensor = loss_fn(pred_phys, true_phys)
+    diff_phys = pred_recon_phys - full_ground_truth_phys
+    error_tensor = loss_fn(pred_recon_phys, full_ground_truth_phys)
 
     avg_rollout_mse_total = error_tensor.mean().item()
-    variance_total = true_phys.var().item()
+    variance_total = full_ground_truth_phys.var().item()
     r_squared_total = 1 - (avg_rollout_mse_total / variance_total) if variance_total > 0 else 0.0
     
     avg_mse_per_channel = error_tensor.mean(dim=(0, 1, 2)).numpy()
     r_squared_per_channel = np.zeros(len(channel_names))
     for i in range(len(channel_names)):
-        variance_channel = true_phys[..., i].var().item()
+        variance_channel = full_ground_truth_phys[..., i].var().item()
         r_squared_per_channel[i] = 1 - (avg_mse_per_channel[i] / variance_channel) if variance_channel > 0 else 0.0
 
     per_step_channel_error = error_tensor[1:].mean(dim=(1, 2)).numpy()
 
-    # Save all files
-    np.savez(output_subdir / "true_timeseries.npz", timeseries=true_phys.numpy(), labels=np.array(channel_names, dtype='U'))
-    np.savez(output_subdir / "predicted_timeseries.npz", timeseries=pred_phys.numpy(), labels=np.array(channel_names, dtype='U'))
+    # --- SAVE FILES ---
+    # Save the reconstructed true timeseries (for visual comparison)
+    np.savez(output_subdir / "true_timeseries.npz", timeseries=true_recon_phys.numpy(), labels=np.array(channel_names, dtype='U'))
+    # Save the predicted timeseries
+    np.savez(output_subdir / "predicted_timeseries.npz", timeseries=pred_recon_phys.numpy(), labels=np.array(channel_names, dtype='U'))
+    # Save the difference timeseries (calculated against full ground truth)
     np.savez(output_subdir / "difference_timeseries.npz", timeseries=diff_phys.numpy(), labels=np.array(channel_names, dtype='U'))
     
+    # Save the statistics (calculated against full ground truth)
     np.savez(
         output_subdir / "prediction_stats.npz",
         channel_names=np.array(channel_names, dtype='U'),
@@ -146,6 +154,8 @@ def main():
         test_data_np = full_timeseries[..., channel_indices]
     else:
         test_data_np = full_timeseries
+    
+    test_tensor_cpu = torch.from_numpy(test_data_np).float()
 
     min_vals = all_min_vals[channel_indices] if channels_used else all_min_vals
     max_vals = all_max_vals[channel_indices] if channels_used else all_max_vals
@@ -159,7 +169,7 @@ def main():
     true_latent_trajectory = []
     with torch.no_grad():
         for i in tqdm(range(test_data_np.shape[0]), desc="Encoding Ground Truth", ncols=80):
-            snapshot_tensor = torch.from_numpy(test_data_np[i]).float().to(device).permute(2, 0, 1)
+            snapshot_tensor = test_tensor_cpu[i].to(device).permute(2, 0, 1)
             latent_vector = model.encode(normalize(snapshot_tensor.unsqueeze(0)))
             true_latent_trajectory.append(latent_vector.squeeze(0).cpu())
     true_latent_trajectory = torch.stack(true_latent_trajectory)
@@ -247,7 +257,7 @@ def main():
                     processed_indices_combined.add(conj_idx)
 
             r2_comb, mse_comb = analyze_and_save_reconstruction(
-                combined_true_recon_latent, combined_pred_recon_latent,
+                combined_true_recon_latent, combined_pred_recon_latent, test_tensor_cpu,
                 analysis_dir / "combined_high_energy_modes",
                 model, denormalize, channel_names, device
             )
@@ -255,12 +265,7 @@ def main():
             # --- 2. Analyze Individual High-Energy Modes (Optional) ---
             if args.reconstruct_modes:
                 energy_sorted_indices = np.argsort(koopman_mode_magnitudes)[::-1]
-                
-                # Pre-filter indices to only those above the threshold
-                high_energy_analysis_indices = [
-                    idx for idx in energy_sorted_indices
-                    if koopman_mode_magnitudes[idx] >= args.energy_threshold
-                ]
+                high_energy_analysis_indices = [idx for idx in energy_sorted_indices if koopman_mode_magnitudes[idx] >= args.energy_threshold]
                 
                 processed_indices_individual = set()
                 folder_rank_counter = 0
@@ -268,8 +273,7 @@ def main():
                 logging.info(f"Found {len(high_energy_analysis_indices)} eigenvectors for individual analysis. Saving reconstructions...")
                 
                 for idx in tqdm(high_energy_analysis_indices, desc="Analyzing Individual Modes", ncols=80):
-                    if idx in processed_indices_individual:
-                        continue
+                    if idx in processed_indices_individual: continue
 
                     is_real = np.isclose(eigenvalues[idx].imag, 0)
                     if is_real:
@@ -285,7 +289,7 @@ def main():
                         processed_indices_individual.add(idx)
                         processed_indices_individual.add(conj_idx)
 
-                    analyze_and_save_reconstruction(true_recon, pred_recon, subdir, model, denormalize, channel_names, device)
+                    analyze_and_save_reconstruction(true_recon, pred_recon, test_tensor_cpu, subdir, model, denormalize, channel_names, device)
                     folder_rank_counter += 1
 
             # --- Final Summary Logging ---
