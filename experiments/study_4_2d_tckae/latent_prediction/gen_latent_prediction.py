@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# experiments/study_3_q2d_tckae/gen_prediction_2d_separated.py
+# experiments/study_4_2d_tckae/gen_latent_prediction.py
 
 import argparse
 import logging
@@ -16,7 +16,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(
 
 def parse_args():
     """Parse command-line arguments."""
-    parser = argparse.ArgumentParser(description="Evaluate a trained 2D tcKAE's prediction performance and save outputs.")
+    parser = argparse.ArgumentParser(description="Evaluate a trained 2D tcKAE's latent space dynamics.")
     
     # --- Input Paths ---
     io_group = parser.add_argument_group("Input Paths")
@@ -24,36 +24,25 @@ def parse_args():
     io_group.add_argument("--test-data-path", type=str, required=True, help="Path to the contiguous test_set.npz file.")
     io_group.add_argument("--norm-stats-path", type=str, required=True, help="Path to the normalization_stats.npz file.")
 
-    # --- Output Paths ---
-    out_group = parser.add_argument_group("Output Paths")
-    out_group.add_argument("--output-dir", type=str, default=None, help="Optional. A single directory to save all output files. Overrides specific path arguments.")
-    out_group.add_argument("--stats-output-path", type=str, default=None, help="Path for the .npz file with analysis statistics. Defaults to 'eval/prediction_stats.npz' in the model's directory.")
-    out_group.add_argument("--pred-output-path", type=str, default=None, help="Path for the .npz file with the predicted timeseries. Defaults to 'eval/predicted_timeseries.npz'.")
-    out_group.add_argument("--diff-output-path", type=str, default=None, help="Path for the .npz file with the difference timeseries. Defaults to 'eval/difference_timeseries.npz'.")
+    # --- Output Path ---
+    out_group = parser.add_argument_group("Output Path")
+    out_group.add_argument("--output-path", type=str, default=None, help="Full path to save latent space evaluation results (.npz file). Defaults to 'eval/latent_space_analysis.npz' in the model's directory.")
     
     return parser.parse_args()
 
 def main():
-    """Main function to generate predictions and evaluate the model."""
+    """Main function to generate latent space predictions and analyze them."""
     args = parse_args()
     device = "cuda" if torch.cuda.is_available() else "cpu"
     logging.info(f"Using device: {device}")
     model_path = Path(args.model_path)
     
-    # --- Setup Output Paths ---
-    if args.output_dir:
-        output_dir = Path(args.output_dir)
-        output_dir.mkdir(parents=True, exist_ok=True)
-        stats_path = output_dir / "prediction_stats.npz"
-        pred_path = output_dir / "predicted_timeseries.npz"
-        diff_path = output_dir / "difference_timeseries.npz"
+    # --- Setup Output Path ---
+    if args.output_path:
+        output_path = Path(args.output_path)
     else:
-        eval_dir = model_path.parent / "eval"
-        eval_dir.mkdir(parents=True, exist_ok=True)
-        stats_path = Path(args.stats_output_path) if args.stats_output_path else eval_dir / "prediction_stats.npz"
-        pred_path = Path(args.pred_output_path) if args.pred_output_path else eval_dir / "predicted_timeseries.npz"
-        diff_path = Path(args.diff_output_path) if args.diff_output_path else eval_dir / "difference_timeseries.npz"
-
+        output_path = model_path.parent / "eval" / "latent_space_analysis.npz"
+    output_path.parent.mkdir(parents=True, exist_ok=True)
 
     # --- Load Model from Checkpoint ---
     logging.info(f"Loading model from {model_path}")
@@ -85,100 +74,93 @@ def main():
         channel_indices = [all_channel_names.index(name) for name in channels_used]
         min_vals = all_min_vals[channel_indices]
         max_vals = all_max_vals[channel_indices]
-        channel_names = channels_used
         test_data_np = full_timeseries[..., channel_indices]
     else:
-        channel_indices = list(range(len(all_channel_names)))
         min_vals = all_min_vals
         max_vals = all_max_vals
-        channel_names = all_channel_names
         test_data_np = full_timeseries
 
     min_vals, max_vals = min_vals.view(1, -1, 1, 1), max_vals.view(1, -1, 1, 1)
     data_range = max_vals - min_vals + 1e-8
     def normalize(x): return (x - min_vals) / data_range * 2.0 - 1.0
-    def denormalize(x_norm): return (x_norm + 1.0) / 2.0 * data_range + min_vals
 
-    test_tensor_cpu = torch.from_numpy(test_data_np).float()
-    logging.info(f"Test data loaded and processed. Final shape: {test_tensor_cpu.shape}")
-
-    # --- Autoregressive Rollout ---
-    num_timesteps = test_tensor_cpu.shape[0]
-    predictions_denorm_cpu = []
-    
-    initial_state_original = test_tensor_cpu[0].unsqueeze(0).to(device)
-    current_state_norm = normalize(initial_state_original.permute(0, 3, 1, 2))
-
-    logging.info(f"Starting autoregressive rollout for {num_timesteps - 1} steps...")
+    # --- Encode the Entire Ground Truth Trajectory ---
+    true_latent_trajectory = []
     with torch.no_grad():
-        predictions_denorm_cpu.append(initial_state_original.squeeze(0).cpu())
-        z_t = model.encode(current_state_norm)
+        for i in tqdm(range(test_data_np.shape[0]), desc="Encoding Ground Truth"):
+            snapshot_np = test_data_np[i]
+            snapshot_tensor = torch.from_numpy(snapshot_np).float().to(device)
+            # Permute from (X, Z, C) -> (C, X, Z) for the model
+            snapshot_permuted = snapshot_tensor.permute(2, 0, 1)
+            
+            # Normalize and add batch dimension
+            snapshot_norm = normalize(snapshot_permuted.unsqueeze(0))
+            
+            latent_vector = model.encode(snapshot_norm)
+            true_latent_trajectory.append(latent_vector.squeeze(0).cpu())
+    
+    true_latent_trajectory = torch.stack(true_latent_trajectory)
+    logging.info(f"Encoded ground truth trajectory. Latent shape: {true_latent_trajectory.shape}")
 
-        for _ in tqdm(range(num_timesteps - 1), desc="Evaluating Rollout"):
+    # --- Autoregressive Rollout in Latent Space ---
+    num_timesteps = true_latent_trajectory.shape[0]
+    predicted_latent_trajectory = []
+    
+    z_t = true_latent_trajectory[0].unsqueeze(0).to(device)
+    
+    with torch.no_grad():
+        predicted_latent_trajectory.append(z_t.squeeze(0).cpu())
+        for _ in tqdm(range(num_timesteps - 1), desc="Latent Rollout"):
             z_t = model.koopman_step(z_t)
-            predicted_state_norm = model.decode(z_t)
-            predicted_state_denorm = denormalize(predicted_state_norm).permute(0, 2, 3, 1)
-            predictions_denorm_cpu.append(predicted_state_denorm.squeeze(0).cpu())
-            current_state_norm = predicted_state_norm
-    
-    predicted_timeseries = torch.stack(predictions_denorm_cpu)
-    logging.info(f"Rollout complete. Predicted timeseries shape: {predicted_timeseries.shape}")
+            predicted_latent_trajectory.append(z_t.squeeze(0).cpu())
+    predicted_latent_trajectory = torch.stack(predicted_latent_trajectory)
 
-    # --- Calculate Metrics and Difference ---
-    difference_timeseries = predicted_timeseries - test_tensor_cpu
+    # --- Eigendecomposition and Projection ---
+    logging.info("Performing eigendecomposition of the Koopman matrix...")
+    with torch.no_grad():
+        K = model.koopman_operator.weight.cpu()
+        eigenvalues, eigenvectors = torch.linalg.eig(K)
+        
+        try:
+            W_inv = torch.linalg.inv(eigenvectors)
+            true_projected_traj = (W_inv @ true_latent_trajectory.cfloat().T).T
+            pred_projected_traj = (W_inv @ predicted_latent_trajectory.cfloat().T).T
+            initial_mode_amplitudes = np.abs(true_projected_traj[0].numpy())
+        except torch.linalg.LinAlgError:
+            logging.error("Eigenvector matrix is singular; cannot perform projection.")
+            true_projected_traj, pred_projected_traj, initial_mode_amplitudes = None, None, None
+
+    # --- Calculate Per-Timestep Error ---
     loss_fn = nn.MSELoss(reduction='none')
-    error_tensor = loss_fn(predicted_timeseries, test_tensor_cpu)
+    per_step_latent_error = []
+    for t in range(1, num_timesteps):
+        error = loss_fn(predicted_latent_trajectory[t], true_latent_trajectory[t]).mean().item()
+        per_step_latent_error.append(error)
+
+    # --- Calculate Final Metrics ---
+    avg_rollout_mse = np.mean(per_step_latent_error)
+    variance_latent = true_latent_trajectory.var().item()
+    r_squared_latent = 1 - (avg_rollout_mse / variance_latent) if variance_latent > 0 else 0.0
     
-    avg_rollout_mse_total = error_tensor.mean().item()
-    variance_total = test_tensor_cpu.var().item()
-    r_squared_total = 1 - (avg_rollout_mse_total / variance_total) if variance_total > 0 else 0.0
-    
-    avg_mse_per_channel = error_tensor.mean(dim=(0, 1, 2)).numpy()
-    r_squared_per_channel = np.zeros(len(channel_names))
-    for i in range(len(channel_names)):
-        variance_channel = test_tensor_cpu[..., i].var().item()
-        r_squared_per_channel[i] = 1 - (avg_mse_per_channel[i] / variance_channel) if variance_channel > 0 else 0.0
-
-    per_step_channel_error = error_tensor[1:].mean(dim=(1, 2)).numpy()
-
-    # --- Save All Results to Separate Files ---
-    
-    # 1. Save statistics
+    # --- Save All Results ---
     np.savez(
-        stats_path,
-        channel_names=np.array(channel_names, dtype='U'),
-        r_squared_total=r_squared_total,
-        r_squared_per_channel=r_squared_per_channel,
-        per_step_channel_error=per_step_channel_error,
-        avg_rollout_mse_total=avg_rollout_mse_total,
-        avg_mse_per_channel=avg_mse_per_channel,
+        output_path, 
+        per_step_latent_error=np.array(per_step_latent_error),
+        true_latent_trajectory=true_latent_trajectory.numpy(),
+        predicted_latent_trajectory=predicted_latent_trajectory.numpy(),
+        eigenvalues=eigenvalues.numpy(),
+        true_projected_trajectory=true_projected_traj.numpy() if true_projected_traj is not None else None,
+        pred_projected_trajectory=pred_projected_traj.numpy() if pred_projected_traj is not None else None,
+        initial_mode_amplitudes=initial_mode_amplitudes if initial_mode_amplitudes is not None else None,
+        avg_rollout_mse=avg_rollout_mse,
+        r_squared_latent=r_squared_latent,
     )
-    logging.info(f"Analysis statistics saved to {stats_path}")
-
-    # 2. Save predicted timeseries in original data format
-    np.savez(
-        pred_path,
-        timeseries=predicted_timeseries.numpy(),
-        labels=np.array(channel_names, dtype='U'),
-    )
-    logging.info(f"Predicted timeseries saved to {pred_path}")
-
-    # 3. Save difference timeseries in original data format
-    np.savez(
-        diff_path,
-        timeseries=difference_timeseries.numpy(),
-        labels=np.array(channel_names, dtype='U'),
-    )
-    logging.info(f"Difference timeseries saved to {diff_path}")
+    logging.info(f"Latent space analysis results saved to {output_path}")
 
     # --- Log Final Metrics ---
-    logging.info("--- PREDICTION EVALUATION COMPLETE ---")
-    logging.info(f"Overall Average Rollout MSE: {avg_rollout_mse_total:.6f}")
-    logging.info(f"Overall R-squared (R²) Score: {r_squared_total:.4f}\n")
-    logging.info("--- Per-Channel Metrics ---")
-    for i, name in enumerate(channel_names):
-        logging.info(f"Channel '{name}':\t Avg MSE = {avg_mse_per_channel[i]:.6f},\t R² = {r_squared_per_channel[i]:.4f}")
+    logging.info("--- LATENT SPACE EVALUATION COMPLETE ---")
+    logging.info(f"Average Latent Space Rollout MSE: {avg_rollout_mse:.6e}")
+    logging.info(f"Latent Space R-squared (R²) Score: {r_squared_latent:.4f}")
 
 if __name__ == "__main__":
     main()
-
