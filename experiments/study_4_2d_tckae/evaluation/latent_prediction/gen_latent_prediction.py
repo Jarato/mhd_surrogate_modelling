@@ -117,8 +117,6 @@ def main():
         K = model.koopman_operator.weight.cpu()
         eigenvalues, eigenvectors = torch.linalg.eig(K)
         
-        eigenvector_magnitudes = torch.linalg.norm(eigenvectors, ord=2, dim=0).numpy()
-
         logging.info("Decoding latent eigenvectors to calculate Koopman mode magnitudes...")
         koopman_mode_magnitudes = []
         for vec in tqdm(eigenvectors.T, desc="Decoding Eigenvectors"):
@@ -159,7 +157,6 @@ def main():
         true_latent_trajectory=true_latent_trajectory.numpy(),
         predicted_latent_trajectory=predicted_latent_trajectory.numpy(),
         eigenvalues=eigenvalues.numpy(),
-        eigenvector_magnitudes=eigenvector_magnitudes,
         koopman_mode_magnitudes=koopman_mode_magnitudes,
         true_projected_trajectory=true_projected_traj.numpy() if true_projected_traj is not None else None,
         pred_projected_trajectory=pred_projected_traj.numpy() if pred_projected_traj is not None else None,
@@ -176,4 +173,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
