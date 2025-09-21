@@ -110,9 +110,13 @@ def plot_velocity_quiver(
     if mean_flow_components:
         mean_u = mean_flow_components.get(u_channel, 0.0)
         mean_v = mean_flow_components.get(v_channel, 0.0)
-        u_data_fluctuation -= mean_u
-        v_data_fluctuation -= mean_v
         
+        # Only subtract from the interior of the domain, preserving boundaries
+        if u_data_fluctuation.shape[0] > 2 and u_data_fluctuation.shape[1] > 2:
+             u_data_fluctuation[1:-1, 1:-1] -= mean_u
+        if v_data_fluctuation.shape[0] > 2 and v_data_fluctuation.shape[1] > 2:
+             v_data_fluctuation[1:-1, 1:-1] -= mean_v
+
         subtracted_parts = []
         if abs(mean_u) > 1e-9:
             subtracted_parts.append(f"{u_display}={mean_u:.2f}")
@@ -207,8 +211,8 @@ def plot_z_time_evolution(
 
     im = ax.pcolormesh(
         range(data_slice.shape[0]),  # Time
-        coords['z'],                 # Z-axis
-        data_slice.T,                # Transpose for correct orientation
+        coords['z'],                # Z-axis
+        data_slice.T,               # Transpose for correct orientation
         **plot_kwargs
     )
 
@@ -370,8 +374,4 @@ def plot_xz_snapshot(
     ax.set_ylabel("Z Coordinate")
     plt.tight_layout()
     plt.show()
-
-
-
-
 
