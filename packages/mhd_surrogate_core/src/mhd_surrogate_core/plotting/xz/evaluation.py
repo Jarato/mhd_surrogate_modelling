@@ -271,6 +271,7 @@ def plot_koopman_eigenvector_evolution(
                          'amplitude' sorts by initial projection amplitude (descending).
                          'eigenvalue_magnitude' sorts by eigenvalue magnitude (descending).
                          'eigenvector_magnitude' sorts by eigenvector L2 norm (descending).
+                         'koopman_mode_magnitude' sorts by the L2 norm of the decoded Koopman mode (descending).
     """
     eval_path = Path(eval_path)
     if not eval_path.exists():
@@ -284,7 +285,8 @@ def plot_koopman_eigenvector_evolution(
         pred_proj = data['pred_projected_trajectory']
         initial_amplitudes = data.get('initial_mode_amplitudes')
         eigenvector_magnitudes = data.get('eigenvector_magnitudes')
-    
+        koopman_mode_magnitudes = data.get('koopman_mode_magnitudes')
+
     if true_proj.size == 0 or pred_proj.size == 0 or initial_amplitudes is None:
         logging.error("Required data for eigenvector evolution plot not found in file (or eigenvector matrix was singular).")
         return
@@ -305,18 +307,23 @@ def plot_koopman_eigenvector_evolution(
         sort_indices = np.argsort(eigenvector_magnitudes)[::-1]
         sort_title_str = "Sorted by Eigenvector Magnitude"
         plot_title_suffix = "(Sorted by ||v||)"
+    elif sort_by == 'koopman_mode_magnitude':
+        if koopman_mode_magnitudes is None:
+            logging.error("Cannot sort by Koopman mode magnitude: data not found in .npz file. Please re-run gen_latent_prediction.py.")
+            return
+        sort_indices = np.argsort(koopman_mode_magnitudes)[::-1]
+        sort_title_str = "Sorted by Koopman Mode Magnitude"
+        plot_title_suffix = "(Sorted by ||Mode||)"
     else:
-        logging.error(f"Invalid sort_by value: '{sort_by}'. Choose 'amplitude', 'eigenvalue_magnitude', or 'eigenvector_magnitude'.")
+        logging.error(f"Invalid sort_by value: '{sort_by}'.")
         return
 
     sorted_eigenvalues = eigenvalues[sort_indices]
     sorted_true_proj = true_proj[:, sort_indices]
     sorted_pred_proj = pred_proj[:, sort_indices]
     sorted_amplitudes = initial_amplitudes[sort_indices]
-    if eigenvector_magnitudes is not None:
-        sorted_eigenvector_mags = eigenvector_magnitudes[sort_indices]
-    else:
-        sorted_eigenvector_mags = [None] * len(sort_indices)
+    
+    sorted_koopman_mode_mags = koopman_mode_magnitudes[sort_indices] if koopman_mode_magnitudes is not None else [None] * len(sort_indices)
 
     num_timesteps, latent_dim = true_proj.shape
     timesteps = range(num_timesteps)
@@ -325,7 +332,7 @@ def plot_koopman_eigenvector_evolution(
     plt.style.use('seaborn-v0_8-whitegrid')
     cols = 4
     rows = math.ceil(eigenvectors_to_plot / cols)
-    fig, axes = plt.subplots(rows, cols, figsize=(cols * 4.5, rows * 3.5), sharex=True)
+    fig, axes = plt.subplots(rows, cols, figsize=(cols * 5, rows * 3.5), sharex=True)
     axes = axes.flatten()
 
     for i in range(eigenvectors_to_plot):
@@ -338,9 +345,9 @@ def plot_koopman_eigenvector_evolution(
         title = (f"Eigenvector {i+1} {plot_title_suffix}\n"
                  f"λ = {eig_val.real:.3f} + {eig_val.imag:.3f}i | |λ| = {np.abs(eig_val):.4f}\n"
                  f"Initial Proj. Amp.: {amp:.3f}")
-
-        if sorted_eigenvector_mags[i] is not None and sort_by == 'eigenvector_magnitude':
-            title += f" | ||v|| = {sorted_eigenvector_mags[i]:.3f}"
+        
+        if sorted_koopman_mode_mags[i] is not None:
+             title += f" | ||Mode|| = {sorted_koopman_mode_mags[i]:.2f}"
 
         ax.set_title(title)
         ax.set_ylabel("Projection Amplitude")
@@ -355,10 +362,15 @@ def plot_koopman_eigenvector_evolution(
     plt.show()
 
 
-def plot_koopman_eigenvalues(eval_path: Path | str):
+def plot_koopman_eigenvalues(eval_path: Path | str, color_by: str = 'koopman_mode_magnitude'):
     """
-    Plots the Koopman eigenvalues in the complex plane, colored by their
-    corresponding eigenvector magnitude.
+    Plots the Koopman eigenvalues in the complex plane.
+
+    Args:
+        eval_path (Path | str): Path to the latent space analysis .npz file.
+        color_by (str): The criterion for coloring the eigenvalues.
+                          'eigenvector_magnitude' colors by the L2 norm of the latent eigenvector.
+                          'koopman_mode_magnitude' colors by the L2 norm of the decoded Koopman mode.
     """
     eval_path = Path(eval_path)
     if not eval_path.exists():
@@ -368,32 +380,33 @@ def plot_koopman_eigenvalues(eval_path: Path | str):
     logging.info(f"Loading Koopman eigenvalue data from {eval_path}...")
     with np.load(eval_path, allow_pickle=True) as data:
         eigenvalues = data['eigenvalues']
-        eigenvector_magnitudes = data.get('eigenvector_magnitudes')
+        if color_by == 'eigenvector_magnitude':
+            magnitudes = data.get('eigenvector_magnitudes')
+            cbar_label = 'Eigenvector Magnitude (||v||)'
+        elif color_by == 'koopman_mode_magnitude':
+            magnitudes = data.get('koopman_mode_magnitudes')
+            cbar_label = 'Koopman Mode Magnitude (Energy Norm)'
+        else:
+            logging.error(f"Invalid color_by value: '{color_by}'. Choose 'eigenvector_magnitude' or 'koopman_mode_magnitude'.")
+            return
 
-    if eigenvector_magnitudes is None:
-        logging.error("Cannot plot eigenvalues by eigenvector magnitude: data not found in .npz file. Please re-run gen_latent_prediction.py.")
+    if magnitudes is None:
+        logging.error(f"Cannot plot eigenvalues by {color_by}: data not found in .npz file. Please re-run the appropriate generation script.")
         return
 
     plt.style.use('seaborn-v0_8-whitegrid')
     fig, ax = plt.subplots(figsize=(10, 10))
 
-    # Plot the unit circle for reference
     unit_circle = plt.Circle((0, 0), 1, color='black', fill=False, linestyle='--', linewidth=1.5, label='Unit Circle')
     ax.add_artist(unit_circle)
 
-    # Create the scatter plot
     scatter = ax.scatter(
-        eigenvalues.real,
-        eigenvalues.imag,
-        c=eigenvector_magnitudes,
-        cmap='viridis',
-        s=50,  # size of points
-        zorder=3 # plot points on top of the circle
+        eigenvalues.real, eigenvalues.imag, c=magnitudes,
+        cmap='viridis', s=50, zorder=3
     )
 
-    # Add a colorbar
     cbar = fig.colorbar(scatter, ax=ax, fraction=0.046, pad=0.04)
-    cbar.set_label('Eigenvector Magnitude (||v||)', fontsize=12)
+    cbar.set_label(cbar_label, fontsize=12)
 
     ax.set_title('Koopman Eigenvalues in the Complex Plane', fontsize=16)
     ax.set_xlabel('Real Part (Re)', fontsize=12)
