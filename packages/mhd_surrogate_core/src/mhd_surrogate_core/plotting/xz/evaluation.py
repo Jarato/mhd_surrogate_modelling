@@ -257,7 +257,7 @@ def plot_latent_trajectories(eval_path: Path | str, num_dims_to_plot: int = 16):
     plt.show()
 
 
-def plot_koopman_mode_evolution(eval_path: Path | str, num_modes_to_plot: int = 16):
+def plot_koopman_eigenvector_evolution(eval_path: Path | str, num_eigenvectors_to_plot: int = 16):
     """
     Plots the time evolution of the system projected onto the Koopman eigenvectors.
     """
@@ -266,7 +266,7 @@ def plot_koopman_mode_evolution(eval_path: Path | str, num_modes_to_plot: int = 
         logging.error(f"Latent evaluation file not found at: {eval_path}")
         return
 
-    logging.info(f"Loading Koopman mode data from {eval_path}...")
+    logging.info(f"Loading Koopman eigenvector data from {eval_path}...")
     with np.load(eval_path, allow_pickle=True) as data:
         eigenvalues = data['eigenvalues']
         true_proj = data['true_projected_trajectory']
@@ -274,7 +274,7 @@ def plot_koopman_mode_evolution(eval_path: Path | str, num_modes_to_plot: int = 
         initial_amplitudes = data.get('initial_mode_amplitudes')
     
     if true_proj.size == 0 or pred_proj.size == 0 or initial_amplitudes is None:
-        logging.error("Required data for mode evolution plot not found in file (or eigenvector matrix was singular).")
+        logging.error("Required data for eigenvector evolution plot not found in file (or eigenvector matrix was singular).")
         return
 
     sort_indices = np.argsort(initial_amplitudes)[::-1]
@@ -285,32 +285,33 @@ def plot_koopman_mode_evolution(eval_path: Path | str, num_modes_to_plot: int = 
 
     num_timesteps, latent_dim = true_proj.shape
     timesteps = range(num_timesteps)
-    modes_to_plot = min(latent_dim, num_modes_to_plot)
+    eigenvectors_to_plot = min(latent_dim, num_eigenvectors_to_plot)
     
     plt.style.use('seaborn-v0_8-whitegrid')
     cols = 4
-    rows = math.ceil(modes_to_plot / cols)
+    rows = math.ceil(eigenvectors_to_plot / cols)
     fig, axes = plt.subplots(rows, cols, figsize=(cols * 4.5, rows * 3.5), sharex=True)
     axes = axes.flatten()
 
-    for i in range(modes_to_plot):
+    for i in range(eigenvectors_to_plot):
         ax = axes[i]
         ax.plot(timesteps, np.abs(sorted_true_proj[:, i]), '-', color='royalblue', label='Ground Truth')
         ax.plot(timesteps, np.abs(sorted_pred_proj[:, i]), '--', color='darkorange', label='Prediction')
         
         eig_val = sorted_eigenvalues[i]
         amp = sorted_amplitudes[i]
-        title = (f"Mode {i+1} (Sorted by Amp.)\n"
+        title = (f"Eigenvector {i+1} (Sorted by Amp.)\n"
                  f"λ = {eig_val.real:.3f} + {eig_val.imag:.3f}i | |λ| = {np.abs(eig_val):.4f}\n"
-                 f"Initial Amplitude: {amp:.3f}")
+                 f"Initial Projection Amplitude: {amp:.3f}")
         ax.set_title(title)
-        ax.set_ylabel("Mode Amplitude")
+        ax.set_ylabel("Projection Amplitude")
         ax.grid(True, which="both", ls="--")
 
-    for j in range(modes_to_plot, len(axes)):
+    for j in range(eigenvectors_to_plot, len(axes)):
         axes[j].set_visible(False)
     handles, labels = axes[0].get_legend_handles_labels()
     fig.legend(handles, labels, loc='upper right', fontsize=12)
-    fig.suptitle('Evolution of Koopman Modes (Sorted by Importance)', fontsize=16, y=0.98)
+    fig.suptitle('Evolution of Koopman Eigenvector Projections (Sorted by Importance)', fontsize=16, y=0.98)
     plt.tight_layout(rect=[0, 0, 1, 0.94])
     plt.show()
+
