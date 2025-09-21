@@ -11,6 +11,7 @@ import math
 
 import numpy as np
 import matplotlib.pyplot as plt
+from matplotlib.patches import Circle
 
 def plot_prediction_rollout_error(stats_path: Path | str):
     """
@@ -210,8 +211,9 @@ def plot_latent_rollout_error(eval_path: Path | str):
     plt.title('Latent Space Autoregressive Rollout Error', fontsize=16)
     plt.xlabel('Prediction Timestep', fontsize=12)
     plt.ylabel('Latent Space MSE', fontsize=12)
+    plt.yscale('log')
     plt.legend(fontsize=12)
-    plt.grid(True)
+    plt.grid(True, which="both", ls="--")
     plt.tight_layout()
     plt.show()
 
@@ -247,8 +249,14 @@ def plot_latent_trajectories(eval_path: Path | str, num_dims_to_plot: int = 16):
         axes[i].set_ylabel("Value")
         axes[i].grid(True, which="both", ls="--")
 
+    # Add x-label to the bottom row of plots
+    for i in range(cols * (rows - 1), cols * rows):
+        if i < dims_to_plot:
+            axes[i].set_xlabel("Timestep")
+
     for j in range(dims_to_plot, len(axes)):
         axes[j].set_visible(False)
+        
     handles, labels = axes[0].get_legend_handles_labels()
     fig.legend(handles, labels, loc='upper right', fontsize=12)
     fig.suptitle('Latent Space Trajectory Rollout', fontsize=16, y=0.99)
@@ -257,20 +265,12 @@ def plot_latent_trajectories(eval_path: Path | str, num_dims_to_plot: int = 16):
 
 
 def plot_koopman_eigenvector_evolution(
-    eval_path: Path | str, 
+    eval_path: Path | str,
     num_eigenvectors_to_plot: int = 16,
     sort_by: str = 'amplitude'
 ):
     """
     Plots the time evolution of the system projected onto the Koopman eigenvectors.
-
-    Args:
-        eval_path (Path | str): Path to the latent space analysis .npz file.
-        num_eigenvectors_to_plot (int): The number of eigenvectors to display.
-        sort_by (str): The criterion for sorting eigenvectors. 
-                         'amplitude' sorts by initial projection amplitude (descending).
-                         'eigenvalue_magnitude' sorts by eigenvalue magnitude (descending).
-                         'koopman_mode_magnitude' sorts by the L2 norm of the decoded Koopman mode (descending).
     """
     eval_path = Path(eval_path)
     if not eval_path.exists():
@@ -280,83 +280,79 @@ def plot_koopman_eigenvector_evolution(
     logging.info(f"Loading Koopman eigenvector data from {eval_path}...")
     with np.load(eval_path, allow_pickle=True) as data:
         eigenvalues = data['eigenvalues']
-        true_proj = data['true_projected_trajectory']
-        pred_proj = data['pred_projected_trajectory']
+        true_proj = data.get('true_projected_trajectory')
+        pred_proj = data.get('pred_projected_trajectory')
         initial_amplitudes = data.get('initial_mode_amplitudes')
         koopman_mode_magnitudes = data.get('koopman_mode_magnitudes')
 
-    if true_proj.size == 0 or pred_proj.size == 0 or initial_amplitudes is None:
-        logging.error("Required data for eigenvector evolution plot not found in file (or eigenvector matrix was singular).")
+    if true_proj is None or pred_proj is None or initial_amplitudes is None:
+        logging.error("Required projected trajectory data not found in file. Was the eigenvector matrix singular?")
         return
 
     # --- Sorting Logic ---
     if sort_by == 'amplitude':
         sort_indices = np.argsort(initial_amplitudes)[::-1]
-        sort_title_str = "Sorted by Importance (Initial Amplitude)"
-        plot_title_suffix = "(Sorted by Amp.)"
+        plot_title_str = "Eigenvector {i} (Sorted by Amplitude)"
     elif sort_by == 'eigenvalue_magnitude':
         sort_indices = np.argsort(np.abs(eigenvalues))[::-1]
-        sort_title_str = "Sorted by Eigenvalue Magnitude"
-        plot_title_suffix = "(Sorted by |λ|)"
+        plot_title_str = "Eigenvector {i} (Sorted by |λ|)"
     elif sort_by == 'koopman_mode_magnitude':
         if koopman_mode_magnitudes is None:
-            logging.error("Cannot sort by Koopman mode magnitude: data not found in .npz file. Please re-run gen_latent_prediction.py.")
+            logging.error("'koopman_mode_magnitudes' not found in file. Cannot sort by this criterion.")
             return
         sort_indices = np.argsort(koopman_mode_magnitudes)[::-1]
-        sort_title_str = "Sorted by Koopman Mode Magnitude"
-        plot_title_suffix = "(Sorted by ||Mode||)"
+        plot_title_str = "Eigenvector {i} (Sorted by Mode Magnitude)"
     else:
-        logging.error(f"Invalid sort_by value: '{sort_by}'.")
+        logging.error(f"Unknown sort_by criterion: '{sort_by}'")
         return
 
     sorted_eigenvalues = eigenvalues[sort_indices]
     sorted_true_proj = true_proj[:, sort_indices]
     sorted_pred_proj = pred_proj[:, sort_indices]
     sorted_amplitudes = initial_amplitudes[sort_indices]
-    
-    sorted_koopman_mode_mags = koopman_mode_magnitudes[sort_indices] if koopman_mode_magnitudes is not None else [None] * len(sort_indices)
 
     num_timesteps, latent_dim = true_proj.shape
     timesteps = range(num_timesteps)
-    eigenvectors_to_plot = min(latent_dim, num_eigenvectors_to_plot)
+    modes_to_plot = min(latent_dim, num_eigenvectors_to_plot)
     
     plt.style.use('seaborn-v0_8-whitegrid')
     cols = 4
-    rows = math.ceil(eigenvectors_to_plot / cols)
-    fig, axes = plt.subplots(rows, cols, figsize=(cols * 5, rows * 3.5), sharex=True)
+    rows = math.ceil(modes_to_plot / cols)
+    fig, axes = plt.subplots(rows, cols, figsize=(cols * 4.5, rows * 3.5), sharex=True)
     axes = axes.flatten()
 
-    for i in range(eigenvectors_to_plot):
+    for i in range(modes_to_plot):
         ax = axes[i]
         ax.plot(timesteps, np.abs(sorted_true_proj[:, i]), '-', color='royalblue', label='Ground Truth')
         ax.plot(timesteps, np.abs(sorted_pred_proj[:, i]), '--', color='darkorange', label='Prediction')
         
+        original_index = sort_indices[i]
         eig_val = sorted_eigenvalues[i]
         amp = sorted_amplitudes[i]
-        title = (f"Eigenvector {i+1} {plot_title_suffix}\n"
-                 f"λ = {eig_val.real:.3f} + {eig_val.imag:.3f}i | |λ| = {np.abs(eig_val):.4f}\n"
-                 f"Initial Proj. Amp.: {amp:.3f}")
         
-        if sorted_koopman_mode_mags[i] is not None:
-             title += f" | ||Mode|| = {sorted_koopman_mode_mags[i]:.2f}"
-
+        title = (f"{plot_title_str.format(i=original_index)}\n"
+                 f"λ = {eig_val.real:.3f} + {eig_val.imag:.3f}i | |λ| = {np.abs(eig_val):.4f}\n"
+                 f"Initial Projection Amplitude: {amp:.3f}")
         ax.set_title(title)
         ax.set_ylabel("Projection Amplitude")
         ax.grid(True, which="both", ls="--")
 
-    for j in range(eigenvectors_to_plot, len(axes)):
+    for i in range(cols * (rows - 1), cols * rows):
+        if i < modes_to_plot:
+            axes[i].set_xlabel("Timestep")
+
+    for j in range(modes_to_plot, len(axes)):
         axes[j].set_visible(False)
+        
     handles, labels = axes[0].get_legend_handles_labels()
     fig.legend(handles, labels, loc='upper right', fontsize=12)
-    fig.suptitle(f'Evolution of Koopman Eigenvector Projections\n({sort_title_str})', fontsize=16, y=0.98)
+    fig.suptitle('Evolution of Koopman Eigenvector Projections', fontsize=16, y=0.98)
     plt.tight_layout(rect=[0, 0, 1, 0.94])
     plt.show()
 
-
-def plot_koopman_eigenvalues(eval_path: Path | str):
+def plot_koopman_eigenvalues(eval_path: Path | str, highlight_threshold: float | None = None):
     """
-    Plots the Koopman eigenvalues in the complex plane, colored by their
-    corresponding Koopman mode magnitude.
+    Plots the eigenvalues of the Koopman operator in the complex plane.
     """
     eval_path = Path(eval_path)
     if not eval_path.exists():
@@ -366,35 +362,50 @@ def plot_koopman_eigenvalues(eval_path: Path | str):
     logging.info(f"Loading Koopman eigenvalue data from {eval_path}...")
     with np.load(eval_path, allow_pickle=True) as data:
         eigenvalues = data['eigenvalues']
-        magnitudes = data.get('koopman_mode_magnitudes')
-    
-    if magnitudes is None:
-        logging.error("Cannot plot eigenvalues: Koopman mode magnitude data not found in .npz file. Please re-run gen_latent_prediction.py.")
+        koopman_mode_magnitudes = data.get('koopman_mode_magnitudes')
+
+    if koopman_mode_magnitudes is None:
+        logging.error("'koopman_mode_magnitudes' not found in the file. Cannot color eigenvalues.")
         return
 
     plt.style.use('seaborn-v0_8-whitegrid')
-    fig, ax = plt.subplots(figsize=(10, 10))
+    fig, ax = plt.subplots(figsize=(8, 8))
 
-    unit_circle = plt.Circle((0, 0), 1, color='black', fill=False, linestyle='--', linewidth=1.5, label='Unit Circle')
+    # Plot the unit circle for reference
+    unit_circle = Circle((0, 0), 1, color='black', fill=False, linestyle='--', linewidth=1.5, zorder=5)
     ax.add_artist(unit_circle)
 
+    # Create the scatter plot, colored by mode magnitude
     scatter = ax.scatter(
-        eigenvalues.real, eigenvalues.imag, c=magnitudes,
-        cmap='viridis', s=50, zorder=3
+        eigenvalues.real,
+        eigenvalues.imag,
+        c=koopman_mode_magnitudes,
+        cmap='viridis',
+        zorder=10
     )
+    fig.colorbar(scatter, ax=ax, label="Koopman Mode Magnitude (Energy Norm)")
 
-    cbar = fig.colorbar(scatter, ax=ax, fraction=0.046, pad=0.04)
-    cbar.set_label('Koopman Mode Magnitude (Energy Norm)', fontsize=12)
+    # Highlight eigenvalues corresponding to high-energy modes
+    if highlight_threshold is not None:
+        highlight_indices = np.where(koopman_mode_magnitudes > highlight_threshold)[0]
+        ax.scatter(
+            eigenvalues[highlight_indices].real,
+            eigenvalues[highlight_indices].imag,
+            facecolors='none',
+            edgecolors='r',
+            s=80, # Make circles larger to be visible
+            linewidths=1.5,
+            label=f'Energy > {highlight_threshold}'
+        )
+        ax.legend()
 
-    ax.set_title('Koopman Eigenvalues in the Complex Plane', fontsize=16)
+    ax.set_title('Koopman Eigenvalue Spectrum', fontsize=16)
     ax.set_xlabel('Real Part (Re)', fontsize=12)
     ax.set_ylabel('Imaginary Part (Im)', fontsize=12)
-    ax.axhline(0, color='grey', lw=0.5)
-    ax.axvline(0, color='grey', lw=0.5)
-    ax.set_aspect('equal', adjustable='box')
+    ax.axhline(0, color='gray', linewidth=0.5)
+    ax.axvline(0, color='gray', linewidth=0.5)
     ax.grid(True)
-    ax.legend(handles=[unit_circle])
-
+    ax.set_aspect('equal', adjustable='box')
     plt.tight_layout()
     plt.show()
 
