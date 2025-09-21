@@ -270,7 +270,6 @@ def plot_koopman_eigenvector_evolution(
         sort_by (str): The criterion for sorting eigenvectors. 
                          'amplitude' sorts by initial projection amplitude (descending).
                          'eigenvalue_magnitude' sorts by eigenvalue magnitude (descending).
-                         'eigenvector_magnitude' sorts by eigenvector L2 norm (descending).
                          'koopman_mode_magnitude' sorts by the L2 norm of the decoded Koopman mode (descending).
     """
     eval_path = Path(eval_path)
@@ -284,7 +283,6 @@ def plot_koopman_eigenvector_evolution(
         true_proj = data['true_projected_trajectory']
         pred_proj = data['pred_projected_trajectory']
         initial_amplitudes = data.get('initial_mode_amplitudes')
-        eigenvector_magnitudes = data.get('eigenvector_magnitudes')
         koopman_mode_magnitudes = data.get('koopman_mode_magnitudes')
 
     if true_proj.size == 0 or pred_proj.size == 0 or initial_amplitudes is None:
@@ -300,13 +298,6 @@ def plot_koopman_eigenvector_evolution(
         sort_indices = np.argsort(np.abs(eigenvalues))[::-1]
         sort_title_str = "Sorted by Eigenvalue Magnitude"
         plot_title_suffix = "(Sorted by |λ|)"
-    elif sort_by == 'eigenvector_magnitude':
-        if eigenvector_magnitudes is None:
-            logging.error("Cannot sort by eigenvector magnitude: data not found in .npz file. Please re-run gen_latent_prediction.py.")
-            return
-        sort_indices = np.argsort(eigenvector_magnitudes)[::-1]
-        sort_title_str = "Sorted by Eigenvector Magnitude"
-        plot_title_suffix = "(Sorted by ||v||)"
     elif sort_by == 'koopman_mode_magnitude':
         if koopman_mode_magnitudes is None:
             logging.error("Cannot sort by Koopman mode magnitude: data not found in .npz file. Please re-run gen_latent_prediction.py.")
@@ -362,15 +353,10 @@ def plot_koopman_eigenvector_evolution(
     plt.show()
 
 
-def plot_koopman_eigenvalues(eval_path: Path | str, color_by: str = 'koopman_mode_magnitude'):
+def plot_koopman_eigenvalues(eval_path: Path | str):
     """
-    Plots the Koopman eigenvalues in the complex plane.
-
-    Args:
-        eval_path (Path | str): Path to the latent space analysis .npz file.
-        color_by (str): The criterion for coloring the eigenvalues.
-                          'eigenvector_magnitude' colors by the L2 norm of the latent eigenvector.
-                          'koopman_mode_magnitude' colors by the L2 norm of the decoded Koopman mode.
+    Plots the Koopman eigenvalues in the complex plane, colored by their
+    corresponding Koopman mode magnitude.
     """
     eval_path = Path(eval_path)
     if not eval_path.exists():
@@ -380,18 +366,10 @@ def plot_koopman_eigenvalues(eval_path: Path | str, color_by: str = 'koopman_mod
     logging.info(f"Loading Koopman eigenvalue data from {eval_path}...")
     with np.load(eval_path, allow_pickle=True) as data:
         eigenvalues = data['eigenvalues']
-        if color_by == 'eigenvector_magnitude':
-            magnitudes = data.get('eigenvector_magnitudes')
-            cbar_label = 'Eigenvector Magnitude (||v||)'
-        elif color_by == 'koopman_mode_magnitude':
-            magnitudes = data.get('koopman_mode_magnitudes')
-            cbar_label = 'Koopman Mode Magnitude (Energy Norm)'
-        else:
-            logging.error(f"Invalid color_by value: '{color_by}'. Choose 'eigenvector_magnitude' or 'koopman_mode_magnitude'.")
-            return
-
+        magnitudes = data.get('koopman_mode_magnitudes')
+    
     if magnitudes is None:
-        logging.error(f"Cannot plot eigenvalues by {color_by}: data not found in .npz file. Please re-run the appropriate generation script.")
+        logging.error("Cannot plot eigenvalues: Koopman mode magnitude data not found in .npz file. Please re-run gen_latent_prediction.py.")
         return
 
     plt.style.use('seaborn-v0_8-whitegrid')
@@ -406,7 +384,7 @@ def plot_koopman_eigenvalues(eval_path: Path | str, color_by: str = 'koopman_mod
     )
 
     cbar = fig.colorbar(scatter, ax=ax, fraction=0.046, pad=0.04)
-    cbar.set_label(cbar_label, fontsize=12)
+    cbar.set_label('Koopman Mode Magnitude (Energy Norm)', fontsize=12)
 
     ax.set_title('Koopman Eigenvalues in the Complex Plane', fontsize=16)
     ax.set_xlabel('Real Part (Re)', fontsize=12)
