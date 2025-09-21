@@ -16,7 +16,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(
 
 def parse_args():
     """Parse command-line arguments."""
-    parser = argparse.ArgumentParser(description="Evaluate a trained 2D tcKAE's latent space dynamics.")
+    parser = argparse.ArgumentParser(description="Evaluate a trained 2D tcKAE's latent space dynamics and optionally reconstruct high-energy modes.")
     
     # --- Input Paths ---
     io_group = parser.add_argument_group("Input Paths")
@@ -24,11 +24,29 @@ def parse_args():
     io_group.add_argument("--test-data-path", type=str, required=True, help="Path to the contiguous test_set.npz file.")
     io_group.add_argument("--norm-stats-path", type=str, required=True, help="Path to the normalization_stats.npz file.")
 
-    # --- Output Path ---
-    out_group = parser.add_argument_group("Output Path")
-    out_group.add_argument("--output-path", type=str, default=None, help="Full path to save latent space evaluation results (.npz file). Defaults to 'eval/latent_space_analysis.npz' in the model's directory.")
+    # --- Output Paths ---
+    out_group = parser.add_argument_group("Output Paths")
+    out_group.add_argument("--output-dir", type=str, default=None, help="Directory to save all analysis and reconstruction files. Defaults to 'eval/' in the model's parent directory.")
+
+    # --- Reconstruction Parameters ---
+    recon_group = parser.add_argument_group("Reconstruction Parameters")
+    recon_group.add_argument("--reconstruct-modes", action='store_true', help="If set, reconstructs and saves the timeseries for high-energy modes.")
+    recon_group.add_argument("--energy-threshold", type=float, default=0.0, help="Minimum Koopman mode magnitude (energy norm) to be included in reconstruction. Default: 0.0")
     
     return parser.parse_args()
+
+def decode_timeseries(model, latent_timeseries_tensor, batch_size=32, device="cpu"):
+    """Decodes a timeseries of latent vectors in batches."""
+    model.eval()
+    decoded_snapshots = []
+    with torch.no_grad():
+        for i in tqdm(range(0, latent_timeseries_tensor.shape[0], batch_size), desc="Decoding Timeseries", leave=False):
+            batch = latent_timeseries_tensor[i:i+batch_size].to(device)
+            decoded_batch = model.decode(batch) # Output: (B, C, X, Z)
+            decoded_batch_permuted = decoded_batch.permute(0, 2, 3, 1).cpu().numpy() # (B, X, Z, C)
+            decoded_snapshots.append(decoded_batch_permuted)
+    return np.vstack(decoded_snapshots)
+
 
 def main():
     """Main function to generate latent space predictions and analyze them."""
@@ -37,12 +55,16 @@ def main():
     logging.info(f"Using device: {device}")
     model_path = Path(args.model_path)
     
-    # --- Setup Output Path ---
-    if args.output_path:
-        output_path = Path(args.output_path)
+    # --- Setup Output Paths ---
+    if args.output_dir:
+        output_dir = Path(args.output_dir)
     else:
-        output_path = model_path.parent / "eval" / "latent_space_analysis.npz"
-    output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_dir = model_path.parent / "eval"
+    
+    analysis_dir = output_dir / "latent_space_analysis"
+    analysis_dir.mkdir(parents=True, exist_ok=True)
+    
+    analysis_file_path = analysis_dir / "latent_space_analysis.npz"
 
     # --- Load Model from Checkpoint ---
     logging.info(f"Loading model from {model_path}")
@@ -65,6 +87,7 @@ def main():
     data_handle = np.load(args.test_data_path, allow_pickle=True)
     full_timeseries = data_handle["timeseries"]
     all_channel_names = list(data_handle["labels"])
+    channel_names = channels_used if channels_used else all_channel_names
 
     if full_timeseries.ndim == 5 and full_timeseries.shape[2] == 1:
         full_timeseries = np.squeeze(full_timeseries, axis=2)
@@ -99,7 +122,7 @@ def main():
     logging.info(f"Encoded ground truth trajectory. Latent shape: {true_latent_trajectory.shape}")
 
     # --- Autoregressive Rollout in Latent Space ---
-    num_timesteps = true_latent_trajectory.shape[0]
+    num_timesteps, latent_dim = true_latent_trajectory.shape
     predicted_latent_trajectory = []
     
     z_t = true_latent_trajectory[0].unsqueeze(0).to(device)
@@ -150,9 +173,9 @@ def main():
     variance_latent = true_latent_trajectory.var().item()
     r_squared_latent = 1 - (avg_rollout_mse / variance_latent) if variance_latent > 0 else 0.0
     
-    # --- Save All Results ---
+    # --- Save Main Analysis Results ---
     np.savez(
-        output_path, 
+        analysis_file_path, 
         per_step_latent_error=np.array(per_step_latent_error),
         true_latent_trajectory=true_latent_trajectory.numpy(),
         predicted_latent_trajectory=predicted_latent_trajectory.numpy(),
@@ -164,7 +187,65 @@ def main():
         avg_rollout_mse=avg_rollout_mse,
         r_squared_latent=r_squared_latent,
     )
-    logging.info(f"Latent space analysis results saved to {output_path}")
+    logging.info(f"Main latent space analysis results saved to {analysis_file_path}")
+
+    # --- High-Energy Mode Reconstruction ---
+    if args.reconstruct_modes:
+        if true_projected_traj is not None:
+            logging.info(f"Reconstructing modes with energy > {args.energy_threshold}...")
+            
+            true_recon_dir = analysis_dir / "true_reconstruction"
+            pred_recon_dir = analysis_dir / "predicted_reconstruction"
+            true_recon_dir.mkdir(exist_ok=True)
+            pred_recon_dir.mkdir(exist_ok=True)
+
+            high_energy_indices = np.where(koopman_mode_magnitudes > args.energy_threshold)[0]
+            
+            combined_true_recon = torch.zeros_like(true_latent_trajectory, dtype=torch.float32)
+            combined_pred_recon = torch.zeros_like(predicted_latent_trajectory, dtype=torch.float32)
+            processed_indices = set()
+
+            for idx in tqdm(high_energy_indices, desc="Reconstructing High-Energy Modes"):
+                if idx in processed_indices:
+                    continue
+
+                is_real = np.isclose(eigenvalues[idx].imag, 0)
+                
+                if is_real:
+                    true_recon_mode = (true_projected_traj[:, idx].unsqueeze(1) * eigenvectors[:, idx].unsqueeze(0)).real
+                    pred_recon_mode = (pred_projected_traj[:, idx].unsqueeze(1) * eigenvectors[:, idx].unsqueeze(0)).real
+                    processed_indices.add(idx)
+                    filename = f"mode_{idx}.npz"
+                else:
+                    conj_idx_candidates = np.where(
+                        (np.isclose(eigenvalues.real, eigenvalues[idx].real)) &
+                        (np.isclose(eigenvalues.imag, -eigenvalues[idx].imag))
+                    )[0]
+                    conj_idx = conj_idx_candidates[0] if len(conj_idx_candidates) > 0 else idx
+
+                    true_recon_mode = 2 * (true_projected_traj[:, idx].unsqueeze(1) * eigenvectors[:, idx].unsqueeze(0)).real
+                    pred_recon_mode = 2 * (pred_projected_traj[:, idx].unsqueeze(1) * eigenvectors[:, idx].unsqueeze(0)).real
+                    processed_indices.add(idx)
+                    processed_indices.add(conj_idx)
+                    filename = f"mode_pair_{idx}_{conj_idx}.npz"
+                
+                combined_true_recon += true_recon_mode
+                combined_pred_recon += pred_recon_mode
+
+                decoded_true = decode_timeseries(model, true_recon_mode, device=device)
+                np.savez(true_recon_dir / filename, timeseries=decoded_true, labels=np.array(channel_names, dtype='U'))
+                
+                decoded_pred = decode_timeseries(model, pred_recon_mode, device=device)
+                np.savez(pred_recon_dir / filename, timeseries=decoded_pred, labels=np.array(channel_names, dtype='U'))
+                
+            logging.info("Decoding and saving combined high-energy mode timeseries...")
+            decoded_combined_true = decode_timeseries(model, combined_true_recon, device=device)
+            np.savez(true_recon_dir / "combined_modes.npz", timeseries=decoded_combined_true, labels=np.array(channel_names, dtype='U'))
+
+            decoded_combined_pred = decode_timeseries(model, combined_pred_recon, device=device)
+            np.savez(pred_recon_dir / "combined_modes.npz", timeseries=decoded_combined_pred, labels=np.array(channel_names, dtype='U'))
+        else:
+            logging.warning("Skipping reconstruction because eigenvector matrix was singular.")
 
     # --- Log Final Metrics ---
     logging.info("--- LATENT SPACE EVALUATION COMPLETE ---")
