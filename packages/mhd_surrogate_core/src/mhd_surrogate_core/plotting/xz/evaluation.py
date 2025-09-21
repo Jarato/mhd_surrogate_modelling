@@ -175,6 +175,142 @@ def plot_prediction_dashboard(
 
     fig.colorbar(im4, ax=axes[1, :2], fraction=0.046, pad=0.04, label="Value")
     fig.colorbar(im6, ax=axes[1, 2], fraction=0.046, pad=0.04, label="Abs. Error")
+    plt.tight_layout(rect=[0, 0, 1, 0.94])
+    plt.show()
 
+
+
+# ==============================================================================
+# LATENT SPACE VISUALIZATION FUNCTIONS
+# ==============================================================================
+
+def plot_latent_rollout_error(eval_path: Path | str):
+    """
+    Loads and plots the per-timestep latent space error from an evaluation rollout.
+    """
+    eval_path = Path(eval_path)
+    if not eval_path.exists():
+        logging.error(f"Latent evaluation file not found at: {eval_path}")
+        return
+    
+    logging.info(f"Loading latent rollout error from {eval_path}...")
+    with np.load(eval_path) as data:
+        if 'per_step_latent_error' in data:
+            per_step_latent_error = data['per_step_latent_error']
+        else:
+            logging.error("Could not find 'per_step_latent_error' in the file.")
+            return
+            
+    timesteps = range(1, len(per_step_latent_error) + 1)
+    
+    plt.style.use('seaborn-v0_8-whitegrid')
+    plt.figure(figsize=(12, 7))
+    
+    plt.plot(timesteps, per_step_latent_error, 'o-', label='Per-Step Latent MSE', color='purple')
+    
+    plt.title('Latent Space Autoregressive Rollout Error', fontsize=16)
+    plt.xlabel('Prediction Timestep', fontsize=12)
+    plt.ylabel('Latent Space MSE', fontsize=12)
+    plt.legend(fontsize=12)
+    plt.grid(True)
+    plt.tight_layout()
+    plt.show()
+
+
+def plot_latent_trajectories(eval_path: Path | str, num_dims_to_plot: int = 16):
+    """
+    Loads and plots the predicted vs. true latent space trajectories.
+    """
+    eval_path = Path(eval_path)
+    if not eval_path.exists():
+        logging.error(f"Latent evaluation file not found at: {eval_path}")
+        return
+
+    logging.info(f"Loading latent trajectories from {eval_path}...")
+    with np.load(eval_path) as data:
+        true_traj = data['true_latent_trajectory']
+        pred_traj = data['predicted_latent_trajectory']
+
+    num_timesteps, latent_dim = true_traj.shape
+    timesteps = range(num_timesteps)
+    dims_to_plot = min(latent_dim, num_dims_to_plot)
+    
+    plt.style.use('seaborn-v0_8-whitegrid')
+    cols = 4
+    rows = math.ceil(dims_to_plot / cols)
+    fig, axes = plt.subplots(rows, cols, figsize=(cols * 4, rows * 3), sharex=True)
+    axes = axes.flatten()
+
+    for i in range(dims_to_plot):
+        axes[i].plot(timesteps, true_traj[:, i], '-', color='royalblue', label='Ground Truth')
+        axes[i].plot(timesteps, pred_traj[:, i], '--', color='darkorange', label='Prediction')
+        axes[i].set_title(f"Latent Dimension {i}")
+        axes[i].set_ylabel("Value")
+        axes[i].grid(True, which="both", ls="--")
+
+    for j in range(dims_to_plot, len(axes)):
+        axes[j].set_visible(False)
+    handles, labels = axes[0].get_legend_handles_labels()
+    fig.legend(handles, labels, loc='upper right', fontsize=12)
+    fig.suptitle('Latent Space Trajectory Rollout', fontsize=16, y=0.99)
+    plt.tight_layout(rect=[0, 0, 1, 0.95])
+    plt.show()
+
+
+def plot_koopman_mode_evolution(eval_path: Path | str, num_modes_to_plot: int = 16):
+    """
+    Plots the time evolution of the system projected onto the Koopman eigenvectors.
+    """
+    eval_path = Path(eval_path)
+    if not eval_path.exists():
+        logging.error(f"Latent evaluation file not found at: {eval_path}")
+        return
+
+    logging.info(f"Loading Koopman mode data from {eval_path}...")
+    with np.load(eval_path, allow_pickle=True) as data:
+        eigenvalues = data['eigenvalues']
+        true_proj = data['true_projected_trajectory']
+        pred_proj = data['pred_projected_trajectory']
+        initial_amplitudes = data.get('initial_mode_amplitudes')
+    
+    if true_proj.size == 0 or pred_proj.size == 0 or initial_amplitudes is None:
+        logging.error("Required data for mode evolution plot not found in file (or eigenvector matrix was singular).")
+        return
+
+    sort_indices = np.argsort(initial_amplitudes)[::-1]
+    sorted_eigenvalues = eigenvalues[sort_indices]
+    sorted_true_proj = true_proj[:, sort_indices]
+    sorted_pred_proj = pred_proj[:, sort_indices]
+    sorted_amplitudes = initial_amplitudes[sort_indices]
+
+    num_timesteps, latent_dim = true_proj.shape
+    timesteps = range(num_timesteps)
+    modes_to_plot = min(latent_dim, num_modes_to_plot)
+    
+    plt.style.use('seaborn-v0_8-whitegrid')
+    cols = 4
+    rows = math.ceil(modes_to_plot / cols)
+    fig, axes = plt.subplots(rows, cols, figsize=(cols * 4.5, rows * 3.5), sharex=True)
+    axes = axes.flatten()
+
+    for i in range(modes_to_plot):
+        ax = axes[i]
+        ax.plot(timesteps, np.abs(sorted_true_proj[:, i]), '-', color='royalblue', label='Ground Truth')
+        ax.plot(timesteps, np.abs(sorted_pred_proj[:, i]), '--', color='darkorange', label='Prediction')
+        
+        eig_val = sorted_eigenvalues[i]
+        amp = sorted_amplitudes[i]
+        title = (f"Mode {i+1} (Sorted by Amp.)\n"
+                 f"λ = {eig_val.real:.3f} + {eig_val.imag:.3f}i | |λ| = {np.abs(eig_val):.4f}\n"
+                 f"Initial Amplitude: {amp:.3f}")
+        ax.set_title(title)
+        ax.set_ylabel("Mode Amplitude")
+        ax.grid(True, which="both", ls="--")
+
+    for j in range(modes_to_plot, len(axes)):
+        axes[j].set_visible(False)
+    handles, labels = axes[0].get_legend_handles_labels()
+    fig.legend(handles, labels, loc='upper right', fontsize=12)
+    fig.suptitle('Evolution of Koopman Modes (Sorted by Importance)', fontsize=16, y=0.98)
     plt.tight_layout(rect=[0, 0, 1, 0.94])
     plt.show()
