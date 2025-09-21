@@ -292,11 +292,11 @@ def plot_koopman_eigenvector_evolution(
     if sort_by == 'amplitude':
         sort_indices = np.argsort(initial_amplitudes)[::-1]
         sort_title_str = "Sorted by Importance (Initial Amplitude)"
-        plot_title_str = "Eigenvector {i+1} (Sorted by Amp.)"
+        plot_title_suffix = "(Sorted by Amp.)"
     elif sort_by == 'eigenvalue_magnitude':
         sort_indices = np.argsort(np.abs(eigenvalues))[::-1]
         sort_title_str = "Sorted by Eigenvalue Magnitude"
-        plot_title_str = "Eigenvector {i+1} (Sorted by |λ|)"
+        plot_title_suffix = "(Sorted by |λ|)"
     else:
         logging.error(f"Invalid sort_by value: '{sort_by}'. Choose 'amplitude' or 'eigenvalue_magnitude'.")
         return
@@ -323,7 +323,7 @@ def plot_koopman_eigenvector_evolution(
         
         eig_val = sorted_eigenvalues[i]
         amp = sorted_amplitudes[i]
-        title = (f"{plot_title_str.format(i=i)}\n"
+        title = (f"Eigenvector {i+1} {plot_title_suffix}\n"
                  f"λ = {eig_val.real:.3f} + {eig_val.imag:.3f}i | |λ| = {np.abs(eig_val):.4f}\n"
                  f"Initial Projection Amplitude: {amp:.3f}")
         ax.set_title(title)
