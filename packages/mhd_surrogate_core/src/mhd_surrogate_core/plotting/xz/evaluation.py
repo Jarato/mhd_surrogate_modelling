@@ -354,3 +354,56 @@ def plot_koopman_eigenvector_evolution(
     plt.tight_layout(rect=[0, 0, 1, 0.94])
     plt.show()
 
+
+def plot_koopman_eigenvalues(eval_path: Path | str):
+    """
+    Plots the Koopman eigenvalues in the complex plane, colored by their
+    corresponding eigenvector magnitude.
+    """
+    eval_path = Path(eval_path)
+    if not eval_path.exists():
+        logging.error(f"Latent evaluation file not found at: {eval_path}")
+        return
+
+    logging.info(f"Loading Koopman eigenvalue data from {eval_path}...")
+    with np.load(eval_path, allow_pickle=True) as data:
+        eigenvalues = data['eigenvalues']
+        eigenvector_magnitudes = data.get('eigenvector_magnitudes')
+
+    if eigenvector_magnitudes is None:
+        logging.error("Cannot plot eigenvalues by eigenvector magnitude: data not found in .npz file. Please re-run gen_latent_prediction.py.")
+        return
+
+    plt.style.use('seaborn-v0_8-whitegrid')
+    fig, ax = plt.subplots(figsize=(10, 10))
+
+    # Plot the unit circle for reference
+    unit_circle = plt.Circle((0, 0), 1, color='black', fill=False, linestyle='--', linewidth=1.5, label='Unit Circle')
+    ax.add_artist(unit_circle)
+
+    # Create the scatter plot
+    scatter = ax.scatter(
+        eigenvalues.real,
+        eigenvalues.imag,
+        c=eigenvector_magnitudes,
+        cmap='viridis',
+        s=50,  # size of points
+        zorder=3 # plot points on top of the circle
+    )
+
+    # Add a colorbar
+    cbar = fig.colorbar(scatter, ax=ax, fraction=0.046, pad=0.04)
+    cbar.set_label('Eigenvector Magnitude (||v||)', fontsize=12)
+
+    ax.set_title('Koopman Eigenvalues in the Complex Plane', fontsize=16)
+    ax.set_xlabel('Real Part (Re)', fontsize=12)
+    ax.set_ylabel('Imaginary Part (Im)', fontsize=12)
+    ax.axhline(0, color='grey', lw=0.5)
+    ax.axvline(0, color='grey', lw=0.5)
+    ax.set_aspect('equal', adjustable='box')
+    ax.grid(True)
+    ax.legend(handles=[unit_circle])
+
+    plt.tight_layout()
+    plt.show()
+

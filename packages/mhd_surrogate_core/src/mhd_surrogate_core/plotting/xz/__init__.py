@@ -16,6 +16,7 @@ from .evaluation import (
     plot_latent_rollout_error,
     plot_latent_trajectories,
     plot_koopman_eigenvector_evolution,
+    plot_koopman_eigenvalues,
 )
 from .comparison import generate_comparison_video_from_npz
 
@@ -34,6 +35,7 @@ __all__ = [
     "plot_latent_rollout_error",
     "plot_latent_trajectories",
     "plot_koopman_eigenvector_evolution",
+    "plot_koopman_eigenvalues",
     # Comparison Video
     "generate_comparison_video_from_npz",
 ]
