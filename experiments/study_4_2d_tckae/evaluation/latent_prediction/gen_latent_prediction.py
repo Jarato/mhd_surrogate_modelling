@@ -197,8 +197,28 @@ def main():
             logging.error("Eigenvector matrix is singular; cannot perform projection.")
             true_projected_traj, pred_projected_traj, initial_mode_amplitudes = None, None, None
 
-    # --- Save Latent Space Analysis File ---
-    # ... (code to calculate and save latent metrics remains the same)
+    # --- Calculate and Save Latent Space Analysis File ---
+    loss_fn_latent = nn.MSELoss(reduction='none')
+    per_step_latent_error = loss_fn_latent(predicted_latent_trajectory[1:], true_latent_trajectory[1:]).mean(dim=1).numpy()
+    
+    avg_rollout_mse_latent = np.mean(per_step_latent_error)
+    variance_latent = true_latent_trajectory.var().item()
+    r_squared_latent = 1 - (avg_rollout_mse_latent / variance_latent) if variance_latent > 0 else 0.0
+
+    np.savez(
+        analysis_file_path, 
+        per_step_latent_error=per_step_latent_error,
+        true_latent_trajectory=true_latent_trajectory.numpy(),
+        predicted_latent_trajectory=predicted_latent_trajectory.numpy(),
+        eigenvalues=eigenvalues.numpy(),
+        koopman_mode_magnitudes=koopman_mode_magnitudes,
+        true_projected_trajectory=true_projected_traj.numpy() if true_projected_traj is not None else None,
+        pred_projected_trajectory=pred_projected_traj.numpy() if pred_projected_traj is not None else None,
+        initial_mode_amplitudes=initial_mode_amplitudes if initial_mode_amplitudes is not None else None,
+        avg_rollout_mse=avg_rollout_mse_latent,
+        r_squared_latent=r_squared_latent,
+    )
+    logging.info(f"Saved latent space analysis to {analysis_file_path}")
     
     # --- Reconstruction and Physical Space Analysis ---
     if true_projected_traj is not None:
