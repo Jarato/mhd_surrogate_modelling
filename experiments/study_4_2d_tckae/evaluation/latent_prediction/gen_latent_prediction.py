@@ -16,7 +16,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(
 
 def parse_args():
     """Parse command-line arguments."""
-    parser = argparse.ArgumentParser(description="Evaluate a trained 2D tcKAE's latent space dynamics and optionally reconstruct high-energy modes.")
+    parser = argparse.ArgumentParser(description="Evaluate a trained 2D tcKAE's latent space dynamics, generate physical space predictions, and optionally reconstruct high-energy modes.")
     
     # --- Input Paths ---
     io_group = parser.add_argument_group("Input Paths")
@@ -35,17 +35,18 @@ def parse_args():
     
     return parser.parse_args()
 
-def decode_timeseries(model, latent_timeseries_tensor, batch_size=32, device="cpu"):
-    """Decodes a timeseries of latent vectors in batches."""
+def decode_timeseries(model, latent_timeseries_tensor, denormalize_fn, batch_size=32, device="cpu"):
+    """Decodes and denormalizes a timeseries of latent vectors in batches."""
     model.eval()
     decoded_snapshots = []
     with torch.no_grad():
         for i in tqdm(range(0, latent_timeseries_tensor.shape[0], batch_size), desc="Decoding Timeseries", leave=False):
             batch = latent_timeseries_tensor[i:i+batch_size].to(device)
-            decoded_batch = model.decode(batch) # Output: (B, C, X, Z)
-            decoded_batch_permuted = decoded_batch.permute(0, 2, 3, 1).cpu().numpy() # (B, X, Z, C)
+            decoded_batch_norm = model.decode(batch) # Output: (B, C, X, Z)
+            decoded_batch_denorm = denormalize_fn(decoded_batch_norm)
+            decoded_batch_permuted = decoded_batch_denorm.permute(0, 2, 3, 1).cpu() # (B, X, Z, C)
             decoded_snapshots.append(decoded_batch_permuted)
-    return np.vstack(decoded_snapshots)
+    return torch.cat(decoded_snapshots, dim=0)
 
 
 def main():
@@ -63,8 +64,14 @@ def main():
     
     analysis_dir = output_dir / "latent_space_analysis"
     analysis_dir.mkdir(parents=True, exist_ok=True)
-    
     analysis_file_path = analysis_dir / "latent_space_analysis.npz"
+
+    phys_pred_dir = output_dir / "physical_space_prediction"
+    phys_pred_dir.mkdir(parents=True, exist_ok=True)
+    stats_path = phys_pred_dir / "prediction_stats.npz"
+    pred_path = phys_pred_dir / "predicted_timeseries.npz"
+    diff_path = phys_pred_dir / "difference_timeseries.npz"
+
 
     # --- Load Model from Checkpoint ---
     logging.info(f"Loading model from {model_path}")
@@ -103,9 +110,10 @@ def main():
         max_vals = all_max_vals
         test_data_np = full_timeseries
 
-    min_vals, max_vals = min_vals.view(1, -1, 1, 1), max_vals.view(1, -1, 1, 1)
-    data_range = max_vals - min_vals + 1e-8
-    def normalize(x): return (x - min_vals) / data_range * 2.0 - 1.0
+    min_vals_norm, max_vals_norm = min_vals.view(1, -1, 1, 1), max_vals.view(1, -1, 1, 1)
+    data_range = max_vals_norm - min_vals_norm + 1e-8
+    def normalize(x): return (x - min_vals_norm) / data_range * 2.0 - 1.0
+    def denormalize(x_norm): return (x_norm + 1.0) / 2.0 * data_range + min_vals_norm
 
     # --- Encode the Entire Ground Truth Trajectory ---
     true_latent_trajectory = []
@@ -134,7 +142,7 @@ def main():
             predicted_latent_trajectory.append(z_t.squeeze(0).cpu())
     predicted_latent_trajectory = torch.stack(predicted_latent_trajectory)
 
-    # --- Eigendecomposition and Projection ---
+    # --- Eigendecomposition and Projection (Latent Analysis) ---
     logging.info("Performing eigendecomposition of the Koopman matrix...")
     with torch.no_grad():
         K = model.koopman_operator.weight.cpu()
@@ -142,10 +150,13 @@ def main():
         
         logging.info("Decoding latent eigenvectors to calculate Koopman mode magnitudes...")
         koopman_mode_magnitudes = []
+        # Pass denormalize function to decode_timeseries for magnitude calculation
         for vec in tqdm(eigenvectors.T, desc="Decoding Eigenvectors"):
             vec_complex = vec.cfloat().unsqueeze(0).to(device)
-            decoded_real = model.decode(vec_complex.real)
-            decoded_imag = model.decode(vec_complex.imag)
+            decoded_real_norm = model.decode(vec_complex.real)
+            decoded_imag_norm = model.decode(vec_complex.imag)
+            decoded_real = denormalize(decoded_real_norm)
+            decoded_imag = denormalize(decoded_imag_norm)
             norm_real_sq = torch.linalg.norm(decoded_real).pow(2)
             norm_imag_sq = torch.linalg.norm(decoded_imag).pow(2)
             mode_magnitude = torch.sqrt(norm_real_sq + norm_imag_sq).item()
@@ -161,19 +172,17 @@ def main():
             logging.error("Eigenvector matrix is singular; cannot perform projection.")
             true_projected_traj, pred_projected_traj, initial_mode_amplitudes = None, None, None
 
-    # --- Calculate Per-Timestep Error ---
+    # --- Calculate and Save Latent Space Metrics ---
     loss_fn = nn.MSELoss(reduction='none')
     per_step_latent_error = []
     for t in range(1, num_timesteps):
         error = loss_fn(predicted_latent_trajectory[t], true_latent_trajectory[t]).mean().item()
         per_step_latent_error.append(error)
 
-    # --- Calculate Final Metrics ---
-    avg_rollout_mse = np.mean(per_step_latent_error)
+    avg_rollout_mse_latent = np.mean(per_step_latent_error)
     variance_latent = true_latent_trajectory.var().item()
-    r_squared_latent = 1 - (avg_rollout_mse / variance_latent) if variance_latent > 0 else 0.0
+    r_squared_latent = 1 - (avg_rollout_mse_latent / variance_latent) if variance_latent > 0 else 0.0
     
-    # --- Save Main Analysis Results ---
     np.savez(
         analysis_file_path, 
         per_step_latent_error=np.array(per_step_latent_error),
@@ -184,13 +193,64 @@ def main():
         true_projected_trajectory=true_projected_traj.numpy() if true_projected_traj is not None else None,
         pred_projected_trajectory=pred_projected_traj.numpy() if pred_projected_traj is not None else None,
         initial_mode_amplitudes=initial_mode_amplitudes if initial_mode_amplitudes is not None else None,
-        avg_rollout_mse=avg_rollout_mse,
+        avg_rollout_mse=avg_rollout_mse_latent,
         r_squared_latent=r_squared_latent,
     )
     logging.info(f"Main latent space analysis results saved to {analysis_file_path}")
 
+    # --- Decode Full Prediction and Calculate Physical Space Metrics ---
+    logging.info("Decoding full predicted trajectory to physical space...")
+    predicted_timeseries_phys = decode_timeseries(model, predicted_latent_trajectory, denormalize, device=device)
+    test_tensor_cpu = torch.from_numpy(test_data_np).float()
+    
+    difference_timeseries = predicted_timeseries_phys - test_tensor_cpu
+    error_tensor = loss_fn(predicted_timeseries_phys, test_tensor_cpu)
+
+    avg_rollout_mse_total = error_tensor.mean().item()
+    variance_total = test_tensor_cpu.var().item()
+    r_squared_total = 1 - (avg_rollout_mse_total / variance_total) if variance_total > 0 else 0.0
+    
+    avg_mse_per_channel = error_tensor.mean(dim=(0, 1, 2)).numpy()
+    r_squared_per_channel = np.zeros(len(channel_names))
+    for i in range(len(channel_names)):
+        variance_channel = test_tensor_cpu[..., i].var().item()
+        r_squared_per_channel[i] = 1 - (avg_mse_per_channel[i] / variance_channel) if variance_channel > 0 else 0.0
+
+    per_step_channel_error = error_tensor[1:].mean(dim=(1, 2)).numpy()
+
+    # --- Save Physical Space Prediction Files ---
+    np.savez(
+        stats_path,
+        channel_names=np.array(channel_names, dtype='U'),
+        r_squared_total=r_squared_total,
+        r_squared_per_channel=r_squared_per_channel,
+        per_step_channel_error=per_step_channel_error,
+        avg_rollout_mse_total=avg_rollout_mse_total,
+        avg_mse_per_channel=avg_mse_per_channel,
+    )
+    logging.info(f"Physical space analysis statistics saved to {stats_path}")
+
+    np.savez(
+        pred_path,
+        timeseries=predicted_timeseries_phys.numpy(),
+        labels=np.array(channel_names, dtype='U'),
+    )
+    logging.info(f"Predicted physical timeseries saved to {pred_path}")
+
+    np.savez(
+        diff_path,
+        timeseries=difference_timeseries.numpy(),
+        labels=np.array(channel_names, dtype='U'),
+    )
+    logging.info(f"Difference physical timeseries saved to {diff_path}")
+
     # --- High-Energy Mode Reconstruction ---
     if args.reconstruct_modes:
+        # (Reconstruction logic remains the same, but needs denormalization in its decode call)
+        def decode_recon_timeseries(latent_tensor):
+            """Wrapper to pass denormalize_fn to the batch decoder."""
+            return decode_timeseries(model, latent_tensor, denormalize, device=device).numpy()
+
         if true_projected_traj is not None:
             logging.info(f"Reconstructing modes with energy > {args.energy_threshold}...")
             
@@ -208,21 +268,15 @@ def main():
             for idx in tqdm(high_energy_indices, desc="Reconstructing High-Energy Modes"):
                 if idx in processed_indices:
                     continue
-
                 is_real = np.isclose(eigenvalues[idx].imag, 0)
-                
                 if is_real:
                     true_recon_mode = (true_projected_traj[:, idx].unsqueeze(1) * eigenvectors[:, idx].unsqueeze(0)).real
                     pred_recon_mode = (pred_projected_traj[:, idx].unsqueeze(1) * eigenvectors[:, idx].unsqueeze(0)).real
                     processed_indices.add(idx)
                     filename = f"mode_{idx}.npz"
                 else:
-                    conj_idx_candidates = np.where(
-                        (np.isclose(eigenvalues.real, eigenvalues[idx].real)) &
-                        (np.isclose(eigenvalues.imag, -eigenvalues[idx].imag))
-                    )[0]
+                    conj_idx_candidates = np.where((np.isclose(eigenvalues.real, eigenvalues[idx].real)) & (np.isclose(eigenvalues.imag, -eigenvalues[idx].imag)))[0]
                     conj_idx = conj_idx_candidates[0] if len(conj_idx_candidates) > 0 else idx
-
                     true_recon_mode = 2 * (true_projected_traj[:, idx].unsqueeze(1) * eigenvectors[:, idx].unsqueeze(0)).real
                     pred_recon_mode = 2 * (pred_projected_traj[:, idx].unsqueeze(1) * eigenvectors[:, idx].unsqueeze(0)).real
                     processed_indices.add(idx)
@@ -232,27 +286,32 @@ def main():
                 combined_true_recon += true_recon_mode
                 combined_pred_recon += pred_recon_mode
 
-                decoded_true = decode_timeseries(model, true_recon_mode, device=device)
+                decoded_true = decode_recon_timeseries(true_recon_mode)
                 np.savez(true_recon_dir / filename, timeseries=decoded_true, labels=np.array(channel_names, dtype='U'))
                 
-                decoded_pred = decode_timeseries(model, pred_recon_mode, device=device)
+                decoded_pred = decode_recon_timeseries(pred_recon_mode)
                 np.savez(pred_recon_dir / filename, timeseries=decoded_pred, labels=np.array(channel_names, dtype='U'))
                 
             logging.info("Decoding and saving combined high-energy mode timeseries...")
-            decoded_combined_true = decode_timeseries(model, combined_true_recon, device=device)
+            decoded_combined_true = decode_recon_timeseries(combined_true_recon)
             np.savez(true_recon_dir / "combined_modes.npz", timeseries=decoded_combined_true, labels=np.array(channel_names, dtype='U'))
 
-            decoded_combined_pred = decode_timeseries(model, combined_pred_recon, device=device)
+            decoded_combined_pred = decode_recon_timeseries(combined_pred_recon)
             np.savez(pred_recon_dir / "combined_modes.npz", timeseries=decoded_combined_pred, labels=np.array(channel_names, dtype='U'))
         else:
             logging.warning("Skipping reconstruction because eigenvector matrix was singular.")
 
     # --- Log Final Metrics ---
     logging.info("--- LATENT SPACE EVALUATION COMPLETE ---")
-    logging.info(f"Average Latent Space Rollout MSE: {avg_rollout_mse:.6e}")
+    logging.info(f"Average Latent Space Rollout MSE: {avg_rollout_mse_latent:.6e}")
     logging.info(f"Latent Space R-squared (R²) Score: {r_squared_latent:.4f}")
+    logging.info("--- PHYSICAL SPACE EVALUATION COMPLETE ---")
+    logging.info(f"Overall Average Physical Rollout MSE: {avg_rollout_mse_total:.6f}")
+    logging.info(f"Overall Physical R-squared (R²) Score: {r_squared_total:.4f}\n")
+    logging.info("--- Per-Channel Physical Metrics ---")
+    for i, name in enumerate(channel_names):
+        logging.info(f"Channel '{name}':\t Avg MSE = {avg_mse_per_channel[i]:.6f},\t R² = {r_squared_per_channel[i]:.4f}")
 
 if __name__ == "__main__":
     main()
-
 
