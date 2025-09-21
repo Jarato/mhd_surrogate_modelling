@@ -90,12 +90,8 @@ def main():
         for i in tqdm(range(test_data_np.shape[0]), desc="Encoding Ground Truth"):
             snapshot_np = test_data_np[i]
             snapshot_tensor = torch.from_numpy(snapshot_np).float().to(device)
-            # Permute from (X, Z, C) -> (C, X, Z) for the model
             snapshot_permuted = snapshot_tensor.permute(2, 0, 1)
-            
-            # Normalize and add batch dimension
             snapshot_norm = normalize(snapshot_permuted.unsqueeze(0))
-            
             latent_vector = model.encode(snapshot_norm)
             true_latent_trajectory.append(latent_vector.squeeze(0).cpu())
     
@@ -121,8 +117,19 @@ def main():
         K = model.koopman_operator.weight.cpu()
         eigenvalues, eigenvectors = torch.linalg.eig(K)
         
-        # Calculate the magnitude of each eigenvector
         eigenvector_magnitudes = torch.linalg.norm(eigenvectors, ord=2, dim=0).numpy()
+
+        logging.info("Decoding latent eigenvectors to calculate Koopman mode magnitudes...")
+        koopman_mode_magnitudes = []
+        for vec in tqdm(eigenvectors.T, desc="Decoding Eigenvectors"):
+            vec_complex = vec.cfloat().unsqueeze(0).to(device)
+            decoded_real = model.decode(vec_complex.real)
+            decoded_imag = model.decode(vec_complex.imag)
+            norm_real_sq = torch.linalg.norm(decoded_real).pow(2)
+            norm_imag_sq = torch.linalg.norm(decoded_imag).pow(2)
+            mode_magnitude = torch.sqrt(norm_real_sq + norm_imag_sq).item()
+            koopman_mode_magnitudes.append(mode_magnitude)
+        koopman_mode_magnitudes = np.array(koopman_mode_magnitudes)
         
         try:
             W_inv = torch.linalg.inv(eigenvectors)
@@ -153,6 +160,7 @@ def main():
         predicted_latent_trajectory=predicted_latent_trajectory.numpy(),
         eigenvalues=eigenvalues.numpy(),
         eigenvector_magnitudes=eigenvector_magnitudes,
+        koopman_mode_magnitudes=koopman_mode_magnitudes,
         true_projected_trajectory=true_projected_traj.numpy() if true_projected_traj is not None else None,
         pred_projected_trajectory=pred_projected_traj.numpy() if pred_projected_traj is not None else None,
         initial_mode_amplitudes=initial_mode_amplitudes if initial_mode_amplitudes is not None else None,
