@@ -255,13 +255,20 @@ def main():
             # --- 2. Analyze Individual High-Energy Modes (Optional) ---
             if args.reconstruct_modes:
                 energy_sorted_indices = np.argsort(koopman_mode_magnitudes)[::-1]
+                
+                # Pre-filter indices to only those above the threshold
+                high_energy_analysis_indices = [
+                    idx for idx in energy_sorted_indices
+                    if koopman_mode_magnitudes[idx] >= args.energy_threshold
+                ]
+                
                 processed_indices_individual = set()
                 folder_rank_counter = 0
                 
-                logging.info("Analyzing and saving individual high-energy modes by energy rank...")
+                logging.info(f"Found {len(high_energy_analysis_indices)} eigenvectors for individual analysis. Saving reconstructions...")
                 
-                for idx in tqdm(energy_sorted_indices, desc="Analyzing Individual Modes", ncols=80):
-                    if idx in processed_indices_individual or koopman_mode_magnitudes[idx] < args.energy_threshold:
+                for idx in tqdm(high_energy_analysis_indices, desc="Analyzing Individual Modes", ncols=80):
+                    if idx in processed_indices_individual:
                         continue
 
                     is_real = np.isclose(eigenvalues[idx].imag, 0)
