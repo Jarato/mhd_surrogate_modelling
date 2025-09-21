@@ -254,21 +254,35 @@ def main():
 
             # --- 2. Analyze Individual High-Energy Modes (Optional) ---
             if args.reconstruct_modes:
+                # First, get the original indices sorted by energy magnitude
+                energy_sorted_indices = np.argsort(koopman_mode_magnitudes)[::-1]
+                
                 processed_indices_individual = set()
-                for idx in tqdm(high_energy_indices, desc="Analyzing Individual Modes", ncols=80):
-                    if idx in processed_indices_individual: continue
-                    
+                logging.info("Analyzing and saving individual high-energy modes by energy rank...")
+                
+                for rank, idx in enumerate(tqdm(energy_sorted_indices, desc="Analyzing Individual Modes", ncols=80)):
+                    # Skip if already processed as part of a pair or if below threshold
+                    if idx in processed_indices_individual:
+                        continue
+                    if koopman_mode_magnitudes[idx] < args.energy_threshold:
+                        continue
+
                     is_real = np.isclose(eigenvalues[idx].imag, 0)
                     if is_real:
                         true_recon = (true_projected_traj[:, idx].unsqueeze(1) * eigenvectors[:, idx].unsqueeze(0)).real
                         pred_recon = (pred_projected_traj[:, idx].unsqueeze(1) * eigenvectors[:, idx].unsqueeze(0)).real
-                        subdir = analysis_dir / f"mode_{idx}"
+                        subdir = analysis_dir / f"mode_rank_{rank}"
                         processed_indices_individual.add(idx)
                     else:
+                        # Find conjugate partner
                         conj_idx = np.where((np.isclose(eigenvalues.real, eigenvalues[idx].real)) & (np.isclose(eigenvalues.imag, -eigenvalues[idx].imag)))[0][0]
+                        
                         true_recon = 2 * (true_projected_traj[:, idx].unsqueeze(1) * eigenvectors[:, idx].unsqueeze(0)).real
                         pred_recon = 2 * (pred_projected_traj[:, idx].unsqueeze(1) * eigenvectors[:, idx].unsqueeze(0)).real
-                        subdir = analysis_dir / f"mode_pair_{idx}_{conj_idx}"
+                        
+                        # Use the rank of the primary mode for naming
+                        subdir = analysis_dir / f"mode_pair_rank_{rank}"
+                        
                         processed_indices_individual.add(idx)
                         processed_indices_individual.add(conj_idx)
 
