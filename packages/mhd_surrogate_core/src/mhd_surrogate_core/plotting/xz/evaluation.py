@@ -257,9 +257,20 @@ def plot_latent_trajectories(eval_path: Path | str, num_dims_to_plot: int = 16):
     plt.show()
 
 
-def plot_koopman_eigenvector_evolution(eval_path: Path | str, num_eigenvectors_to_plot: int = 16):
+def plot_koopman_eigenvector_evolution(
+    eval_path: Path | str, 
+    num_eigenvectors_to_plot: int = 16,
+    sort_by: str = 'amplitude'
+):
     """
     Plots the time evolution of the system projected onto the Koopman eigenvectors.
+
+    Args:
+        eval_path (Path | str): Path to the latent space analysis .npz file.
+        num_eigenvectors_to_plot (int): The number of eigenvectors to display.
+        sort_by (str): The criterion for sorting eigenvectors. 
+                         'amplitude' sorts by initial projection amplitude (descending).
+                         'eigenvalue_magnitude' sorts by eigenvalue magnitude (descending).
     """
     eval_path = Path(eval_path)
     if not eval_path.exists():
@@ -277,7 +288,19 @@ def plot_koopman_eigenvector_evolution(eval_path: Path | str, num_eigenvectors_t
         logging.error("Required data for eigenvector evolution plot not found in file (or eigenvector matrix was singular).")
         return
 
-    sort_indices = np.argsort(initial_amplitudes)[::-1]
+    # --- Sorting Logic ---
+    if sort_by == 'amplitude':
+        sort_indices = np.argsort(initial_amplitudes)[::-1]
+        sort_title_str = "Sorted by Importance (Initial Amplitude)"
+        plot_title_str = "Eigenvector {i+1} (Sorted by Amp.)"
+    elif sort_by == 'eigenvalue_magnitude':
+        sort_indices = np.argsort(np.abs(eigenvalues))[::-1]
+        sort_title_str = "Sorted by Eigenvalue Magnitude"
+        plot_title_str = "Eigenvector {i+1} (Sorted by |λ|)"
+    else:
+        logging.error(f"Invalid sort_by value: '{sort_by}'. Choose 'amplitude' or 'eigenvalue_magnitude'.")
+        return
+
     sorted_eigenvalues = eigenvalues[sort_indices]
     sorted_true_proj = true_proj[:, sort_indices]
     sorted_pred_proj = pred_proj[:, sort_indices]
@@ -300,7 +323,7 @@ def plot_koopman_eigenvector_evolution(eval_path: Path | str, num_eigenvectors_t
         
         eig_val = sorted_eigenvalues[i]
         amp = sorted_amplitudes[i]
-        title = (f"Eigenvector {i+1} (Sorted by Amp.)\n"
+        title = (f"{plot_title_str.format(i=i)}\n"
                  f"λ = {eig_val.real:.3f} + {eig_val.imag:.3f}i | |λ| = {np.abs(eig_val):.4f}\n"
                  f"Initial Projection Amplitude: {amp:.3f}")
         ax.set_title(title)
@@ -311,7 +334,7 @@ def plot_koopman_eigenvector_evolution(eval_path: Path | str, num_eigenvectors_t
         axes[j].set_visible(False)
     handles, labels = axes[0].get_legend_handles_labels()
     fig.legend(handles, labels, loc='upper right', fontsize=12)
-    fig.suptitle('Evolution of Koopman Eigenvector Projections (Sorted by Importance)', fontsize=16, y=0.98)
+    fig.suptitle(f'Evolution of Koopman Eigenvector Projections\n({sort_title_str})', fontsize=16, y=0.98)
     plt.tight_layout(rect=[0, 0, 1, 0.94])
     plt.show()
 
