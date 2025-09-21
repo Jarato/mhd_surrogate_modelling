@@ -22,11 +22,14 @@
 VIDEO_SCRIPT_PATH="create_comparison_video.py"
 
 # --- Input Paths ---
+RANK="5"
 # Base directory where the evaluation output (prediction & difference files) is stored
-EVAL_DIR="/cephfs/users/skowronek/Documents/PhD/nuclear_fusion_cooling/prediction/mhd_surrogate_modelling/experiments/study_4_2d_tckae/output/tc_size_exploration/ld512_M16_K16_Ktc16_gtc1.0_bwd_False/eval/latent_space_analysis/combined_high_energy_modes/"
+# EVAL_DIR="/cephfs/users/skowronek/Documents/PhD/nuclear_fusion_cooling/prediction/mhd_surrogate_modelling/experiments/study_4_2d_tckae/output/tc_size_exploration/ld512_M16_K16_Ktc16_gtc1.0_bwd_False/eval/latent_space_analysis/combined_high_energy_modes/"
+EVAL_DIR="/cephfs/users/skowronek/Documents/PhD/nuclear_fusion_cooling/prediction/mhd_surrogate_modelling/experiments/study_4_2d_tckae/output/tc_size_exploration/ld512_M16_K16_Ktc16_gtc1.0_bwd_False/eval/latent_space_analysis/mode_rank_${RANK}/"
 
 # Full path to the original ground truth test set
-GROUND_TRUTH_NPZ="/cephfs/users/skowronek/Documents/PhD/nuclear_fusion_cooling/data/preprocessed_dns_output/01-Cold_Runs/01-Re16K_Ha325/T1492_x1151_y1_z127_c2/preprocessed/test_set.npz"
+# GROUND_TRUTH_NPZ="/cephfs/users/skowronek/Documents/PhD/nuclear_fusion_cooling/data/preprocessed_dns_output/01-Cold_Runs/01-Re16K_Ha325/T1492_x1151_y1_z127_c2/preprocessed/test_set.npz"
+GROUND_TRUTH_NPZ="/cephfs/users/skowronek/Documents/PhD/nuclear_fusion_cooling/prediction/mhd_surrogate_modelling/experiments/study_4_2d_tckae/output/tc_size_exploration/ld512_M16_K16_Ktc16_gtc1.0_bwd_False/eval/latent_space_analysis/mode_rank_${RANK}/true_timeseries.npz"
 
 # --- Output Path ---
 # Directory to save the output videos
