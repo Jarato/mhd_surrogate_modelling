@@ -54,6 +54,8 @@ def plot_velocity_quiver(
     cmap: str = "viridis",
     quiver_stride: int = 10,
     arrow_width: Optional[float] = None,
+    title_suffix: Optional[str] = None,
+    cbar_label_override: Optional[str] = None,
 ):
     """
     Plots a 2D velocity field snapshot where arrows are colored by magnitude.
@@ -98,7 +100,9 @@ def plot_velocity_quiver(
 
     # --- Prepare data for quiver plot, accounting for mean flow ---
     base_title = f"Velocity Field ({u_display}, {v_display}) Snapshot"
-    
+    if title_suffix:
+        base_title = f"{base_title} - {title_suffix}"
+
     # Prepare fluctuation components for quiver arrows
     u_data_fluctuation = u_data.copy()
     v_data_fluctuation = v_data.copy()
@@ -126,8 +130,12 @@ def plot_velocity_quiver(
             subtitle += f"\n(Arrows show fluctuations around mean {', '.join(subtracted_parts)})"
             cbar_label = f"Fluctuation Magnitude" + (f" [{unit_label}]" if unit_label else "")
 
-    # Calculate magnitude from the fluctuation components
+    # Calculate magnitude from the (potentially modified) fluctuation components
     magnitude = np.sqrt(u_data_fluctuation**2 + v_data_fluctuation**2)
+
+    # Override cbar label if provided
+    if cbar_label_override:
+        cbar_label = cbar_label_override
 
     # Downsample all data for the quiver plot
     x_coords_q = coords['x'][::quiver_stride]
@@ -375,5 +383,6 @@ def plot_xz_snapshot(
     ax.set_ylabel("Z Coordinate")
     plt.tight_layout()
     plt.show()
+
 
 
