@@ -237,6 +237,17 @@ def main():
         if len(high_energy_indices) == 0:
             logging.warning("No modes found above the energy threshold. Cannot perform physical space analysis.")
         else:
+            # --- New prediction based on spectral formula: a_j(t) = (lambda_j)^t * a_j(0) ---
+            logging.info("Calculating predicted trajectory using spectral decomposition formula.")
+            initial_amplitudes = true_projected_traj[0]
+            num_timesteps = true_projected_traj.shape[0]
+
+            # Create a time evolution matrix of eigenvalues: [lambda_j^t]
+            eigenvalues_t = eigenvalues.unsqueeze(0).pow(torch.arange(num_timesteps).unsqueeze(1).to(eigenvalues.device))
+            
+            # Calculate the time evolution of ALL mode amplitudes using the formula
+            pred_projected_traj_from_formula = initial_amplitudes.unsqueeze(0) * eigenvalues_t
+            
             # --- 1. Analyze Combined High-Energy Modes ---
             combined_true_recon_latent = torch.zeros_like(true_latent_trajectory)
             combined_pred_recon_latent = torch.zeros_like(predicted_latent_trajectory)
@@ -247,12 +258,12 @@ def main():
                 is_real = np.isclose(eigenvalues[idx].imag, 0)
                 if is_real:
                     combined_true_recon_latent += (true_projected_traj[:, idx].unsqueeze(1) * eigenvectors[:, idx].unsqueeze(0)).real
-                    combined_pred_recon_latent += (pred_projected_traj[:, idx].unsqueeze(1) * eigenvectors[:, idx].unsqueeze(0)).real
+                    combined_pred_recon_latent += (pred_projected_traj_from_formula[:, idx].unsqueeze(1) * eigenvectors[:, idx].unsqueeze(0)).real
                     processed_indices_combined.add(idx)
                 else:
                     conj_idx = np.where((np.isclose(eigenvalues.real, eigenvalues[idx].real)) & (np.isclose(eigenvalues.imag, -eigenvalues[idx].imag)))[0][0]
                     combined_true_recon_latent += 2 * (true_projected_traj[:, idx].unsqueeze(1) * eigenvectors[:, idx].unsqueeze(0)).real
-                    combined_pred_recon_latent += 2 * (pred_projected_traj[:, idx].unsqueeze(1) * eigenvectors[:, idx].unsqueeze(0)).real
+                    combined_pred_recon_latent += 2 * (pred_projected_traj_from_formula[:, idx].unsqueeze(1) * eigenvectors[:, idx].unsqueeze(0)).real
                     processed_indices_combined.add(idx)
                     processed_indices_combined.add(conj_idx)
 
@@ -278,13 +289,13 @@ def main():
                     is_real = np.isclose(eigenvalues[idx].imag, 0)
                     if is_real:
                         true_recon = (true_projected_traj[:, idx].unsqueeze(1) * eigenvectors[:, idx].unsqueeze(0)).real
-                        pred_recon = (pred_projected_traj[:, idx].unsqueeze(1) * eigenvectors[:, idx].unsqueeze(0)).real
+                        pred_recon = (pred_projected_traj_from_formula[:, idx].unsqueeze(1) * eigenvectors[:, idx].unsqueeze(0)).real
                         subdir = analysis_dir / f"mode_rank_{folder_rank_counter}"
                         processed_indices_individual.add(idx)
                     else:
                         conj_idx = np.where((np.isclose(eigenvalues.real, eigenvalues[idx].real)) & (np.isclose(eigenvalues.imag, -eigenvalues[idx].imag)))[0][0]
                         true_recon = 2 * (true_projected_traj[:, idx].unsqueeze(1) * eigenvectors[:, idx].unsqueeze(0)).real
-                        pred_recon = 2 * (pred_projected_traj[:, idx].unsqueeze(1) * eigenvectors[:, idx].unsqueeze(0)).real
+                        pred_recon = 2 * (pred_projected_traj_from_formula[:, idx].unsqueeze(1) * eigenvectors[:, idx].unsqueeze(0)).real
                         subdir = analysis_dir / f"mode_pair_rank_{folder_rank_counter}"
                         processed_indices_individual.add(idx)
                         processed_indices_individual.add(conj_idx)
@@ -302,4 +313,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
