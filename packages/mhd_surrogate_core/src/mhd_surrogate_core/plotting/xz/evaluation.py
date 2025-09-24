@@ -409,3 +409,62 @@ def plot_koopman_eigenvalues(eval_path: Path | str, highlight_threshold: float |
     plt.tight_layout()
     plt.show()
 
+def plot_koopman_mode_spectrum(eval_path: Path | str, dt: float = 1.0):
+    """
+    Plots the energy (magnitude) of Koopman modes against their frequency.
+    This plot is inspired by Figure 2(b) of Rowley et al. (2009), J. Fluid Mech.
+    """
+    eval_path = Path(eval_path)
+    if not eval_path.exists():
+        logging.error(f"Latent evaluation file not found at: {eval_path}")
+        return
+
+    logging.info(f"Loading Koopman mode spectrum data from {eval_path}...")
+    with np.load(eval_path, allow_pickle=True) as data:
+        eigenvalues = data['eigenvalues']
+        koopman_mode_magnitudes = data.get('koopman_mode_magnitudes')
+
+    if koopman_mode_magnitudes is None:
+        logging.error("'koopman_mode_magnitudes' not found in the file.")
+        return
+
+    # Calculate cyclical frequencies (f) from eigenvalues (lambda)
+    # omega = angle(lambda) / dt  => f = angle(lambda) / (2 * pi * dt)
+    frequencies = np.angle(eigenvalues) / (2 * np.pi * dt)
+
+    # We are only interested in positive frequencies. The mean flow mode (freq=0) is usually excluded.
+    positive_freq_indices = np.where(frequencies > 1e-6)[0]
+
+    freqs_to_plot = frequencies[positive_freq_indices]
+    mags_to_plot = koopman_mode_magnitudes[positive_freq_indices]
+    
+    # Sort by frequency for a clean plot
+    sort_indices = np.argsort(freqs_to_plot)
+    freqs_to_plot = freqs_to_plot[sort_indices]
+    mags_to_plot = mags_to_plot[sort_indices]
+    
+    # Normalize magnitudes for coloring, similar to the reference paper
+    norm = plt.Normalize(mags_to_plot.min(), mags_to_plot.max())
+    colors = plt.cm.Reds(norm(mags_to_plot))
+
+    plt.style.use('seaborn-v0_8-whitegrid')
+    fig, ax = plt.subplots(figsize=(12, 6))
+
+    # Create a stem plot. We color each stem individually.
+    for freq, mag, color in zip(freqs_to_plot, mags_to_plot, colors):
+        ax.plot([freq, freq], [0, mag], color=color, linewidth=1.5)
+        ax.plot(freq, mag, 'o', color=color, markersize=5)
+    
+    ax.axhline(0, color='black', linewidth=0.8) # Baseline
+
+    ax.set_title('Koopman Mode Energy Spectrum', fontsize=16)
+    ax.set_xlabel('Frequency', fontsize=12)
+    ax.set_ylabel('Koopman Mode Magnitude (Energy)', fontsize=12)
+    ax.grid(True, which="both", ls="--", alpha=0.6)
+    
+    # Set y-limit to give some space at the top
+    if len(mags_to_plot) > 0:
+        ax.set_ylim(0, mags_to_plot.max() * 1.1)
+    
+    plt.tight_layout()
+    plt.show()
