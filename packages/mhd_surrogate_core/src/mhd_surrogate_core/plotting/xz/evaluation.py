@@ -350,7 +350,12 @@ def plot_koopman_eigenvector_evolution(
     plt.tight_layout(rect=[0, 0, 1, 0.94])
     plt.show()
 
-def plot_koopman_eigenvalues(eval_path: Path | str, highlight_threshold: float | None = None):
+def plot_koopman_eigenvalues(
+    eval_path: Path | str,
+    highlight_threshold: float | None = None,
+    vmin: float | None = None,
+    vmax: float | None = None
+):
     """
     Plots the eigenvalues of the Koopman operator in the complex plane.
     """
@@ -381,6 +386,8 @@ def plot_koopman_eigenvalues(eval_path: Path | str, highlight_threshold: float |
         eigenvalues.imag,
         c=koopman_mode_magnitudes,
         cmap='viridis',
+        vmin=vmin,
+        vmax=vmax,
         zorder=10
     )
     fig.colorbar(scatter, ax=ax, label="Koopman Mode Magnitude (Energy Norm)")
@@ -409,7 +416,12 @@ def plot_koopman_eigenvalues(eval_path: Path | str, highlight_threshold: float |
     plt.tight_layout()
     plt.show()
 
-def plot_koopman_mode_spectrum(eval_path: Path | str, dt: float = 1.0):
+def plot_koopman_mode_spectrum(
+    eval_path: Path | str,
+    dt: float = 1.0,
+    vmin: float | None = None,
+    vmax: float | None = None
+):
     """
     Plots the energy (magnitude) of Koopman modes against their frequency.
     This plot is inspired by Figure 2(b) of Rowley et al. (2009), J. Fluid Mech.
@@ -443,9 +455,11 @@ def plot_koopman_mode_spectrum(eval_path: Path | str, dt: float = 1.0):
     freqs_to_plot = freqs_to_plot[sort_indices]
     mags_to_plot = mags_to_plot[sort_indices]
     
-    # Normalize magnitudes for coloring, similar to the reference paper
-    norm = plt.Normalize(mags_to_plot.min(), mags_to_plot.max())
-    colors = plt.cm.Reds(norm(mags_to_plot))
+    # Normalize magnitudes for coloring, using a shared vmin/vmax if provided
+    norm_vmin = vmin if vmin is not None else mags_to_plot.min() if len(mags_to_plot) > 0 else 0
+    norm_vmax = vmax if vmax is not None else mags_to_plot.max() if len(mags_to_plot) > 0 else 1
+    norm = plt.Normalize(norm_vmin, norm_vmax)
+    colors = plt.cm.viridis(norm(mags_to_plot))
 
     plt.style.use('seaborn-v0_8-whitegrid')
     fig, ax = plt.subplots(figsize=(12, 6))
@@ -468,3 +482,4 @@ def plot_koopman_mode_spectrum(eval_path: Path | str, dt: float = 1.0):
     
     plt.tight_layout()
     plt.show()
+
