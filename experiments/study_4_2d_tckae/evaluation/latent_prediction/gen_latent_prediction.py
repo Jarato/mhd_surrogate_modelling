@@ -32,6 +32,7 @@ def parse_args():
     recon_group = parser.add_argument_group("Reconstruction Parameters")
     recon_group.add_argument("--reconstruct-modes", action='store_true', help="If set, also creates analysis folders for individual high-energy modes.")
     recon_group.add_argument("--energy-threshold", type=float, default=0.0, help="Minimum Koopman mode magnitude (energy norm) to be included in the physical space prediction. Default: 0.0")
+    recon_group.add_argument("--unit-circle-evals", action='store_true', help="If set, project all eigenvalues to the unit circle (magnitude 1).")
     
     return parser.parse_args()
 
@@ -189,6 +190,7 @@ def main():
     with torch.no_grad():
         K = model.koopman_operator.weight.cpu()
         eigenvalues, eigenvectors = torch.linalg.eig(K)
+
         koopman_mode_magnitudes = []
         for vec in tqdm(eigenvectors.T, desc="Decoding Eigenvectors", ncols=80):
             vec_complex = vec.cfloat().unsqueeze(0).to(device)
@@ -242,8 +244,14 @@ def main():
             initial_amplitudes = true_projected_traj[0]
             num_timesteps = true_projected_traj.shape[0]
 
+            # Make a copy of eigenvalues to be potentially modified for prediction
+            prediction_eigenvalues = eigenvalues.clone()
+            if args.unit_circle_evals:
+                logging.info("Projecting eigenvalues to the unit circle for prediction.")
+                prediction_eigenvalues = prediction_eigenvalues / torch.abs(prediction_eigenvalues)
+
             # Create a time evolution matrix of eigenvalues: [lambda_j^t]
-            eigenvalues_t = eigenvalues.unsqueeze(0).pow(torch.arange(num_timesteps).unsqueeze(1).to(eigenvalues.device))
+            eigenvalues_t = prediction_eigenvalues.unsqueeze(0).pow(torch.arange(num_timesteps).unsqueeze(1).to(eigenvalues.device))
             
             # Calculate the time evolution of ALL mode amplitudes using the formula
             pred_projected_traj_from_formula = initial_amplitudes.unsqueeze(0) * eigenvalues_t
@@ -313,3 +321,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
