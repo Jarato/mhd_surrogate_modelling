@@ -127,17 +127,24 @@ def analyze_and_save_reconstruction(
     
     # --- FLUID DIVERGENCE CALCULATION & SAVING ---
     if args.calculate_divergence:
-        logging.info("Calculating fluid divergence (dvx/dx + dvz/dz)...")
-        div_ground_truth = calculate_divergence(full_ground_truth_phys.cpu().numpy(), channel_names)
-        div_recon_predicted = calculate_divergence(pred_recon_phys.cpu().numpy(), channel_names)
+        logging.info("Calculating fluid divergence (dvx/dx + dvz/dz) for reconstructions...")
+        divergence_output_dir = output_subdir / "divergence"
+        divergence_output_dir.mkdir(parents=True, exist_ok=True)
         
-        if div_ground_truth is not None and div_recon_predicted is not None:
-            div_difference = div_recon_predicted - div_ground_truth
+        # Calculate divergence for the TRUE reconstruction of high-energy modes
+        div_true_recon = calculate_divergence(true_recon_phys.cpu().numpy(), channel_names)
+        
+        # Calculate divergence for the PREDICTED reconstruction of high-energy modes
+        div_pred_recon = calculate_divergence(pred_recon_phys.cpu().numpy(), channel_names)
+        
+        if div_true_recon is not None and div_pred_recon is not None:
+            div_difference = div_pred_recon - div_true_recon
             
-            np.savez(output_subdir / "divergence_ground_truth.npz", timeseries=div_ground_truth, labels=np.array(["divergence"], dtype='U'))
-            np.savez(output_subdir / "divergence_reconstruction_predicted.npz", timeseries=div_recon_predicted, labels=np.array(["divergence"], dtype='U'))
-            np.savez(output_subdir / "divergence_difference.npz", timeseries=div_difference, labels=np.array(["divergence_diff"], dtype='U'))
-            logging.info("Saved fluid divergence analysis files.")
+            # Save files with matching names in the 'divergence' subdirectory
+            np.savez(divergence_output_dir / "true_timeseries.npz", timeseries=div_true_recon, labels=np.array(["divergence"], dtype='U'))
+            np.savez(divergence_output_dir / "predicted_timeseries.npz", timeseries=div_pred_recon, labels=np.array(["divergence"], dtype='U'))
+            np.savez(divergence_output_dir / "difference_timeseries.npz", timeseries=div_difference, labels=np.array(["divergence_diff"], dtype='U'))
+            logging.info(f"Saved fluid divergence analysis files to {divergence_output_dir}")
 
     # Save the statistics (calculated against full ground truth)
     np.savez(
