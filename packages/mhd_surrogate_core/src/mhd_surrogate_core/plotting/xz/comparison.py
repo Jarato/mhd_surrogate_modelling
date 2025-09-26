@@ -166,19 +166,32 @@ def generate_comparison_video_from_npz(
 ):
     """Generates a 3-panel comparison video from ground truth, prediction, and difference npz files."""
     logging.info("Loading data for comparison video...")
+    
+    def load_and_prepare_data(npz_path):
+        """Loads data and ensures it has a channel dimension."""
+        with np.load(npz_path) as data:
+            timeseries = data['timeseries']
+            # Squeeze out potential dummy 'y' dimension
+            if timeseries.ndim == 5:
+                timeseries = np.squeeze(timeseries, axis=2)
+            # Add a channel dimension if data is 3D (e.g., divergence)
+            if timeseries.ndim == 3:
+                timeseries = timeseries[..., np.newaxis]
+            return timeseries
+
+    # Load all data, ensuring it's in the expected 4D format
+    gt_full = load_and_prepare_data(gt_npz_path)
+    pred_full = load_and_prepare_data(pred_npz_path)
+    diff_full = load_and_prepare_data(diff_npz_path)
+
+    # Load labels and coords from the ground truth file, which is the reference
     with np.load(gt_npz_path) as data:
-        gt_full = data['timeseries']
-        if gt_full.ndim == 5: gt_full = np.squeeze(gt_full, axis=2)
         all_labels = list(data['labels'])
         coords = {
             'x': data.get('x_coords', np.arange(gt_full.shape[1])),
             'z': data.get('z_coords', np.arange(gt_full.shape[2])),
         }
-    with np.load(pred_npz_path) as data:
-        pred_full = data['timeseries']
-    with np.load(diff_npz_path) as data:
-        diff_full = data['timeseries']
-
+        
     time_offset = time_start if time_start is not None else 0
     gt_data = gt_full[time_start:time_end]
     pred_data = pred_full[time_start:time_end]
@@ -240,4 +253,3 @@ def generate_comparison_video_from_npz(
                 writer.append_data(imageio.imread(frame_path))
 
     logging.info("Comparison video generation complete.")
-
