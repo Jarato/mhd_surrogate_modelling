@@ -33,6 +33,7 @@ def parse_args():
     recon_group.add_argument("--reconstruct-modes", action='store_true', help="If set, also creates analysis folders for individual high-energy modes.")
     recon_group.add_argument("--energy-threshold", type=float, default=0.0, help="Minimum Koopman mode magnitude (energy norm) to be included in the physical space prediction. Default: 0.0")
     recon_group.add_argument("--unit-circle-evals", action='store_true', help="If set, project all eigenvalues to the unit circle (magnitude 1).")
+    recon_group.add_argument("--calculate-divergence", action='store_true', help="If set, calculates the 2D fluid divergence (dvx/dx + dvz/dz).")
     
     return parser.parse_args()
 
@@ -49,6 +50,34 @@ def decode_timeseries(model, latent_timeseries_tensor, denormalize_fn, batch_siz
             decoded_snapshots.append(decoded_batch_permuted)
     return torch.cat(decoded_snapshots, dim=0)
 
+def calculate_divergence(
+    physical_timeseries: np.ndarray,
+    channel_names: list[str]
+) -> np.ndarray | None:
+    """
+    Calculates the 2D divergence (dvx/dx + dvz/dz) of a physical timeseries.
+    Assumes velocity components are named 'vx' and 'vz'.
+    """
+    if 'vx' not in channel_names or 'vz' not in channel_names:
+        logging.warning("Velocity channels 'vx' and 'vz' not found. Skipping divergence calculation.")
+        return None
+
+    vx_idx = channel_names.index('vx')
+    vz_idx = channel_names.index('vz')
+
+    # physical_timeseries shape: (T, X, Z, C)
+    vx_data = physical_timeseries[..., vx_idx]
+    vz_data = physical_timeseries[..., vz_idx]
+
+    # np.gradient returns a list of arrays, one for each dimension.
+    # We need the gradient along the x-axis (axis=1) for vx, and z-axis (axis=2) for vz.
+    grad_vx = np.gradient(vx_data, axis=1)
+    grad_vz = np.gradient(vz_data, axis=2)
+
+    divergence_field = grad_vx + grad_vz
+    logging.info(f"Calculated divergence field with shape {divergence_field.shape}")
+    return divergence_field
+
 def analyze_and_save_reconstruction(
     true_recon_latent: torch.Tensor,
     pred_recon_latent: torch.Tensor,
@@ -57,7 +86,8 @@ def analyze_and_save_reconstruction(
     model: nn.Module,
     denormalize_fn,
     channel_names: list[str],
-    device: str
+    device: str,
+    args: argparse.Namespace
 ):
     """
     Decodes, analyzes, and saves a pair of true/predicted reconstructed timeseries.
@@ -72,7 +102,7 @@ def analyze_and_save_reconstruction(
     
     # --- METRICS CALCULATION (against FULL ground truth) ---
     loss_fn = nn.MSELoss(reduction='none')
-    diff_phys = pred_recon_phys - full_ground_truth_phys
+    diff_phys_vs_gt = pred_recon_phys - full_ground_truth_phys
     error_tensor = loss_fn(pred_recon_phys, full_ground_truth_phys)
 
     avg_rollout_mse_total = error_tensor.mean().item()
@@ -93,8 +123,22 @@ def analyze_and_save_reconstruction(
     # Save the predicted timeseries
     np.savez(output_subdir / "predicted_timeseries.npz", timeseries=pred_recon_phys.numpy(), labels=np.array(channel_names, dtype='U'))
     # Save the difference timeseries (calculated against full ground truth)
-    np.savez(output_subdir / "difference_timeseries.npz", timeseries=diff_phys.numpy(), labels=np.array(channel_names, dtype='U'))
+    np.savez(output_subdir / "difference_timeseries.npz", timeseries=diff_phys_vs_gt.numpy(), labels=np.array(channel_names, dtype='U'))
     
+    # --- FLUID DIVERGENCE CALCULATION & SAVING ---
+    if args.calculate_divergence:
+        logging.info("Calculating fluid divergence (dvx/dx + dvz/dz)...")
+        div_ground_truth = calculate_divergence(full_ground_truth_phys.cpu().numpy(), channel_names)
+        div_recon_predicted = calculate_divergence(pred_recon_phys.cpu().numpy(), channel_names)
+        
+        if div_ground_truth is not None and div_recon_predicted is not None:
+            div_difference = div_recon_predicted - div_ground_truth
+            
+            np.savez(output_subdir / "divergence_ground_truth.npz", timeseries=div_ground_truth, labels=np.array(["divergence"], dtype='U'))
+            np.savez(output_subdir / "divergence_reconstruction_predicted.npz", timeseries=div_recon_predicted, labels=np.array(["divergence"], dtype='U'))
+            np.savez(output_subdir / "divergence_difference.npz", timeseries=div_difference, labels=np.array(["divergence_diff"], dtype='U'))
+            logging.info("Saved fluid divergence analysis files.")
+
     # Save the statistics (calculated against full ground truth)
     np.savez(
         output_subdir / "prediction_stats.npz",
@@ -278,7 +322,7 @@ def main():
             r2_comb, mse_comb = analyze_and_save_reconstruction(
                 combined_true_recon_latent, combined_pred_recon_latent, test_tensor_cpu,
                 analysis_dir / "combined_high_energy_modes",
-                model, denormalize, channel_names, device
+                model, denormalize, channel_names, device, args
             )
 
             # --- 2. Analyze Individual High-Energy Modes (Optional) ---
@@ -308,7 +352,7 @@ def main():
                         processed_indices_individual.add(idx)
                         processed_indices_individual.add(conj_idx)
 
-                    analyze_and_save_reconstruction(true_recon, pred_recon, test_tensor_cpu, subdir, model, denormalize, channel_names, device)
+                    analyze_and_save_reconstruction(true_recon, pred_recon, test_tensor_cpu, subdir, model, denormalize, channel_names, device, args)
                     folder_rank_counter += 1
 
             # --- Final Summary Logging ---
@@ -321,5 +365,4 @@ def main():
 
 if __name__ == "__main__":
     main()
-
 
