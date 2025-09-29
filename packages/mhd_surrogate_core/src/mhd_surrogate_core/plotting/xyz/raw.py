@@ -117,7 +117,7 @@ def plot_interpolated_xz_slice(
         **plot_kwargs
     )
 
-    cbar_label = f"velocity {display_name}" + (f" [{unit_label}]" if unit_label else "")
+    cbar_label = f"Velocity {display_name}" + (f" [{unit_label}]" if unit_label else "")
     cbar = fig.colorbar(im, ax=ax)
     cbar.set_label(cbar_label, size=base_font_size)
     cbar.ax.tick_params(labelsize=base_font_size - 2)
@@ -208,7 +208,7 @@ def plot_interpolated_xy_slice(
         data_interp.T,
         **plot_kwargs)
 
-    cbar_label = f"velocity {display_name}" + (f" [{unit_label}]" if unit_label else "")
+    cbar_label = f"Velocity {display_name}" + (f" [{unit_label}]" if unit_label else "")
     cbar = fig.colorbar(im, ax=ax)
     cbar.set_label(cbar_label, size=base_font_size)
     cbar.ax.tick_params(labelsize=base_font_size - 2)
@@ -300,7 +300,7 @@ def plot_interpolated_yz_slice(
         data_interp.T,
         **plot_kwargs)
 
-    cbar_label = f"velocity {display_name}" + (f" [{unit_label}]" if unit_label else "")
+    cbar_label = f"Velocity {display_name}" + (f" [{unit_label}]" if unit_label else "")
     cbar = fig.colorbar(im, ax=ax)
     cbar.set_label(cbar_label, size=base_font_size)
     cbar.ax.tick_params(labelsize=base_font_size - 2)
@@ -387,7 +387,7 @@ def plot_interpolated_z_time_evolution(
         **plot_kwargs
     )
         
-    cbar_label = f"velocity {display_name}" + (f" [{unit_label}]" if unit_label else "")
+    cbar_label = f"Velocity {display_name}" + (f" [{unit_label}]" if unit_label else "")
     cbar = fig.colorbar(im, ax=ax)
     cbar.set_label(cbar_label, size=base_font_size)
     cbar.ax.tick_params(labelsize=base_font_size - 2)
@@ -472,7 +472,7 @@ def plot_interpolated_y_time_evolution(
         **plot_kwargs
     )
 
-    cbar_label = f"velocity {display_name}" + (f" [{unit_label}]" if unit_label else "")
+    cbar_label = f"Velocity {display_name}" + (f" [{unit_label}]" if unit_label else "")
     cbar = fig.colorbar(im, ax=ax)
     cbar.set_label(cbar_label, size=base_font_size)
     cbar.ax.tick_params(labelsize=base_font_size - 2)
@@ -542,7 +542,7 @@ def plot_interpolated_x_time_evolution(
         **plot_kwargs
     )
 
-    cbar_label = f"velocity {display_name}" + (f" [{unit_label}]" if unit_label else "")
+    cbar_label = f"Velocity {display_name}" + (f" [{unit_label}]" if unit_label else "")
     cbar = fig.colorbar(im, ax=ax)
     cbar.set_label(cbar_label, size=base_font_size)
     cbar.ax.tick_params(labelsize=base_font_size - 2)
