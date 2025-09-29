@@ -172,6 +172,7 @@ def plot_z_time_evolution(
     timeseries_data: Optional[np.ndarray] = None,
     coords: Optional[Dict] = None,
     channel_alias: Optional[str] = None,
+    channel_alias_map: Optional[Dict] = None,
     vmin: Optional[float] = None,
     vmax: Optional[float] = None,
     vcenter: Optional[float] = None,
@@ -181,6 +182,7 @@ def plot_z_time_evolution(
     unit_label: str = "",
     cmap: str = "viridis",
     show_title: bool = True,
+    quantity_label: str = "Value of",
 ):
     """
     Plots the time evolution of a channel along the z-axis (Time-Z plot) for 2D data.
@@ -228,7 +230,13 @@ def plot_z_time_evolution(
         **plot_kwargs
     )
 
-    cbar_label = f"Value of {display_name}" + (f" [{unit_label}]" if unit_label else "")
+    # Use the alias map to get the base name for the color bar, e.g., 'u' from 'vx'
+    if channel_alias_map:
+        base_display_name = channel_alias_map.get(channel, channel)
+    else:
+        base_display_name = channel
+    cbar_label = f"{quantity_label} {base_display_name}" + (f" [{unit_label}]" if unit_label else "")
+
     fig.colorbar(im, ax=ax, label=cbar_label)
     if show_title:
         ax.set_title(
@@ -248,6 +256,7 @@ def plot_x_time_evolution(
     timeseries_data: Optional[np.ndarray] = None,
     coords: Optional[Dict] = None,
     channel_alias: Optional[str] = None,
+    channel_alias_map: Optional[Dict] = None,
     vmin: Optional[float] = None,
     vmax: Optional[float] = None,
     vcenter: Optional[float] = None,
@@ -257,6 +266,7 @@ def plot_x_time_evolution(
     unit_label: str = "",
     cmap: str = "viridis",
     show_title: bool = True,
+    quantity_label: str = "Value of",
 ):
     """
     Plots the time evolution of a channel along the x-axis (Time-X plot) for 2D data.
@@ -304,7 +314,13 @@ def plot_x_time_evolution(
         **plot_kwargs
     )
     
-    cbar_label = f"Value of {display_name}" + (f" [{unit_label}]" if unit_label else "")
+    # Use the alias map to get the base name for the color bar, e.g., 'u' from 'vx'
+    if channel_alias_map:
+        base_display_name = channel_alias_map.get(channel, channel)
+    else:
+        base_display_name = channel
+    cbar_label = f"{quantity_label} {base_display_name}" + (f" [{unit_label}]" if unit_label else "")
+
     fig.colorbar(im, ax=ax, label=cbar_label)
     if show_title:
         ax.set_title(
@@ -324,6 +340,7 @@ def plot_xz_snapshot(
     timeseries_data: Optional[np.ndarray] = None,
     coords: Optional[Dict] = None,
     channel_alias: Optional[str] = None,
+    channel_alias_map: Optional[Dict] = None,
     vmin: Optional[float] = None,
     vmax: Optional[float] = None,
     vcenter: Optional[float] = None,
@@ -333,6 +350,7 @@ def plot_xz_snapshot(
     unit_label: str = "",
     cmap: str = "viridis",
     show_title: bool = True,
+    quantity_label: str = "Value of",
 ):
     """
     Plots a 2D snapshot in the x-z plane.
@@ -380,7 +398,13 @@ def plot_xz_snapshot(
         **plot_kwargs
     )
 
-    cbar_label = f"Value of {display_name}" + (f" [{unit_label}]" if unit_label else "")
+    # Use the alias map to get the base name for the color bar, e.g., 'u' from 'vx'
+    if channel_alias_map:
+        base_display_name = channel_alias_map.get(channel, channel)
+    else:
+        base_display_name = channel
+    cbar_label = f"{quantity_label} {base_display_name}" + (f" [{unit_label}]" if unit_label else "")
+    
     fig.colorbar(im, ax=ax, label=cbar_label)
     if show_title:
         ax.set_title(
@@ -391,3 +415,4 @@ def plot_xz_snapshot(
     ax.set_ylabel("Z Coordinate")
     plt.tight_layout()
     plt.show()
+
