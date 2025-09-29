@@ -56,6 +56,7 @@ def plot_velocity_quiver(
     arrow_width: Optional[float] = None,
     title_suffix: Optional[str] = None,
     cbar_label_override: Optional[str] = None,
+    show_title: bool = True,
 ):
     """
     Plots a 2D velocity field snapshot where arrows are colored by magnitude.
@@ -156,7 +157,8 @@ def plot_velocity_quiver(
     fig.colorbar(q, ax=ax, label=cbar_label)
     ax.set_facecolor('#F0F0F0') # Use a neutral background
 
-    ax.set_title(f"{base_title}\n{subtitle}")
+    if show_title:
+        ax.set_title(f"{base_title}\n{subtitle}")
     ax.set_xlabel("X Coordinate")
     ax.set_ylabel("Z Coordinate")
     plt.tight_layout()
@@ -178,6 +180,7 @@ def plot_z_time_evolution(
     min_size: float = 3.0,
     unit_label: str = "",
     cmap: str = "viridis",
+    show_title: bool = True,
 ):
     """
     Plots the time evolution of a channel along the z-axis (Time-Z plot) for 2D data.
@@ -227,10 +230,11 @@ def plot_z_time_evolution(
 
     cbar_label = f"Value of {display_name}" + (f" [{unit_label}]" if unit_label else "")
     fig.colorbar(im, ax=ax, label=cbar_label)
-    ax.set_title(
-        f"Time Evolution of '{display_name}' along Z-axis\n"
-        f"at x={coords['x'][x_index]:.2f} (idx={x_index})"
-    )
+    if show_title:
+        ax.set_title(
+            f"Time Evolution of '{display_name}' along Z-axis\n"
+            f"at x={coords['x'][x_index]:.2f} (idx={x_index})"
+        )
     ax.set_xlabel("Time Index")
     ax.set_ylabel("Z Coordinate")
     plt.tight_layout()
@@ -252,6 +256,7 @@ def plot_x_time_evolution(
     min_size: float = 3.0,
     unit_label: str = "",
     cmap: str = "viridis",
+    show_title: bool = True,
 ):
     """
     Plots the time evolution of a channel along the x-axis (Time-X plot) for 2D data.
@@ -301,10 +306,11 @@ def plot_x_time_evolution(
     
     cbar_label = f"Value of {display_name}" + (f" [{unit_label}]" if unit_label else "")
     fig.colorbar(im, ax=ax, label=cbar_label)
-    ax.set_title(
-        f"Time Evolution of '{display_name}' along X-axis\n"
-        f"at z={coords['z'][z_index]:.2f} (idx={z_index})"
-    )
+    if show_title:
+        ax.set_title(
+            f"Time Evolution of '{display_name}' along X-axis\n"
+            f"at z={coords['z'][z_index]:.2f} (idx={z_index})"
+        )
     ax.set_xlabel("Time Index")
     ax.set_ylabel("X Coordinate")
     plt.tight_layout()
@@ -326,6 +332,7 @@ def plot_xz_snapshot(
     min_size: float = 3.0,
     unit_label: str = "",
     cmap: str = "viridis",
+    show_title: bool = True,
 ):
     """
     Plots a 2D snapshot in the x-z plane.
@@ -375,14 +382,12 @@ def plot_xz_snapshot(
 
     cbar_label = f"Value of {display_name}" + (f" [{unit_label}]" if unit_label else "")
     fig.colorbar(im, ax=ax, label=cbar_label)
-    ax.set_title(
-        f"X-Z Snapshot of '{display_name}'\n"
-        f"at time index {time_index}"
-    )
+    if show_title:
+        ax.set_title(
+            f"X-Z Snapshot of '{display_name}'\n"
+            f"at time index {time_index}"
+        )
     ax.set_xlabel("X Coordinate")
     ax.set_ylabel("Z Coordinate")
     plt.tight_layout()
     plt.show()
-
-
-

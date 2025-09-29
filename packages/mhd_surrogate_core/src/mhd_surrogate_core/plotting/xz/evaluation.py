@@ -13,7 +13,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.patches import Circle
 
-def plot_prediction_rollout_error(stats_path: Path | str):
+def plot_prediction_rollout_error(stats_path: Path | str, show_title: bool = True):
     """
     Loads and plots the per-channel and total error from a prediction rollout stats file.
     """
@@ -41,7 +41,8 @@ def plot_prediction_rollout_error(stats_path: Path | str):
     
     ax_total = fig.add_subplot(gs[0, :])
     ax_total.plot(timesteps, total_per_step_error, 'o-', color='black', label='Total Average MSE')
-    ax_total.set_title('Total Prediction Rollout Error Over Time', fontsize=16, weight='bold')
+    if show_title:
+        ax_total.set_title('Total Prediction Rollout Error Over Time', fontsize=16, weight='bold')
     ax_total.set_ylabel("MSE")
     ax_total.set_yscale('log')
     ax_total.grid(True, which="both", ls="--")
@@ -51,18 +52,20 @@ def plot_prediction_rollout_error(stats_path: Path | str):
         row, col = (i // cols) + 1, i % cols
         ax = fig.add_subplot(gs[row, col])
         ax.plot(timesteps, per_step_channel_error[:, i], 'o-', color='crimson', markersize=3, alpha=0.8)
-        ax.set_title(f"Channel: {channel_names[i]}")
+        if show_title:
+            ax.set_title(f"Channel: {channel_names[i]}")
         ax.set_ylabel("MSE")
         ax.set_xlabel("Timestep")
         ax.grid(True)
         ax.set_yscale('log')
 
-    fig.suptitle('Per-Channel Prediction Rollout Error', fontsize=20, y=1.0)
+    if show_title:
+        fig.suptitle('Per-Channel Prediction Rollout Error', fontsize=20, y=1.0)
     plt.tight_layout(rect=[0, 0, 1, 0.97])
     plt.show()
 
 
-def plot_r2_performance(stats_path: Path | str, eval_type: str = "Prediction"):
+def plot_r2_performance(stats_path: Path | str, eval_type: str = "Prediction", show_title: bool = True):
     """
     Loads and plots the per-channel R-squared scores from a statistics file.
     """
@@ -86,7 +89,8 @@ def plot_r2_performance(stats_path: Path | str, eval_type: str = "Prediction"):
     ax.set_yticks(y_pos, labels=channel_names)
     ax.invert_yaxis()
     ax.set_xlabel('R-squared (R²) Score')
-    ax.set_title(f'Per-Channel {eval_type} Performance')
+    if show_title:
+        ax.set_title(f'Per-Channel {eval_type} Performance')
     
     ax.axvline(0, color='black', linewidth=0.8, linestyle='--')
     for i, v in enumerate(r_squared_per_channel):
@@ -95,24 +99,26 @@ def plot_r2_performance(stats_path: Path | str, eval_type: str = "Prediction"):
     plt.tight_layout()
     plt.show()
 
-def _plot_single_xz_slice(ax, data, coords, title, cmap='viridis', vmin=None, vmax=None):
+def _plot_single_xz_slice(ax, data, coords, title, cmap='viridis', vmin=None, vmax=None, show_title=True):
     """Helper function to plot a single x-z slice."""
     im = ax.pcolormesh(
         coords['x'], coords['z'], data.T,
         shading='gouraud', cmap=cmap, vmin=vmin, vmax=vmax,
     )
-    ax.set_title(title)
+    if show_title:
+        ax.set_title(title)
     ax.set_xlabel("X Coordinate")
     ax.set_ylabel("Z Coordinate")
     return im
 
-def _plot_single_z_time_evolution(ax, data, coords, title, cmap='viridis', vmin=None, vmax=None):
+def _plot_single_z_time_evolution(ax, data, coords, title, cmap='viridis', vmin=None, vmax=None, show_title=True):
     """Helper function to plot a single z-time evolution."""
     im = ax.pcolormesh(
         range(data.shape[0]), coords['z'], data.T,
         shading='gouraud', cmap=cmap, vmin=vmin, vmax=vmax,
     )
-    ax.set_title(title)
+    if show_title:
+        ax.set_title(title)
     ax.set_xlabel("Time Index")
     ax.set_ylabel("Z Coordinate")
     return im
@@ -125,6 +131,7 @@ def plot_prediction_dashboard(
     channel: str,
     x_index: int,
     time_index: int,
+    show_title: bool = True,
 ):
     """
     Creates a full dashboard visualizing ground truth, prediction, and error
@@ -149,19 +156,20 @@ def plot_prediction_dashboard(
     plt.style.use('seaborn-v0_8-whitegrid')
     fig, axes = plt.subplots(2, 3, figsize=(18, 10))
     
-    fig.suptitle(
-        f"Comprehensive Analysis for Channel '{channel}'\n"
-        f"Time Index: {time_index}, X Index: {x_index}",
-        fontsize=16, y=0.98
-    )
+    if show_title:
+        fig.suptitle(
+            f"Comprehensive Analysis for Channel '{channel}'\n"
+            f"Time Index: {time_index}, X Index: {x_index}",
+            fontsize=16, y=0.98
+        )
 
     # --- Row 1: Spatial Slices (X-Z) ---
     vmin_val = min(gt_slice.min(), pred_slice.min())
     vmax_val = max(gt_slice.max(), pred_slice.max())
     
-    im1 = _plot_single_xz_slice(axes[0, 0], gt_slice, coords, "Ground Truth", vmin=vmin_val, vmax=vmax_val)
-    _plot_single_xz_slice(axes[0, 1], pred_slice, coords, "Prediction", vmin=vmin_val, vmax=vmax_val)
-    im3 = _plot_single_xz_slice(axes[0, 2], diff_slice, coords, "Difference (Error)", cmap='inferno')
+    im1 = _plot_single_xz_slice(axes[0, 0], gt_slice, coords, "Ground Truth", vmin=vmin_val, vmax=vmax_val, show_title=show_title)
+    _plot_single_xz_slice(axes[0, 1], pred_slice, coords, "Prediction", vmin=vmin_val, vmax=vmax_val, show_title=show_title)
+    im3 = _plot_single_xz_slice(axes[0, 2], diff_slice, coords, "Difference (Error)", cmap='inferno', show_title=show_title)
     
     fig.colorbar(im1, ax=axes[0, :2], fraction=0.046, pad=0.04, label="Value")
     fig.colorbar(im3, ax=axes[0, 2], fraction=0.046, pad=0.04, label="Abs. Error")
@@ -170,9 +178,9 @@ def plot_prediction_dashboard(
     vmin_time = min(gt_time.min(), pred_time.min())
     vmax_time = max(gt_time.max(), pred_time.max())
 
-    im4 = _plot_single_z_time_evolution(axes[1, 0], gt_time, coords, "Ground Truth", vmin=vmin_time, vmax=vmax_time)
-    _plot_single_z_time_evolution(axes[1, 1], pred_time, coords, "Prediction", vmin=vmin_time, vmax=vmax_time)
-    im6 = _plot_single_z_time_evolution(axes[1, 2], diff_time, coords, "Difference (Error)", cmap='inferno')
+    im4 = _plot_single_z_time_evolution(axes[1, 0], gt_time, coords, "Ground Truth", vmin=vmin_time, vmax=vmax_time, show_title=show_title)
+    _plot_single_z_time_evolution(axes[1, 1], pred_time, coords, "Prediction", vmin=vmin_time, vmax=vmax_time, show_title=show_title)
+    im6 = _plot_single_z_time_evolution(axes[1, 2], diff_time, coords, "Difference (Error)", cmap='inferno', show_title=show_title)
 
     fig.colorbar(im4, ax=axes[1, :2], fraction=0.046, pad=0.04, label="Value")
     fig.colorbar(im6, ax=axes[1, 2], fraction=0.046, pad=0.04, label="Abs. Error")
@@ -184,7 +192,7 @@ def plot_prediction_dashboard(
 # LATENT SPACE VISUALIZATION FUNCTIONS
 # ==============================================================================
 
-def plot_latent_rollout_error(eval_path: Path | str):
+def plot_latent_rollout_error(eval_path: Path | str, show_title: bool = True):
     """
     Loads and plots the per-timestep latent space error from an evaluation rollout.
     """
@@ -208,7 +216,8 @@ def plot_latent_rollout_error(eval_path: Path | str):
     
     plt.plot(timesteps, per_step_latent_error, 'o-', label='Per-Step Latent MSE', color='purple')
     
-    plt.title('Latent Space Autoregressive Rollout Error', fontsize=16)
+    if show_title:
+        plt.title('Latent Space Autoregressive Rollout Error', fontsize=16)
     plt.xlabel('Prediction Timestep', fontsize=12)
     plt.ylabel('Latent Space MSE', fontsize=12)
     plt.yscale('log')
@@ -218,7 +227,7 @@ def plot_latent_rollout_error(eval_path: Path | str):
     plt.show()
 
 
-def plot_latent_trajectories(eval_path: Path | str, num_dims_to_plot: int = 16):
+def plot_latent_trajectories(eval_path: Path | str, num_dims_to_plot: int = 16, show_title: bool = True):
     """
     Loads and plots the predicted vs. true latent space trajectories.
     """
@@ -245,7 +254,8 @@ def plot_latent_trajectories(eval_path: Path | str, num_dims_to_plot: int = 16):
     for i in range(dims_to_plot):
         axes[i].plot(timesteps, true_traj[:, i], '-', color='royalblue', label='Ground Truth')
         axes[i].plot(timesteps, pred_traj[:, i], '--', color='darkorange', label='Prediction')
-        axes[i].set_title(f"Latent Dimension {i}")
+        if show_title:
+            axes[i].set_title(f"Latent Dimension {i}")
         axes[i].set_ylabel("Value")
         axes[i].grid(True, which="both", ls="--")
 
@@ -259,7 +269,8 @@ def plot_latent_trajectories(eval_path: Path | str, num_dims_to_plot: int = 16):
         
     handles, labels = axes[0].get_legend_handles_labels()
     fig.legend(handles, labels, loc='upper right', fontsize=12)
-    fig.suptitle('Latent Space Trajectory Rollout', fontsize=16, y=0.99)
+    if show_title:
+        fig.suptitle('Latent Space Trajectory Rollout', fontsize=16, y=0.99)
     plt.tight_layout(rect=[0, 0, 1, 0.95])
     plt.show()
 
@@ -267,7 +278,8 @@ def plot_latent_trajectories(eval_path: Path | str, num_dims_to_plot: int = 16):
 def plot_koopman_eigenvector_evolution(
     eval_path: Path | str,
     num_eigenvectors_to_plot: int = 16,
-    sort_by: str = 'amplitude'
+    sort_by: str = 'amplitude',
+    show_title: bool = True
 ):
     """
     Plots the time evolution of the system projected onto the Koopman eigenvectors.
@@ -330,10 +342,11 @@ def plot_koopman_eigenvector_evolution(
         eig_val = sorted_eigenvalues[i]
         amp = sorted_amplitudes[i]
         
-        title = (f"{plot_title_str.format(i=original_index)}\n"
-                 f"λ = {eig_val.real:.3f} + {eig_val.imag:.3f}i | |λ| = {np.abs(eig_val):.4f}\n"
-                 f"Initial Projection Amplitude: {amp:.3f}")
-        ax.set_title(title)
+        if show_title:
+            title = (f"{plot_title_str.format(i=original_index)}\n"
+                     f"λ = {eig_val.real:.3f} + {eig_val.imag:.3f}i | |λ| = {np.abs(eig_val):.4f}\n"
+                     f"Initial Projection Amplitude: {amp:.3f}")
+            ax.set_title(title)
         ax.set_ylabel("Projection Amplitude")
         ax.grid(True, which="both", ls="--")
 
@@ -346,7 +359,8 @@ def plot_koopman_eigenvector_evolution(
         
     handles, labels = axes[0].get_legend_handles_labels()
     fig.legend(handles, labels, loc='upper right', fontsize=12)
-    fig.suptitle('Evolution of Koopman Eigenvector Projections', fontsize=16, y=0.98)
+    if show_title:
+        fig.suptitle('Evolution of Koopman Eigenvector Projections', fontsize=16, y=0.98)
     plt.tight_layout(rect=[0, 0, 1, 0.94])
     plt.show()
 
@@ -354,7 +368,8 @@ def plot_koopman_eigenvalues(
     eval_path: Path | str,
     highlight_threshold: float | None = None,
     vmin: float | None = None,
-    vmax: float | None = None
+    vmax: float | None = None,
+    show_title: bool = True
 ):
     """
     Plots the eigenvalues of the Koopman operator in the complex plane.
@@ -406,7 +421,8 @@ def plot_koopman_eigenvalues(
         )
         ax.legend()
 
-    ax.set_title('Koopman Eigenvalue Spectrum', fontsize=16)
+    if show_title:
+        ax.set_title('Koopman Eigenvalue Spectrum', fontsize=16)
     ax.set_xlabel('Real Part (Re)', fontsize=12)
     ax.set_ylabel('Imaginary Part (Im)', fontsize=12)
     ax.axhline(0, color='gray', linewidth=0.5)
@@ -420,7 +436,8 @@ def plot_koopman_mode_spectrum(
     eval_path: Path | str,
     dt: float = 1.0,
     vmin: float | None = None,
-    vmax: float | None = None
+    vmax: float | None = None,
+    show_title: bool = True
 ):
     """
     Plots the energy (magnitude) of Koopman modes against their frequency.
@@ -471,7 +488,8 @@ def plot_koopman_mode_spectrum(
     
     ax.axhline(0, color='black', linewidth=0.8) # Baseline
 
-    ax.set_title('Koopman Mode Energy Spectrum', fontsize=16)
+    if show_title:
+        ax.set_title('Koopman Mode Energy Spectrum', fontsize=16)
     ax.set_xlabel('Frequency', fontsize=12)
     ax.set_ylabel('Koopman Mode Magnitude (Energy)', fontsize=12)
     ax.grid(True, which="both", ls="--", alpha=0.6)
@@ -482,4 +500,3 @@ def plot_koopman_mode_spectrum(
     
     plt.tight_layout()
     plt.show()
-
