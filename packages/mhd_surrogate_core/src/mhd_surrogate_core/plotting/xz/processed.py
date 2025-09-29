@@ -57,6 +57,7 @@ def plot_velocity_quiver(
     title_suffix: Optional[str] = None,
     cbar_label_override: Optional[str] = None,
     show_title: bool = True,
+    font_size: int = 12,
 ):
     """
     Plots a 2D velocity field snapshot where arrows are colored by magnitude.
@@ -154,13 +155,16 @@ def plot_velocity_quiver(
         cmap=cmap, norm=norm,
         scale_units='xy', angles='xy', scale=None, width=width
     )
-    fig.colorbar(q, ax=ax, label=cbar_label)
+    cbar = fig.colorbar(q, ax=ax)
+    cbar.set_label(cbar_label, size=font_size)
+    cbar.ax.tick_params(labelsize=font_size-2)
     ax.set_facecolor('#F0F0F0') # Use a neutral background
 
     if show_title:
-        ax.set_title(f"{base_title}\n{subtitle}")
-    ax.set_xlabel("X Coordinate")
-    ax.set_ylabel("Z Coordinate")
+        ax.set_title(f"{base_title}\n{subtitle}", fontsize=font_size)
+    ax.set_xlabel("X Coordinate", fontsize=font_size)
+    ax.set_ylabel("Z Coordinate", fontsize=font_size)
+    ax.tick_params(axis='both', which='major', labelsize=font_size-2)
     plt.tight_layout()
     plt.show()
 
@@ -183,6 +187,7 @@ def plot_z_time_evolution(
     cmap: str = "viridis",
     show_title: bool = True,
     quantity_label: str = "Value of",
+    font_size: int = 12,
 ):
     """
     Plots the time evolution of a channel along the z-axis (Time-Z plot) for 2D data.
@@ -237,14 +242,19 @@ def plot_z_time_evolution(
         base_display_name = channel
     cbar_label = f"{quantity_label} {base_display_name}" + (f" [{unit_label}]" if unit_label else "")
 
-    fig.colorbar(im, ax=ax, label=cbar_label)
+    cbar = fig.colorbar(im, ax=ax)
+    cbar.set_label(cbar_label, size=font_size)
+    cbar.ax.tick_params(labelsize=font_size-2)
+    
     if show_title:
         ax.set_title(
             f"Time Evolution of '{display_name}' along Z-axis\n"
-            f"at x={coords['x'][x_index]:.2f} (idx={x_index})"
+            f"at x={coords['x'][x_index]:.2f} (idx={x_index})",
+            fontsize=font_size
         )
-    ax.set_xlabel("Time Index")
-    ax.set_ylabel("Z Coordinate")
+    ax.set_xlabel("Time Index", fontsize=font_size)
+    ax.set_ylabel("Z Coordinate", fontsize=font_size)
+    ax.tick_params(axis='both', which='major', labelsize=font_size-2)
     plt.tight_layout()
     plt.show()
 
@@ -267,6 +277,7 @@ def plot_x_time_evolution(
     cmap: str = "viridis",
     show_title: bool = True,
     quantity_label: str = "Value of",
+    font_size: int = 12,
 ):
     """
     Plots the time evolution of a channel along the x-axis (Time-X plot) for 2D data.
@@ -321,14 +332,19 @@ def plot_x_time_evolution(
         base_display_name = channel
     cbar_label = f"{quantity_label} {base_display_name}" + (f" [{unit_label}]" if unit_label else "")
 
-    fig.colorbar(im, ax=ax, label=cbar_label)
+    cbar = fig.colorbar(im, ax=ax)
+    cbar.set_label(cbar_label, size=font_size)
+    cbar.ax.tick_params(labelsize=font_size-2)
+    
     if show_title:
         ax.set_title(
             f"Time Evolution of '{display_name}' along X-axis\n"
-            f"at z={coords['z'][z_index]:.2f} (idx={z_index})"
+            f"at z={coords['z'][z_index]:.2f} (idx={z_index})",
+            fontsize=font_size
         )
-    ax.set_xlabel("Time Index")
-    ax.set_ylabel("X Coordinate")
+    ax.set_xlabel("Time Index", fontsize=font_size)
+    ax.set_ylabel("X Coordinate", fontsize=font_size)
+    ax.tick_params(axis='both', which='major', labelsize=font_size-2)
     plt.tight_layout()
     plt.show()
 
@@ -351,6 +367,7 @@ def plot_xz_snapshot(
     cmap: str = "viridis",
     show_title: bool = True,
     quantity_label: str = "Value of",
+    font_size: int = 12,
 ):
     """
     Plots a 2D snapshot in the x-z plane.
@@ -405,14 +422,19 @@ def plot_xz_snapshot(
         base_display_name = channel
     cbar_label = f"{quantity_label} {base_display_name}" + (f" [{unit_label}]" if unit_label else "")
     
-    fig.colorbar(im, ax=ax, label=cbar_label)
+    cbar = fig.colorbar(im, ax=ax)
+    cbar.set_label(cbar_label, size=font_size)
+    cbar.ax.tick_params(labelsize=font_size-2)
+
     if show_title:
         ax.set_title(
             f"X-Z Snapshot of '{display_name}'\n"
-            f"at time index {time_index}"
+            f"at time index {time_index}",
+            fontsize=font_size
         )
-    ax.set_xlabel("X Coordinate")
-    ax.set_ylabel("Z Coordinate")
+    ax.set_xlabel("X Coordinate", fontsize=font_size)
+    ax.set_ylabel("Z Coordinate", fontsize=font_size)
+    ax.tick_params(axis='both', which='major', labelsize=font_size-2)
     plt.tight_layout()
     plt.show()
 
