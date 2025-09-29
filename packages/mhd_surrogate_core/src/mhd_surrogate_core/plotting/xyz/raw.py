@@ -116,7 +116,7 @@ def plot_interpolated_xz_slice(
         **plot_kwargs
     )
 
-    cbar_label = f"Value of {display_name}" + (f" [{unit_label}]" if unit_label else "")
+    cbar_label = f"velocity {display_name}" + (f" [{unit_label}]" if unit_label else "")
     fig.colorbar(im, ax=ax, label=cbar_label)
     if show_title:
         ax.set_title(f"X-Z Slice of '{display_name}' at y={raw_coords['y'][y_index]:.2f} (idx={y_index})")
@@ -202,7 +202,7 @@ def plot_interpolated_xy_slice(
         data_interp.T,
         **plot_kwargs)
 
-    cbar_label = f"Value of {display_name}" + (f" [{unit_label}]" if unit_label else "")
+    cbar_label = f"velocity {display_name}" + (f" [{unit_label}]" if unit_label else "")
     fig.colorbar(im, ax=ax, label=cbar_label)
     if show_title:
         ax.set_title(f"X-Y Slice of '{display_name}' at z={raw_coords['z'][z_index]:.2f} (idx={z_index})")
@@ -289,7 +289,7 @@ def plot_interpolated_yz_slice(
         data_interp.T,
         **plot_kwargs)
 
-    cbar_label = f"Value of {display_name}" + (f" [{unit_label}]" if unit_label else "")
+    cbar_label = f"velocity {display_name}" + (f" [{unit_label}]" if unit_label else "")
     fig.colorbar(im, ax=ax, label=cbar_label)
     if show_title:
         ax.set_title(f"Y-Z Slice of '{display_name}' at x={raw_coords['x'][x_index]:.2f} (idx={x_index})")
@@ -371,7 +371,7 @@ def plot_interpolated_z_time_evolution(
         **plot_kwargs
     )
         
-    cbar_label = f"Value of {display_name}" + (f" [{unit_label}]" if unit_label else "")
+    cbar_label = f"velocity {display_name}" + (f" [{unit_label}]" if unit_label else "")
     cbar = fig.colorbar(im, ax=ax, label=cbar_label)
 
     if show_title:
@@ -452,7 +452,7 @@ def plot_interpolated_y_time_evolution(
         **plot_kwargs
     )
 
-    cbar_label = f"Value of {display_name}" + (f" [{unit_label}]" if unit_label else "")
+    cbar_label = f"velocity {display_name}" + (f" [{unit_label}]" if unit_label else "")
     cbar = fig.colorbar(im, ax=ax, label=cbar_label)
 
     if show_title:
@@ -518,7 +518,7 @@ def plot_interpolated_x_time_evolution(
         **plot_kwargs
     )
 
-    cbar_label = f"Value of {display_name}" + (f" [{unit_label}]" if unit_label else "")
+    cbar_label = f"velocity {display_name}" + (f" [{unit_label}]" if unit_label else "")
     cbar = fig.colorbar(im, ax=ax, label=cbar_label)
 
     if show_title:
@@ -528,3 +528,4 @@ def plot_interpolated_x_time_evolution(
     plt.tight_layout()
     plt.savefig(output_path, dpi=150)
     plt.close(fig)
+
