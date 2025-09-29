@@ -52,6 +52,7 @@ def plot_interpolated_xz_slice(
     unit_label: str = "",
     cmap: str = "viridis",
     show_title: bool = True,
+    base_font_size: int = 12,
 ):
     """
     Extracts an x-z slice from raw 3D data, interpolates it onto a uniform
@@ -117,11 +118,15 @@ def plot_interpolated_xz_slice(
     )
 
     cbar_label = f"velocity {display_name}" + (f" [{unit_label}]" if unit_label else "")
-    fig.colorbar(im, ax=ax, label=cbar_label)
+    cbar = fig.colorbar(im, ax=ax)
+    cbar.set_label(cbar_label, size=base_font_size)
+    cbar.ax.tick_params(labelsize=base_font_size - 2)
+
     if show_title:
-        ax.set_title(f"X-Z Slice of '{display_name}' at y={raw_coords['y'][y_index]:.2f} (idx={y_index})")
-    ax.set_xlabel("X Coordinate")
-    ax.set_ylabel("Z Coordinate")
+        ax.set_title(f"X-Z Slice of '{display_name}' at y={raw_coords['y'][y_index]:.2f} (idx={y_index})", fontsize=base_font_size + 2)
+    ax.set_xlabel("X Coordinate", fontsize=base_font_size)
+    ax.set_ylabel("Z Coordinate", fontsize=base_font_size)
+    ax.tick_params(axis='both', which='major', labelsize=base_font_size - 2)
     plt.tight_layout()
     plt.show()
 
@@ -142,6 +147,7 @@ def plot_interpolated_xy_slice(
     unit_label: str = "",
     cmap: str = "viridis",
     show_title: bool = True,
+    base_font_size: int = 12,
 ):
     """
     Extracts an x-y slice from raw 3D data, interpolates it, and plots it.
@@ -203,11 +209,15 @@ def plot_interpolated_xy_slice(
         **plot_kwargs)
 
     cbar_label = f"velocity {display_name}" + (f" [{unit_label}]" if unit_label else "")
-    fig.colorbar(im, ax=ax, label=cbar_label)
+    cbar = fig.colorbar(im, ax=ax)
+    cbar.set_label(cbar_label, size=base_font_size)
+    cbar.ax.tick_params(labelsize=base_font_size - 2)
+
     if show_title:
-        ax.set_title(f"X-Y Slice of '{display_name}' at z={raw_coords['z'][z_index]:.2f} (idx={z_index})")
-    ax.set_xlabel("X Coordinate")
-    ax.set_ylabel("Y Coordinate")
+        ax.set_title(f"X-Y Slice of '{display_name}' at z={raw_coords['z'][z_index]:.2f} (idx={z_index})", fontsize=base_font_size + 2)
+    ax.set_xlabel("X Coordinate", fontsize=base_font_size)
+    ax.set_ylabel("Y Coordinate", fontsize=base_font_size)
+    ax.tick_params(axis='both', which='major', labelsize=base_font_size - 2)
     plt.tight_layout()
     plt.show()
 
@@ -229,6 +239,7 @@ def plot_interpolated_yz_slice(
     unit_label: str = "",
     cmap: str = "viridis",
     show_title: bool = True,
+    base_font_size: int = 12,
 ):
     """
     Extracts a y-z slice from raw 3D data, interpolates it, and plots it.
@@ -290,11 +301,15 @@ def plot_interpolated_yz_slice(
         **plot_kwargs)
 
     cbar_label = f"velocity {display_name}" + (f" [{unit_label}]" if unit_label else "")
-    fig.colorbar(im, ax=ax, label=cbar_label)
+    cbar = fig.colorbar(im, ax=ax)
+    cbar.set_label(cbar_label, size=base_font_size)
+    cbar.ax.tick_params(labelsize=base_font_size - 2)
+
     if show_title:
-        ax.set_title(f"Y-Z Slice of '{display_name}' at x={raw_coords['x'][x_index]:.2f} (idx={x_index})")
-    ax.set_xlabel("Y Coordinate")
-    ax.set_ylabel("Z Coordinate")
+        ax.set_title(f"Y-Z Slice of '{display_name}' at x={raw_coords['x'][x_index]:.2f} (idx={x_index})", fontsize=base_font_size + 2)
+    ax.set_xlabel("Y Coordinate", fontsize=base_font_size)
+    ax.set_ylabel("Z Coordinate", fontsize=base_font_size)
+    ax.tick_params(axis='both', which='major', labelsize=base_font_size - 2)
     plt.tight_layout()
     plt.show()
 
@@ -319,6 +334,7 @@ def plot_interpolated_z_time_evolution(
     unit_label: str = "",
     cmap: str = "viridis",
     show_title: bool = True,
+    base_font_size: int = 12,
 ):
     """
     Takes a 2D (time, z) data array, interpolates it, and saves a plot.
@@ -372,12 +388,15 @@ def plot_interpolated_z_time_evolution(
     )
         
     cbar_label = f"velocity {display_name}" + (f" [{unit_label}]" if unit_label else "")
-    cbar = fig.colorbar(im, ax=ax, label=cbar_label)
+    cbar = fig.colorbar(im, ax=ax)
+    cbar.set_label(cbar_label, size=base_font_size)
+    cbar.ax.tick_params(labelsize=base_font_size - 2)
 
     if show_title:
-        ax.set_title(f"Time Evolution of '{display_name}' along Z-axis\nat x={raw_coords['x'][x_index]:.2f}, y={raw_coords['y'][y_index]:.2f}")
-    ax.set_xlabel("Time Index")
-    ax.set_ylabel("Z Coordinate")
+        ax.set_title(f"Time Evolution of '{display_name}' along Z-axis\nat x={raw_coords['x'][x_index]:.2f}, y={raw_coords['y'][y_index]:.2f}", fontsize=base_font_size + 2)
+    ax.set_xlabel("Time Index", fontsize=base_font_size)
+    ax.set_ylabel("Z Coordinate", fontsize=base_font_size)
+    ax.tick_params(axis='both', which='major', labelsize=base_font_size - 2)
     plt.tight_layout()
     plt.savefig(output_path, dpi=150)
     plt.close(fig)
@@ -400,6 +419,7 @@ def plot_interpolated_y_time_evolution(
     unit_label: str = "",
     cmap: str = "viridis",
     show_title: bool = True,
+    base_font_size: int = 12,
 ):
     """
     Takes a 2D (time, y) data array, interpolates it, and saves a plot.
@@ -453,12 +473,15 @@ def plot_interpolated_y_time_evolution(
     )
 
     cbar_label = f"velocity {display_name}" + (f" [{unit_label}]" if unit_label else "")
-    cbar = fig.colorbar(im, ax=ax, label=cbar_label)
+    cbar = fig.colorbar(im, ax=ax)
+    cbar.set_label(cbar_label, size=base_font_size)
+    cbar.ax.tick_params(labelsize=base_font_size - 2)
 
     if show_title:
-        ax.set_title(f"Time Evolution of '{display_name}' along Y-axis\nat x={raw_coords['x'][x_index]:.2f}, z={raw_coords['z'][z_index]:.2f}")
-    ax.set_xlabel("Time Index")
-    ax.set_ylabel("Y Coordinate")
+        ax.set_title(f"Time Evolution of '{display_name}' along Y-axis\nat x={raw_coords['x'][x_index]:.2f}, z={raw_coords['z'][z_index]:.2f}", fontsize=base_font_size + 2)
+    ax.set_xlabel("Time Index", fontsize=base_font_size)
+    ax.set_ylabel("Y Coordinate", fontsize=base_font_size)
+    ax.tick_params(axis='both', which='major', labelsize=base_font_size - 2)
     plt.tight_layout()
     plt.savefig(output_path, dpi=150)
     plt.close(fig)
@@ -480,6 +503,7 @@ def plot_interpolated_x_time_evolution(
     unit_label: str = "",
     cmap: str = "viridis",
     show_title: bool = True,
+    base_font_size: int = 12,
 ):
     """
     Takes a 2D (time, x) data array and saves a plot. No interpolation needed.
@@ -519,12 +543,15 @@ def plot_interpolated_x_time_evolution(
     )
 
     cbar_label = f"velocity {display_name}" + (f" [{unit_label}]" if unit_label else "")
-    cbar = fig.colorbar(im, ax=ax, label=cbar_label)
+    cbar = fig.colorbar(im, ax=ax)
+    cbar.set_label(cbar_label, size=base_font_size)
+    cbar.ax.tick_params(labelsize=base_font_size - 2)
 
     if show_title:
-        ax.set_title(f"Time Evolution of '{display_name}' along X-axis\nat y={raw_coords['y'][y_index]:.2f}, z={raw_coords['z'][z_index]:.2f}")
-    ax.set_xlabel("Time Index")
-    ax.set_ylabel("X Coordinate")
+        ax.set_title(f"Time Evolution of '{display_name}' along X-axis\nat y={raw_coords['y'][y_index]:.2f}, z={raw_coords['z'][z_index]:.2f}", fontsize=base_font_size + 2)
+    ax.set_xlabel("Time Index", fontsize=base_font_size)
+    ax.set_ylabel("X Coordinate", fontsize=base_font_size)
+    ax.tick_params(axis='both', which='major', labelsize=base_font_size - 2)
     plt.tight_layout()
     plt.savefig(output_path, dpi=150)
     plt.close(fig)
