@@ -46,7 +46,7 @@ def plot_prediction_rollout_error(stats_path: Path | str, show_title: bool = Tru
         ax_total.set_title('Total Prediction Rollout Error Over Time', fontsize=font_size + 4, weight='bold')
     ax_total.set_ylabel("MSE", fontsize=font_size)
     ax_total.set_yscale('log')
-    ax_total.tick_params(axis='both', which='major', labelsize=font_size-2)
+    ax_total.tick_params(axis='both', which='major', labelsize=font_size-2, direction='out', top=True, right=True)
     ax_total.grid(True, which="both", ls="--")
     ax_total.legend(fontsize=font_size)
 
@@ -58,7 +58,7 @@ def plot_prediction_rollout_error(stats_path: Path | str, show_title: bool = Tru
             ax.set_title(f"Channel: {channel_names[i]}", fontsize=font_size)
         ax.set_ylabel("MSE", fontsize=font_size)
         ax.set_xlabel("Timestep", fontsize=font_size)
-        ax.tick_params(axis='both', which='major', labelsize=font_size-2)
+        ax.tick_params(axis='both', which='major', labelsize=font_size-2, direction='out', top=True, right=True)
         ax.grid(True)
         ax.set_yscale('log')
 
@@ -99,7 +99,7 @@ def plot_r2_performance(stats_path: Path | str, eval_type: str = "Prediction", s
     for i, v in enumerate(r_squared_per_channel):
         ax.text(v + 0.01, i, f'{v:.3f}', color='black', va='center', fontsize=font_size - 2)
     
-    ax.tick_params(axis='both', which='major', labelsize=font_size-2)
+    ax.tick_params(axis='both', which='major', labelsize=font_size-2, direction='out', top=True, right=True)
     plt.tight_layout()
     plt.show()
 
@@ -113,7 +113,7 @@ def _plot_single_xz_slice(ax, data, coords, title, cmap='viridis', vmin=None, vm
         ax.set_title(title, fontsize=font_size)
     ax.set_xlabel("X Coordinate", fontsize=font_size)
     ax.set_ylabel("Z Coordinate", fontsize=font_size)
-    ax.tick_params(axis='both', which='major', labelsize=font_size-2)
+    ax.tick_params(axis='both', which='major', labelsize=font_size-2, direction='out', top=True, right=True)
     return im
 
 def _plot_single_z_time_evolution(ax, data, coords, title, cmap='viridis', vmin=None, vmax=None, show_title=True, font_size=12):
@@ -126,7 +126,7 @@ def _plot_single_z_time_evolution(ax, data, coords, title, cmap='viridis', vmin=
         ax.set_title(title, fontsize=font_size)
     ax.set_xlabel("Time Index", fontsize=font_size)
     ax.set_ylabel("Z Coordinate", fontsize=font_size)
-    ax.tick_params(axis='both', which='major', labelsize=font_size-2)
+    ax.tick_params(axis='both', which='major', labelsize=font_size-2, direction='out', top=True, right=True)
     return im
 
 def plot_prediction_dashboard(
@@ -180,10 +180,10 @@ def plot_prediction_dashboard(
     
     cbar1 = fig.colorbar(im1, ax=axes[0, :2], fraction=0.046, pad=0.04)
     cbar1.set_label("Value", size=font_size)
-    cbar1.ax.tick_params(labelsize=font_size-2)
+    cbar1.ax.tick_params(labelsize=font_size-2, direction='out')
     cbar3 = fig.colorbar(im3, ax=axes[0, 2], fraction=0.046, pad=0.04)
     cbar3.set_label("Abs. Error", size=font_size)
-    cbar3.ax.tick_params(labelsize=font_size-2)
+    cbar3.ax.tick_params(labelsize=font_size-2, direction='out')
 
     # --- Row 2: Time Evolution (Time-Z) ---
     vmin_time = min(gt_time.min(), pred_time.min())
@@ -195,10 +195,10 @@ def plot_prediction_dashboard(
 
     cbar4 = fig.colorbar(im4, ax=axes[1, :2], fraction=0.046, pad=0.04)
     cbar4.set_label("Value", size=font_size)
-    cbar4.ax.tick_params(labelsize=font_size-2)
+    cbar4.ax.tick_params(labelsize=font_size-2, direction='out')
     cbar6 = fig.colorbar(im6, ax=axes[1, 2], fraction=0.046, pad=0.04)
     cbar6.set_label("Abs. Error", size=font_size)
-    cbar6.ax.tick_params(labelsize=font_size-2)
+    cbar6.ax.tick_params(labelsize=font_size-2, direction='out')
     
     plt.tight_layout(rect=[0, 0, 1, 0.94])
     plt.show()
@@ -237,7 +237,7 @@ def plot_latent_rollout_error(eval_path: Path | str, show_title: bool = True, fo
     plt.xlabel('Prediction Timestep', fontsize=font_size)
     plt.ylabel('Latent Space MSE', fontsize=font_size)
     plt.yscale('log')
-    plt.tick_params(axis='both', which='major', labelsize=font_size-2)
+    plt.tick_params(axis='both', which='major', labelsize=font_size-2, direction='out', top=True, right=True)
     plt.legend(fontsize=font_size)
     plt.grid(True, which="both", ls="--")
     plt.tight_layout()
@@ -274,7 +274,7 @@ def plot_latent_trajectories(eval_path: Path | str, num_dims_to_plot: int = 16, 
         if show_title:
             axes[i].set_title(f"Latent Dimension {i}", fontsize=font_size)
         axes[i].set_ylabel("Value", fontsize=font_size)
-        axes[i].tick_params(axis='both', which='major', labelsize=font_size-2)
+        axes[i].tick_params(axis='both', which='major', labelsize=font_size-2, direction='out', top=True, right=True)
         axes[i].grid(True, which="both", ls="--")
 
     # Add x-label to the bottom row of plots
@@ -367,7 +367,7 @@ def plot_koopman_eigenvector_evolution(
                      f"Initial Projection Amplitude: {amp:.3f}")
             ax.set_title(title, fontsize=font_size)
         ax.set_ylabel("Projection Amplitude", fontsize=font_size)
-        ax.tick_params(axis='both', which='major', labelsize=font_size-2)
+        ax.tick_params(axis='both', which='major', labelsize=font_size-2, direction='out', top=True, right=True)
         ax.grid(True, which="both", ls="--")
 
     for i in range(cols * (rows - 1), cols * rows):
@@ -430,7 +430,7 @@ def plot_koopman_eigenvalues(
     )
     cbar = fig.colorbar(scatter, ax=ax)
     cbar.set_label("Koopman Mode Magnitude (Energy Norm)", size=font_size)
-    cbar.ax.tick_params(labelsize=font_size-2)
+    cbar.ax.tick_params(labelsize=font_size-2, direction='out')
 
     legend_handles = []
 
@@ -465,7 +465,7 @@ def plot_koopman_eigenvalues(
     ax.axhline(0, color='gray', linewidth=0.5)
     ax.axvline(0, color='gray', linewidth=0.5)
     ax.grid(True)
-    ax.tick_params(axis='both', which='major', labelsize=font_size-2)
+    ax.tick_params(axis='both', which='major', labelsize=font_size-2, direction='out', top=True, right=True)
     ax.set_aspect('equal', adjustable='box')
     plt.tight_layout()
     plt.show()
@@ -532,7 +532,7 @@ def plot_koopman_mode_spectrum(
     ax.set_xlabel('Frequency', fontsize=font_size)
     ax.set_ylabel('Koopman Mode Magnitude (Energy)', fontsize=font_size)
     ax.grid(True, which="both", ls="--", alpha=0.6)
-    ax.tick_params(axis='both', which='major', labelsize=font_size-2)
+    ax.tick_params(axis='both', which='major', labelsize=font_size-2, direction='out', top=True, right=True)
     
     # Set y-limit to give some space at the top
     if len(mags_to_plot) > 0:
