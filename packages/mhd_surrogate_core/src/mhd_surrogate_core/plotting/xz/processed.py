@@ -3,7 +3,7 @@
 
 import logging
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Dict, Optional, List
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.colors import TwoSlopeNorm
@@ -56,6 +56,7 @@ def plot_velocity_quiver(
     arrow_width: Optional[float] = None,
     title_suffix: Optional[str] = None,
     cbar_label_override: Optional[str] = None,
+    cbar_ticks: Optional[List[float]] = None,
     show_title: bool = True,
     font_size: int = 12,
 ):
@@ -93,11 +94,10 @@ def plot_velocity_quiver(
             fig_height = max(min_size, base_size * aspect_ratio)
         else:
             fig_height = base_size
-            aspect_ratio = x_range / z_range if z_range > 0 else 1
+            aspect_ratio = x_range / z_range if x_range > 0 else 1
             fig_width = max(min_size, base_size * aspect_ratio)
         figsize = (fig_width, fig_height)
 
-    plt.style.use('seaborn-v0_8-whitegrid')
     fig, ax = plt.subplots(figsize=figsize)
 
     # --- Prepare data for quiver plot, accounting for mean flow ---
@@ -116,11 +116,10 @@ def plot_velocity_quiver(
         mean_u = mean_flow_components.get(u_channel, 0.0)
         mean_v = mean_flow_components.get(v_channel, 0.0)
         
-        # Only subtract from the interior of the domain, preserving boundaries
         if u_data_fluctuation.shape[0] > 2 and u_data_fluctuation.shape[1] > 2:
-             u_data_fluctuation[1:-1, 1:-1] -= mean_u
+                u_data_fluctuation[1:-1, 1:-1] -= mean_u
         if v_data_fluctuation.shape[0] > 2 and v_data_fluctuation.shape[1] > 2:
-             v_data_fluctuation[1:-1, 1:-1] -= mean_v
+                v_data_fluctuation[1:-1, 1:-1] -= mean_v
 
         subtracted_parts = []
         if abs(mean_u) > 1e-9:
@@ -129,17 +128,14 @@ def plot_velocity_quiver(
             subtracted_parts.append(f"{v_display}={mean_v:.2f}")
             
         if subtracted_parts:
-            subtitle += f"\n(Arrows show fluctuations around mean {', '.join(subtracted_parts)})"
+            subtitle += f"\n(Fluctuations around mean {', '.join(subtracted_parts)})"
             cbar_label = f"Fluctuation Magnitude" + (f" [{unit_label}]" if unit_label else "")
 
-    # Calculate magnitude from the (potentially modified) fluctuation components
     magnitude = np.sqrt(u_data_fluctuation**2 + v_data_fluctuation**2)
 
-    # Override cbar label if provided
     if cbar_label_override:
         cbar_label = cbar_label_override
 
-    # Downsample all data for the quiver plot
     x_coords_q = coords['x'][::quiver_stride]
     z_coords_q = coords['z'][::quiver_stride]
     u_data_q = u_data_fluctuation[::quiver_stride, ::quiver_stride]
@@ -147,7 +143,6 @@ def plot_velocity_quiver(
     magnitude_q = magnitude[::quiver_stride, ::quiver_stride]
     X_q, Z_q = np.meshgrid(x_coords_q, z_coords_q, indexing='ij')
 
-    # --- Plotting: Arrows colored by magnitude ---
     width = arrow_width if arrow_width is not None else 0.0035
     norm = plt.Normalize(vmin=vmin, vmax=vmax)
     q = ax.quiver(
@@ -155,16 +150,16 @@ def plot_velocity_quiver(
         cmap=cmap, norm=norm,
         scale_units='xy', angles='xy', scale=None, width=width
     )
-    cbar = fig.colorbar(q, ax=ax)
+    cbar = fig.colorbar(q, ax=ax, ticks=cbar_ticks)
     cbar.set_label(cbar_label, size=font_size)
-    cbar.ax.tick_params(labelsize=font_size-2)
-    ax.set_facecolor('#F0F0F0') # Use a neutral background
+    cbar.ax.tick_params(labelsize=font_size-2, direction='out', length=4, width=1)
+    ax.set_facecolor('#F0F0F0')
 
     if show_title:
-        ax.set_title(f"{base_title}\n{subtitle}", fontsize=font_size)
+        ax.set_title(f"{base_title}\n{subtitle}", fontsize=font_size + 2)
     ax.set_xlabel("X Coordinate", fontsize=font_size)
     ax.set_ylabel("Z Coordinate", fontsize=font_size)
-    ax.tick_params(axis='both', which='major', labelsize=font_size-2)
+    ax.tick_params(axis='both', which='major', labelsize=font_size-2, direction='out', top=False, right=False, length=6, width=1)
     plt.tight_layout()
     plt.show()
 
@@ -187,6 +182,7 @@ def plot_z_time_evolution(
     cmap: str = "viridis",
     show_title: bool = True,
     quantity_label: str = "Value of",
+    cbar_ticks: Optional[List[float]] = None,
     font_size: int = 12,
 ):
     """
@@ -202,7 +198,6 @@ def plot_z_time_evolution(
         logging.error(f"Channel '{channel}' not found in {coords['labels']}.")
         return
 
-    # Data is shaped (time, x, z, channel)
     data_slice = timeseries_data[:, x_index, :, channel_idx]
 
     if figsize is None:
@@ -218,7 +213,6 @@ def plot_z_time_evolution(
             fig_width = max(min_size, base_size * aspect_ratio)
         figsize = (fig_width, fig_height)
         
-    plt.style.use('seaborn-v0_8-whitegrid')
     fig, ax = plt.subplots(figsize=figsize)
 
     plot_kwargs = {'shading': 'gouraud', 'cmap': cmap}
@@ -229,32 +223,31 @@ def plot_z_time_evolution(
         plot_kwargs['vmax'] = vmax
 
     im = ax.pcolormesh(
-        range(data_slice.shape[0]),  # Time
-        coords['z'],                # Z-axis
-        data_slice.T,               # Transpose for correct orientation
+        range(data_slice.shape[0]),
+        coords['z'],
+        data_slice.T,
         **plot_kwargs
     )
 
-    # Use the alias map to get the base name for the color bar, e.g., 'u' from 'vx'
     if channel_alias_map:
         base_display_name = channel_alias_map.get(channel, channel)
     else:
         base_display_name = channel
     cbar_label = f"{quantity_label} {base_display_name}" + (f" [{unit_label}]" if unit_label else "")
 
-    cbar = fig.colorbar(im, ax=ax)
+    cbar = fig.colorbar(im, ax=ax, ticks=cbar_ticks)
     cbar.set_label(cbar_label, size=font_size)
-    cbar.ax.tick_params(labelsize=font_size-2)
+    cbar.ax.tick_params(labelsize=font_size-2, direction='out', length=4, width=1)
     
     if show_title:
         ax.set_title(
             f"Time Evolution of '{display_name}' along Z-axis\n"
             f"at x={coords['x'][x_index]:.2f} (idx={x_index})",
-            fontsize=font_size
+            fontsize=font_size + 2
         )
     ax.set_xlabel("Time Index", fontsize=font_size)
     ax.set_ylabel("Z Coordinate", fontsize=font_size)
-    ax.tick_params(axis='both', which='major', labelsize=font_size-2)
+    ax.tick_params(axis='both', which='major', labelsize=font_size-2, direction='out', top=False, right=False, length=6, width=1)
     plt.tight_layout()
     plt.show()
 
@@ -277,6 +270,7 @@ def plot_x_time_evolution(
     cmap: str = "viridis",
     show_title: bool = True,
     quantity_label: str = "Value of",
+    cbar_ticks: Optional[List[float]] = None,
     font_size: int = 12,
 ):
     """
@@ -292,7 +286,6 @@ def plot_x_time_evolution(
         logging.error(f"Channel '{channel}' not found in {coords['labels']}.")
         return
 
-    # Data is shaped (time, x, z, channel)
     data_slice = timeseries_data[:, :, z_index, channel_idx]
     
     if figsize is None:
@@ -308,7 +301,6 @@ def plot_x_time_evolution(
             fig_width = max(min_size, base_size * aspect_ratio)
         figsize = (fig_width, fig_height)
 
-    plt.style.use('seaborn-v0_8-whitegrid')
     fig, ax = plt.subplots(figsize=figsize)
 
     plot_kwargs = {'shading': 'gouraud', 'cmap': cmap}
@@ -325,26 +317,25 @@ def plot_x_time_evolution(
         **plot_kwargs
     )
     
-    # Use the alias map to get the base name for the color bar, e.g., 'u' from 'vx'
     if channel_alias_map:
         base_display_name = channel_alias_map.get(channel, channel)
     else:
         base_display_name = channel
     cbar_label = f"{quantity_label} {base_display_name}" + (f" [{unit_label}]" if unit_label else "")
 
-    cbar = fig.colorbar(im, ax=ax)
+    cbar = fig.colorbar(im, ax=ax, ticks=cbar_ticks)
     cbar.set_label(cbar_label, size=font_size)
-    cbar.ax.tick_params(labelsize=font_size-2)
+    cbar.ax.tick_params(labelsize=font_size-2, direction='out', length=4, width=1)
     
     if show_title:
         ax.set_title(
             f"Time Evolution of '{display_name}' along X-axis\n"
             f"at z={coords['z'][z_index]:.2f} (idx={z_index})",
-            fontsize=font_size
+            fontsize=font_size + 2
         )
     ax.set_xlabel("Time Index", fontsize=font_size)
     ax.set_ylabel("X Coordinate", fontsize=font_size)
-    ax.tick_params(axis='both', which='major', labelsize=font_size-2)
+    ax.tick_params(axis='both', which='major', labelsize=font_size-2, direction='out', top=False, right=False, length=6, width=1)
     plt.tight_layout()
     plt.show()
 
@@ -367,6 +358,7 @@ def plot_xz_snapshot(
     cmap: str = "viridis",
     show_title: bool = True,
     quantity_label: str = "Value of",
+    cbar_ticks: Optional[List[float]] = None,
     font_size: int = 12,
 ):
     """
@@ -382,7 +374,6 @@ def plot_xz_snapshot(
         logging.error(f"Channel '{channel}' not found in {coords['labels']}.")
         return
 
-    # Data is shaped (time, x, z, channel)
     data_slice = timeseries_data[time_index, :, :, channel_idx]
 
     if figsize is None:
@@ -394,11 +385,10 @@ def plot_xz_snapshot(
             fig_height = max(min_size, base_size * aspect_ratio)
         else:
             fig_height = base_size
-            aspect_ratio = x_range / z_range if z_range > 0 else 1
+            aspect_ratio = x_range / z_range if x_range > 0 else 1
             fig_width = max(min_size, base_size * aspect_ratio)
         figsize = (fig_width, fig_height)
 
-    plt.style.use('seaborn-v0_8-whitegrid')
     fig, ax = plt.subplots(figsize=figsize)
 
     plot_kwargs = {'shading': 'gouraud', 'cmap': cmap}
@@ -415,26 +405,25 @@ def plot_xz_snapshot(
         **plot_kwargs
     )
 
-    # Use the alias map to get the base name for the color bar, e.g., 'u' from 'vx'
     if channel_alias_map:
         base_display_name = channel_alias_map.get(channel, channel)
     else:
         base_display_name = channel
     cbar_label = f"{quantity_label} {base_display_name}" + (f" [{unit_label}]" if unit_label else "")
     
-    cbar = fig.colorbar(im, ax=ax)
+    cbar = fig.colorbar(im, ax=ax, ticks=cbar_ticks)
     cbar.set_label(cbar_label, size=font_size)
-    cbar.ax.tick_params(labelsize=font_size-2)
+    cbar.ax.tick_params(labelsize=font_size-2, direction='out', length=4, width=1)
 
     if show_title:
         ax.set_title(
             f"X-Z Snapshot of '{display_name}'\n"
             f"at time index {time_index}",
-            fontsize=font_size
+            fontsize=font_size + 2
         )
     ax.set_xlabel("X Coordinate", fontsize=font_size)
     ax.set_ylabel("Z Coordinate", fontsize=font_size)
-    ax.tick_params(axis='both', which='major', labelsize=font_size-2)
+    ax.tick_params(axis='both', which='major', labelsize=font_size-2, direction='out', top=False, right=False, length=6, width=1)
     plt.tight_layout()
     plt.show()
 
