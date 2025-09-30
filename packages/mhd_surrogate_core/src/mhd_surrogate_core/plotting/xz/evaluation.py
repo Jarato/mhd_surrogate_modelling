@@ -11,7 +11,8 @@ import math
 
 import numpy as np
 import matplotlib.pyplot as plt
-from matplotlib.patches import Circle
+from matplotlib.patches import Circle, Patch
+from matplotlib.lines import Line2D
 
 def plot_prediction_rollout_error(stats_path: Path | str, show_title: bool = True, font_size: int = 12):
     """
@@ -389,7 +390,9 @@ def plot_koopman_eigenvalues(
     vmin: float | None = None,
     vmax: float | None = None,
     show_title: bool = True,
-    font_size: int = 12
+    font_size: int = 12,
+    show_threshold_legend: bool = True,
+    show_unit_circle_legend: bool = False,
 ):
     """
     Plots the eigenvalues of the Koopman operator in the complex plane.
@@ -429,10 +432,12 @@ def plot_koopman_eigenvalues(
     cbar.set_label("Koopman Mode Magnitude (Energy Norm)", size=font_size)
     cbar.ax.tick_params(labelsize=font_size-2)
 
+    legend_handles = []
+
     # Highlight eigenvalues corresponding to high-energy modes
     if highlight_threshold is not None:
         highlight_indices = np.where(koopman_mode_magnitudes > highlight_threshold)[0]
-        ax.scatter(
+        highlight_scatter = ax.scatter(
             eigenvalues[highlight_indices].real,
             eigenvalues[highlight_indices].imag,
             facecolors='none',
@@ -441,7 +446,17 @@ def plot_koopman_eigenvalues(
             linewidths=1.5,
             label=f'Energy > {highlight_threshold}'
         )
-        ax.legend(fontsize=font_size)
+        if show_threshold_legend:
+            legend_handles.append(highlight_scatter)
+
+    # Add unit circle legend if requested
+    if show_unit_circle_legend:
+        # Use a Patch for a rectangular legend handle instead of a line
+        unit_circle_handle = Patch(facecolor='none', edgecolor='black', linestyle='--', linewidth=1.5, label='Unit Circle')
+        legend_handles.append(unit_circle_handle)
+
+    if legend_handles:
+        ax.legend(handles=legend_handles, fontsize=font_size)
 
     if show_title:
         ax.set_title('Koopman Eigenvalue Spectrum', fontsize=font_size + 4)
