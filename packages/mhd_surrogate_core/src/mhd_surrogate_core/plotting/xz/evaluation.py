@@ -395,6 +395,8 @@ def plot_koopman_eigenvalues(
     font_size: int = 12,
     show_threshold_legend: bool = True,
     show_unit_circle_legend: bool = False,
+    show_modulus_min_legend: bool = True, # New control for min modulus legend
+    show_modulus_max_legend: bool = True, # New control for max modulus legend
 ):
     """
     Plots the eigenvalues of the Koopman operator in the complex plane.
@@ -430,16 +432,18 @@ def plot_koopman_eigenvalues(
     if modulus_min > 0.0:
         min_circle = Circle((0, 0), modulus_min, color='blue', fill=False, linestyle='-.', linewidth=1.5, zorder=5)
         ax.add_artist(min_circle)
-        min_handle = Line2D([0], [0], color='blue', linestyle='-.', linewidth=1.5, label=f'$|\lambda| \\geq {modulus_min}$')
-        legend_handles.append(min_handle)
+        if show_modulus_min_legend: # Check the new flag
+            min_handle = Line2D([0], [0], color='blue', linestyle='-.', linewidth=1.5, label=f'$|\lambda| \\geq {modulus_min}$')
+            legend_handles.append(min_handle)
 
     # 3. Plot Modulus Max Threshold (Upper Bound)
     # We check if modulus_max is set and is a finite value for plotting.
     if modulus_max is not None and np.isfinite(modulus_max) and modulus_max > 0:
         max_circle = Circle((0, 0), modulus_max, color='green', fill=False, linestyle=':', linewidth=1.5, zorder=5)
         ax.add_artist(max_circle)
-        max_handle = Line2D([0], [0], color='green', linestyle=':', linewidth=1.5, label=f'$|\lambda| \\leq {modulus_max}$')
-        legend_handles.append(max_handle)
+        if show_modulus_max_legend: # Check the new flag
+            max_handle = Line2D([0], [0], color='green', linestyle=':', linewidth=1.5, label=f'$|\lambda| \\leq {modulus_max}$')
+            legend_handles.append(max_handle)
 
     # 4. Create the scatter plot, colored by mode magnitude
     scatter = ax.scatter(
