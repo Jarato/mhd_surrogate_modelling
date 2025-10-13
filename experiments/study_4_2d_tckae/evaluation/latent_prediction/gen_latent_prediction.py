@@ -16,7 +16,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(
 
 def parse_args():
     """Parse command-line arguments."""
-    parser = argparse.ArgumentParser(description="Evaluate a trained 2D tcKAE's latent space dynamics, generate physical space predictions from high-energy modes, and optionally save individual mode reconstructions.")
+    parser = argparse.ArgumentParser(description="Evaluate a trained 2D tcKAE's latent space dynamics, generate physical space predictions from filtered modes, and optionally save individual mode reconstructions.")
     
     # --- Input Paths ---
     io_group = parser.add_argument_group("Input Paths")
@@ -30,8 +30,18 @@ def parse_args():
 
     # --- Reconstruction Parameters ---
     recon_group = parser.add_argument_group("Reconstruction Parameters")
-    recon_group.add_argument("--reconstruct-modes", action='store_true', help="If set, also creates analysis folders for individual high-energy modes.")
+    recon_group.add_argument("--reconstruct-modes", action='store_true', help="If set, also creates analysis folders for individual filtered modes.")
     recon_group.add_argument("--energy-threshold", type=float, default=0.0, help="Minimum Koopman mode magnitude (energy norm) to be included in the physical space prediction. Default: 0.0")
+    
+    # UPDATED ARGUMENT: Minimum Eigenvalue Modulus Threshold (Lower Bound)
+    recon_group.add_argument("--eigenvalue-modulus-min", type=float, default=0.0, 
+                             help="Minimum eigenvalue modulus (|λ|) to be included in the physical space prediction. Default: 0.0 (i.e., no lower filter).")
+    
+    # UPDATED ARGUMENT: Maximum Eigenvalue Modulus Threshold (Upper Bound)
+    # Using float('inf') as the default ensures no upper limit is applied unless specified.
+    recon_group.add_argument("--eigenvalue-modulus-max", type=float, default=float('inf'), 
+                             help="Maximum eigenvalue modulus (|λ|) to be included in the physical space prediction. Use 1.0 to filter unstable modes (|λ| > 1.0). Default: infinity (i.e., no upper filter).")
+    
     recon_group.add_argument("--unit-circle-evals", action='store_true', help="If set, project all eigenvalues to the unit circle (magnitude 1).")
     recon_group.add_argument("--calculate-divergence", action='store_true', help="If set, calculates the 2D fluid divergence (dvx/dx + dvz/dz).")
     
@@ -134,7 +144,7 @@ def analyze_and_save_reconstruction(
         # Calculate divergence for the ORIGINAL ground truth data
         div_ground_truth = calculate_divergence(full_ground_truth_phys.cpu().numpy(), channel_names)
         
-        # Calculate divergence for the PREDICTED reconstruction of high-energy modes
+        # Calculate divergence for the PREDICTED reconstruction of filtered modes
         div_pred_recon = calculate_divergence(pred_recon_phys.cpu().numpy(), channel_names)
         
         if div_ground_truth is not None and div_pred_recon is not None:
@@ -241,6 +251,9 @@ def main():
     with torch.no_grad():
         K = model.koopman_operator.weight.cpu()
         eigenvalues, eigenvectors = torch.linalg.eig(K)
+        
+        # Calculate eigenvalue moduli once
+        eigenvalue_moduli = torch.abs(eigenvalues).cpu().numpy()
 
         koopman_mode_magnitudes = []
         for vec in tqdm(eigenvectors.T, desc="Decoding Eigenvectors", ncols=80):
@@ -283,12 +296,24 @@ def main():
     )
     logging.info(f"Saved latent space analysis to {analysis_file_path}")
     
-    # --- Reconstruction and Physical Space Analysis ---
+    # --- Reconstruction and Physical Space Analysis (Filtered Modes) ---
     if true_projected_traj is not None:
-        high_energy_indices = np.where(koopman_mode_magnitudes > args.energy_threshold)[0]
         
-        if len(high_energy_indices) == 0:
-            logging.warning("No modes found above the energy threshold. Cannot perform physical space analysis.")
+        # Apply combined filtering (Energy Magnitude AND Eigenvalue Modulus Min AND Eigenvalue Modulus Max)
+        logging.info(f"Filtering modes with Energy >= {args.energy_threshold}, Modulus Min >= {args.eigenvalue_modulus_min}, Modulus Max <= {args.eigenvalue_modulus_max}")
+        
+        # Check if max is set to inf for logging clarity
+        max_log_val = "inf" if args.eigenvalue_modulus_max == float('inf') else f"{args.eigenvalue_modulus_max}"
+        logging.info(f"Active Filters: Energy >= {args.energy_threshold}, Modulus: [{args.eigenvalue_modulus_min}, {max_log_val}]")
+
+        combined_filter = (koopman_mode_magnitudes >= args.energy_threshold) & \
+                          (eigenvalue_moduli >= args.eigenvalue_modulus_min) & \
+                          (eigenvalue_moduli <= args.eigenvalue_modulus_max)
+                          
+        filtered_indices = np.where(combined_filter)[0]
+        
+        if len(filtered_indices) == 0:
+            logging.warning("No modes found above the combined energy and modulus thresholds. Skipping physical space analysis.")
         else:
             # --- New prediction based on spectral formula: a_j(t) = (lambda_j)^t * a_j(0) ---
             logging.info("Calculating predicted trajectory using spectral decomposition formula.")
@@ -307,54 +332,76 @@ def main():
             # Calculate the time evolution of ALL mode amplitudes using the formula
             pred_projected_traj_from_formula = initial_amplitudes.unsqueeze(0) * eigenvalues_t
             
-            # --- 1. Analyze Combined High-Energy Modes ---
+            # --- 1. Analyze Combined Filtered Modes ---
             combined_true_recon_latent = torch.zeros_like(true_latent_trajectory)
             combined_pred_recon_latent = torch.zeros_like(predicted_latent_trajectory)
             
             processed_indices_combined = set()
-            for idx in high_energy_indices:
+            for idx in filtered_indices:
                 if idx in processed_indices_combined: continue
                 is_real = np.isclose(eigenvalues[idx].imag, 0)
+                
+                # Retrieve the eigenvector and projected trajectory for this mode
+                eigenvector_j = eigenvectors[:, idx].unsqueeze(0)
+                true_amp_j = true_projected_traj[:, idx].unsqueeze(1)
+                pred_amp_j = pred_projected_traj_from_formula[:, idx].unsqueeze(1)
+                
                 if is_real:
-                    combined_true_recon_latent += (true_projected_traj[:, idx].unsqueeze(1) * eigenvectors[:, idx].unsqueeze(0)).real
-                    combined_pred_recon_latent += (pred_projected_traj_from_formula[:, idx].unsqueeze(1) * eigenvectors[:, idx].unsqueeze(0)).real
+                    # Real mode
+                    combined_true_recon_latent += (true_amp_j * eigenvector_j).real
+                    combined_pred_recon_latent += (pred_amp_j * eigenvector_j).real
                     processed_indices_combined.add(idx)
                 else:
+                    # Complex conjugate pair
                     conj_idx = np.where((np.isclose(eigenvalues.real, eigenvalues[idx].real)) & (np.isclose(eigenvalues.imag, -eigenvalues[idx].imag)))[0][0]
-                    combined_true_recon_latent += 2 * (true_projected_traj[:, idx].unsqueeze(1) * eigenvectors[:, idx].unsqueeze(0)).real
-                    combined_pred_recon_latent += 2 * (pred_projected_traj_from_formula[:, idx].unsqueeze(1) * eigenvectors[:, idx].unsqueeze(0)).real
+                    
+                    # The contribution of a conjugate pair is 2 * Real(a_j * psi_j)
+                    combined_true_recon_latent += 2 * (true_amp_j * eigenvector_j).real
+                    combined_pred_recon_latent += 2 * (pred_amp_j * eigenvector_j).real
+                    
                     processed_indices_combined.add(idx)
                     processed_indices_combined.add(conj_idx)
 
             r2_comb, mse_comb = analyze_and_save_reconstruction(
                 combined_true_recon_latent, combined_pred_recon_latent, test_tensor_cpu,
-                analysis_dir / "combined_high_energy_modes",
+                analysis_dir / "combined_filtered_modes", # Updated Folder Name
                 model, denormalize, channel_names, device, args
             )
 
-            # --- 2. Analyze Individual High-Energy Modes (Optional) ---
+            # --- 2. Analyze Individual Filtered Modes (Optional) ---
             if args.reconstruct_modes:
-                energy_sorted_indices = np.argsort(koopman_mode_magnitudes)[::-1]
-                high_energy_analysis_indices = [idx for idx in energy_sorted_indices if koopman_mode_magnitudes[idx] >= args.energy_threshold]
+                # Get the indices that satisfy both filters, sorted by energy magnitude descending
+                # This ensures the 'rank' in the folder name is still based on energy.
+                
+                # Get indices satisfying the filters
+                indices_to_analyze = np.where(combined_filter)[0]
+                
+                # Sort these indices based on their energy magnitude
+                sorted_by_energy = indices_to_analyze[np.argsort(koopman_mode_magnitudes[indices_to_analyze])[::-1]]
                 
                 processed_indices_individual = set()
                 folder_rank_counter = 0
                 
-                logging.info(f"Found {len(high_energy_analysis_indices)} eigenvectors for individual analysis. Saving reconstructions...")
+                logging.info(f"Found {len(sorted_by_energy)} eigenvectors for individual analysis (filtered by all thresholds). Saving reconstructions...")
                 
-                for idx in tqdm(high_energy_analysis_indices, desc="Analyzing Individual Modes", ncols=80):
+                for idx in tqdm(sorted_by_energy, desc="Analyzing Individual Modes", ncols=80):
                     if idx in processed_indices_individual: continue
 
                     is_real = np.isclose(eigenvalues[idx].imag, 0)
+                    
+                    eigenvector_j = eigenvectors[:, idx].unsqueeze(0)
+                    true_amp_j = true_projected_traj[:, idx].unsqueeze(1)
+                    pred_amp_j = pred_projected_traj_from_formula[:, idx].unsqueeze(1)
+                    
                     if is_real:
-                        true_recon = (true_projected_traj[:, idx].unsqueeze(1) * eigenvectors[:, idx].unsqueeze(0)).real
-                        pred_recon = (pred_projected_traj_from_formula[:, idx].unsqueeze(1) * eigenvectors[:, idx].unsqueeze(0)).real
+                        true_recon = (true_amp_j * eigenvector_j).real
+                        pred_recon = (pred_amp_j * eigenvector_j).real
                         subdir = analysis_dir / f"mode_rank_{folder_rank_counter}"
                         processed_indices_individual.add(idx)
                     else:
                         conj_idx = np.where((np.isclose(eigenvalues.real, eigenvalues[idx].real)) & (np.isclose(eigenvalues.imag, -eigenvalues[idx].imag)))[0][0]
-                        true_recon = 2 * (true_projected_traj[:, idx].unsqueeze(1) * eigenvectors[:, idx].unsqueeze(0)).real
-                        pred_recon = 2 * (pred_projected_traj_from_formula[:, idx].unsqueeze(1) * eigenvectors[:, idx].unsqueeze(0)).real
+                        true_recon = 2 * (true_amp_j * eigenvector_j).real
+                        pred_recon = 2 * (pred_amp_j * eigenvector_j).real
                         subdir = analysis_dir / f"mode_pair_rank_{folder_rank_counter}"
                         processed_indices_individual.add(idx)
                         processed_indices_individual.add(conj_idx)
@@ -363,7 +410,7 @@ def main():
                     folder_rank_counter += 1
 
             # --- Final Summary Logging ---
-            logging.info("--- PHYSICAL SPACE EVALUATION (FROM HIGH-ENERGY MODES) ---")
+            logging.info("--- PHYSICAL SPACE EVALUATION (FROM COMBINED FILTERED MODES) ---")
             logging.info(f"R² Score (Combined Modes): {r2_comb:.4f}")
             logging.info(f"Avg MSE (Combined Modes): {mse_comb:.6f}")
 
@@ -372,4 +419,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
