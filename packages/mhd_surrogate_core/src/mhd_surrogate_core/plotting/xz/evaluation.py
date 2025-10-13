@@ -387,6 +387,8 @@ def plot_koopman_eigenvector_evolution(
 def plot_koopman_eigenvalues(
     eval_path: Path | str,
     highlight_threshold: float | None = None,
+    modulus_min: float = 0.0,
+    modulus_max: float | None = None,
     vmin: float | None = None,
     vmax: float | None = None,
     show_title: bool = True,
@@ -396,6 +398,7 @@ def plot_koopman_eigenvalues(
 ):
     """
     Plots the eigenvalues of the Koopman operator in the complex plane.
+    Adds circular lines to highlight minimum and maximum eigenvalue modulus thresholds.
     """
     eval_path = Path(eval_path)
     if not eval_path.exists():
@@ -414,11 +417,31 @@ def plot_koopman_eigenvalues(
     plt.style.use('seaborn-v0_8-whitegrid')
     fig, ax = plt.subplots(figsize=(8, 8))
 
-    # Plot the unit circle for reference
+    legend_handles = []
+    
+    # 1. Plot the unit circle for reference
     unit_circle = Circle((0, 0), 1, color='black', fill=False, linestyle='--', linewidth=1.5, zorder=5)
     ax.add_artist(unit_circle)
+    if show_unit_circle_legend:
+        unit_circle_handle = Line2D([0], [0], color='black', linestyle='--', linewidth=1.5, label='Unit Circle ($|\lambda|=1$)')
+        legend_handles.append(unit_circle_handle)
 
-    # Create the scatter plot, colored by mode magnitude
+    # 2. Plot Modulus Min Threshold (Lower Bound)
+    if modulus_min > 0.0:
+        min_circle = Circle((0, 0), modulus_min, color='blue', fill=False, linestyle='-.', linewidth=1.5, zorder=5)
+        ax.add_artist(min_circle)
+        min_handle = Line2D([0], [0], color='blue', linestyle='-.', linewidth=1.5, label=f'$|\lambda| \\geq {modulus_min}$')
+        legend_handles.append(min_handle)
+
+    # 3. Plot Modulus Max Threshold (Upper Bound)
+    # We check if modulus_max is set and is a finite value for plotting.
+    if modulus_max is not None and np.isfinite(modulus_max) and modulus_max > 0:
+        max_circle = Circle((0, 0), modulus_max, color='green', fill=False, linestyle=':', linewidth=1.5, zorder=5)
+        ax.add_artist(max_circle)
+        max_handle = Line2D([0], [0], color='green', linestyle=':', linewidth=1.5, label=f'$|\lambda| \\leq {modulus_max}$')
+        legend_handles.append(max_handle)
+
+    # 4. Create the scatter plot, colored by mode magnitude
     scatter = ax.scatter(
         eigenvalues.real,
         eigenvalues.imag,
@@ -432,31 +455,27 @@ def plot_koopman_eigenvalues(
     cbar.set_label("Koopman Mode Magnitude (Energy Norm)", size=font_size)
     cbar.ax.tick_params(labelsize=font_size-2, direction='out')
 
-    legend_handles = []
-
-    # Highlight eigenvalues corresponding to high-energy modes
+    # 5. Highlight eigenvalues corresponding to high-energy modes
     if highlight_threshold is not None:
         highlight_indices = np.where(koopman_mode_magnitudes > highlight_threshold)[0]
-        highlight_scatter = ax.scatter(
+        ax.scatter(
             eigenvalues[highlight_indices].real,
             eigenvalues[highlight_indices].imag,
             facecolors='none',
             edgecolors='r',
             s=80, # Make circles larger to be visible
             linewidths=1.5,
-            label=f'Energy > {highlight_threshold}'
+            zorder=15 # Ensure it's on top
         )
         if show_threshold_legend:
-            legend_handles.append(highlight_scatter)
-
-    # Add unit circle legend if requested
-    if show_unit_circle_legend:
-        # Use a Patch for a rectangular legend handle instead of a line
-        unit_circle_handle = Patch(facecolor='none', edgecolor='black', linestyle='--', linewidth=1.5, label='Unit Circle')
-        legend_handles.append(unit_circle_handle)
+            # Use a custom Line2D object to represent the red outline in the legend
+            highlight_handle = Line2D([0], [0], marker='o', color='w', markerfacecolor='w', markeredgecolor='r', 
+                                     markeredgewidth=1.5, markersize=8, linestyle='', label=f'Energy > {highlight_threshold}')
+            legend_handles.append(highlight_handle)
 
     if legend_handles:
-        ax.legend(handles=legend_handles, fontsize=font_size)
+        # Filter Patch handles from Line2D for proper display in the legend
+        ax.legend(handles=legend_handles, fontsize=font_size, loc='upper right')
 
     if show_title:
         ax.set_title('Koopman Eigenvalue Spectrum', fontsize=font_size + 4)
@@ -540,4 +559,3 @@ def plot_koopman_mode_spectrum(
     
     plt.tight_layout()
     plt.show()
-
