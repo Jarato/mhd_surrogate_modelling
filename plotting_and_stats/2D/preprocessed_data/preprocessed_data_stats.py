@@ -3,13 +3,14 @@ from pathlib import Path
 import argparse
 from typing import List, Tuple
 
-def check_boundary_condition(boundary_data: np.ndarray) -> str:
+def check_boundary_condition(boundary_data: np.ndarray, labels: List[str]) -> str:
     """
     Analyzes a boundary slice of timeseries data to determine its BC type.
 
     Args:
         boundary_data: A NumPy array representing the data on one boundary
                        over time. Shape is (Time, ...Spatial..., Channels).
+        labels: A list of strings for the channel labels.
 
     Returns:
         A string describing the boundary condition type.
@@ -38,16 +39,33 @@ def check_boundary_condition(boundary_data: np.ndarray) -> str:
         else:
             return "Constant in Time, Variable in Space"
     else:
-        max_std = np.max(temporal_std)
-        return f"Not constant in time (Max temporal std: {max_std:.4g})"
+        # Not constant in time. Find the max std for each component/channel.
+        # temporal_std has shape (...Spatial..., Channels).
+        num_spatial_dims = temporal_std.ndim - 1
+        
+        # Define the spatial axes to find the maximum over.
+        spatial_axes = tuple(range(num_spatial_dims)) if num_spatial_dims > 0 else None
 
-def analyze_boundaries(timeseries_data: np.ndarray, coord_keys: List[str]):
+        # Calculate the max std dev, keeping the channel dimension.
+        max_std_per_channel = np.max(temporal_std, axis=spatial_axes)
+
+        # Build a descriptive string with the results for each channel.
+        report_parts = []
+        for i, label in enumerate(labels):
+            report_parts.append(f"{label}: {max_std_per_channel[i]:.4g}")
+        
+        details_str = ", ".join(report_parts)
+        return f"Not constant in time (Max temporal stds -> {details_str})"
+
+
+def analyze_boundaries(timeseries_data: np.ndarray, coord_keys: List[str], labels: List[str]):
     """
     Analyzes the boundaries of the timeseries data for constant conditions.
     
     Args:
         timeseries_data: The full timeseries data array.
-        coord_keys: A list of coordinate keys like ['X-Axis', 'Y-Axis', 'Z-Axis']
+        coord_keys: A list of coordinate keys like ['X-Axis', 'Y-Axis', 'Z-Axis'].
+        labels: A list of strings for the channel labels.
     """
     print("\n--- Boundary Condition Analysis ---")
     
@@ -64,7 +82,7 @@ def analyze_boundaries(timeseries_data: np.ndarray, coord_keys: List[str]):
             full_slicer = [slice(None)] * timeseries_data.ndim
             full_slicer[axis_index] = side_index
             full_boundary_data = timeseries_data[tuple(full_slicer)]
-            full_bc_type = check_boundary_condition(full_boundary_data)
+            full_bc_type = check_boundary_condition(full_boundary_data, labels)
             print(f"    {side_name} side (full face): {full_bc_type}")
             
             # --- 2. Get the interior slice of that boundary ---
@@ -82,7 +100,7 @@ def analyze_boundaries(timeseries_data: np.ndarray, coord_keys: List[str]):
                     interior_slicer[boundary_slice_axis_index] = slice(1, -1)
             
             interior_boundary_data = full_boundary_data[tuple(interior_slicer)]
-            interior_bc_type = check_boundary_condition(interior_boundary_data)
+            interior_bc_type = check_boundary_condition(interior_boundary_data, labels)
             print(f"    {side_name} side (interior):  {interior_bc_type}")
 
 
@@ -155,7 +173,7 @@ def analyze_npz_file(npz_file: Path):
             print_spacing_stats(coord_data)
         
         # --- NEW: Perform Boundary Condition Analysis ---
-        analyze_boundaries(timeseries_data, spatial_coord_keys)
+        analyze_boundaries(timeseries_data, spatial_coord_keys, list(labels))
 
     print("\n--- Analysis Complete ---")
 
