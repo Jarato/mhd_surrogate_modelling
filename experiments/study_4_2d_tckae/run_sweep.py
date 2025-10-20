@@ -6,6 +6,7 @@ import itertools
 from pathlib import Path
 import logging
 import argparse
+import shutil
 
 # --- Configuration ---
 # This script should be run from its own directory:
@@ -33,25 +34,25 @@ param_grid = {
     'latent_dim': [256],
     'bottleneck_dim': [4096],
     'use_bottleneck': [True],
-    'batch_size': [16],
-    'validation_batch_size': [4],
-    'sequence_length': [8], # This is M - Reduced from 4 to 2 to lower memory usage
-    'steps': [8],              # This is K for forward dynamics
-    'steps_back': [0],         # K for backward dynamics
-    'steps_tc': [8],
+    'batch_size': [64],
+    'validation_batch_size': [16],
+    'sequence_length': [1], # This is M - Reduced from 4 to 2 to lower memory usage
+    'steps': [1],           # This is K for forward dynamics
+    'steps_back': [0],      # K for backward dynamics
+    'steps_tc': [0],
     'epoch-trans': [0],
     'gamma_identity': [1.0],
     'gamma_fwd': [1.0],
-    'gamma_tc': [1.0],
-    'gamma_bwd': [0],         # Used only if backward=True
-    'gamma_con': [0],        # Used only if backward=True
-    'backward': [False],  # Sweep between tcKAE and tcKAE+cKAE
+    'gamma_tc': [0],
+    'gamma_bwd': [0],       # Used only if backward=True
+    'gamma_con': [0],       # Used only if backward=True
+    'backward': [False], # Sweep between tcKAE and tcKAE+cKAE
 }
 
 # --- Fixed Training Arguments ---
 # These arguments will be the same for all runs.
 fixed_args = {
-    "epochs": 2,
+    "epochs": 1,
     "patience": 40,
     "lr_patience": 10,
     "clip_grad_value": 128,
@@ -73,6 +74,11 @@ def main():
         action="store_true",
         help="If set, resume incomplete runs from the latest checkpoint instead of skipping them."
     )
+    parser.add_argument(
+        "--cleanup",
+        action="store_true",
+        help="If set, delete all created run directories after the entire sweep is finished."
+    )
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
@@ -83,6 +89,8 @@ def main():
     run_configs = [dict(zip(keys, v)) for v in itertools.product(*values)]
 
     logging.info(f"Generated {len(run_configs)} unique hyperparameter configurations.")
+
+    created_dirs_for_cleanup = []
 
     for i, config in enumerate(run_configs):
         # Create a descriptive run name
@@ -102,6 +110,11 @@ def main():
         persistent_dir = BASE_PERSISTENT_DIR / run_name
         scratch_dir = BASE_SCRATCH_DIR / run_name if BASE_SCRATCH_DIR else None
         
+        # Store directory paths for potential cleanup later
+        created_dirs_for_cleanup.append(persistent_dir)
+        if scratch_dir:
+            created_dirs_for_cleanup.append(scratch_dir)
+
         should_resume = False
         if persistent_dir.exists():
             if args.resume:
@@ -147,6 +160,21 @@ def main():
 
     logging.info("Hyperparameter sweep finished.")
 
+    # --- Cleanup Phase ---
+    if args.cleanup:
+        logging.info("--- Starting Cleanup: Deleting run directories as --cleanup flag was set. ---")
+        for dir_path in created_dirs_for_cleanup:
+            try:
+                if dir_path.exists() and dir_path.is_dir():
+                    shutil.rmtree(dir_path)
+                    logging.info(f"Successfully deleted directory: {dir_path}")
+                else:
+                    # This case handles if a run failed before creating its directory
+                    logging.warning(f"Directory not found for cleanup, skipping: {dir_path}")
+            except OSError as e:
+                logging.error(f"Error deleting directory {dir_path}: {e}")
+        logging.info("--- Cleanup Finished. ---")
+
+
 if __name__ == "__main__":
     main()
-
