@@ -1,7 +1,7 @@
 import numpy as np
 from pathlib import Path
 import argparse
-from typing import List
+from typing import List, Tuple
 
 def check_boundary_condition(boundary_data: np.ndarray) -> str:
     """
@@ -14,6 +14,10 @@ def check_boundary_condition(boundary_data: np.ndarray) -> str:
     Returns:
         A string describing the boundary condition type.
     """
+    # If the boundary slice is empty (e.g., a 1x1 interior), return immediately.
+    if boundary_data.size == 0 or boundary_data.shape[0] < 2:
+        return "Not enough data for analysis"
+
     # Check for Type 2: Constant in time, but potentially variable in space.
     # We calculate the standard deviation along the time axis (axis=0).
     # If std is close to zero for all spatial points and channels, it means no change over time.
@@ -34,7 +38,8 @@ def check_boundary_condition(boundary_data: np.ndarray) -> str:
         else:
             return "Constant in Time, Variable in Space"
     else:
-        return "No constant BC detected"
+        max_std = np.max(temporal_std)
+        return f"Not constant in time (Max temporal std: {max_std:.4g})"
 
 def analyze_boundaries(timeseries_data: np.ndarray, coord_keys: List[str]):
     """
@@ -54,20 +59,31 @@ def analyze_boundaries(timeseries_data: np.ndarray, coord_keys: List[str]):
     for axis_name, axis_index in axis_map.items():
         print(f"\n  Boundary along {axis_name}:")
 
-        # --- Analyze the 'Min' side of the boundary (e.g., X=0) ---
-        # Create a slicer tuple. It's slice(None) for all dims except the one we're slicing.
-        slicer_min = [slice(None)] * timeseries_data.ndim
-        slicer_min[axis_index] = 0
-        min_boundary_data = timeseries_data[tuple(slicer_min)]
-        min_bc_type = check_boundary_condition(min_boundary_data)
-        print(f"    Min side: {min_bc_type}")
-
-        # --- Analyze the 'Max' side of the boundary (e.g., X=-1) ---
-        slicer_max = [slice(None)] * timeseries_data.ndim
-        slicer_max[axis_index] = -1
-        max_boundary_data = timeseries_data[tuple(slicer_max)]
-        max_bc_type = check_boundary_condition(max_boundary_data)
-        print(f"    Max side: {max_bc_type}")
+        for side_name, side_index in [("Min", 0), ("Max", -1)]:
+            # --- 1. Get the full boundary slice ---
+            full_slicer = [slice(None)] * timeseries_data.ndim
+            full_slicer[axis_index] = side_index
+            full_boundary_data = timeseries_data[tuple(full_slicer)]
+            full_bc_type = check_boundary_condition(full_boundary_data)
+            print(f"    {side_name} side (full face): {full_bc_type}")
+            
+            # --- 2. Get the interior slice of that boundary ---
+            # Create a slicer for the *interior* of the full boundary slice.
+            # This means slicing from 1 to -1 on all *other* spatial axes.
+            interior_slicer = [slice(None)] * full_boundary_data.ndim
+            for other_axis_index in range(1, len(coord_keys) + 1):
+                if other_axis_index != axis_index:
+                    # Map the original data axis index to the boundary slice's axis index
+                    # The boundary slice has one fewer spatial dimension.
+                    boundary_slice_axis_index = other_axis_index
+                    if other_axis_index > axis_index:
+                        boundary_slice_axis_index -=1
+                    
+                    interior_slicer[boundary_slice_axis_index] = slice(1, -1)
+            
+            interior_boundary_data = full_boundary_data[tuple(interior_slicer)]
+            interior_bc_type = check_boundary_condition(interior_boundary_data)
+            print(f"    {side_name} side (interior):  {interior_bc_type}")
 
 
 def analyze_npz_file(npz_file: Path):
@@ -167,3 +183,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
