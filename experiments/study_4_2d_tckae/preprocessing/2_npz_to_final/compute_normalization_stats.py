@@ -49,7 +49,7 @@ def main():
     args = parse_args()
     output_path = Path(args.output_path)
 
-    # KEY CHANGE: Handle cases where the user provides a directory instead of a full file path.
+    # Handle cases where the user provides a directory instead of a full file path.
     # If the provided path has no file extension (suffix), we treat it as a directory
     # and append the default filename.
     if not output_path.suffix:
@@ -83,7 +83,7 @@ def main():
         raise ValueError("The training set is empty. Cannot compute statistics.")
 
     # Compute statistics on the training set ONLY
-    logging.info("Calculating min/max statistics per channel on the training set...")
+    logging.info("Calculating min, max, and mean statistics per channel on the training set...")
 
     # Dynamically determine the axes for reduction. This works for both
     # 4D (T, X, Z, C) and 5D (T, X, Y, Z, C) data by selecting all axes except
@@ -95,18 +95,22 @@ def main():
 
     min_vals = np.min(train_data, axis=stat_axes)
     max_vals = np.max(train_data, axis=stat_axes)
+    mean_vals = np.mean(train_data, axis=stat_axes)
 
-    logging.info("Min/Max calculation complete.")
+    logging.info("Min/Max/Mean calculation complete.")
     logging.info("--- Per-Channel Statistics (from Training Set) ---")
     for i, name in enumerate(labels):
-        logging.info(f"Channel '{name}': Min = {min_vals[i]:.6f}, Max = {max_vals[i]:.6f}")
+        logging.info(
+            f"Channel '{name}': Min = {min_vals[i]:.6f}, Max = {max_vals[i]:.6f}, Mean = {mean_vals[i]:.6f}"
+        )
     logging.info("-------------------------------------------------")
 
-    # Save only the computed statistics
+    # Save the computed statistics
     np.savez(
         output_path,
         min_vals=min_vals,
         max_vals=max_vals,
+        mean_vals=mean_vals,
     )
     logging.info(f"Normalization stats saved to {output_path}")
 
