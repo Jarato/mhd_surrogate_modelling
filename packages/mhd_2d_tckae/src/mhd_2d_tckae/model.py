@@ -1,16 +1,64 @@
 # -*- coding: utf-8 -*-
 # packages/mhd_q2d_tckae/src/mhd_q2d_tckae/model_2d.py
-# Note: This is a modified version for 2D data (X, Z spatial dims).
+# Note: This is a modified version for 2D data (X, Z spatial dims)
+# with custom physics-informed padding.
 
 from collections import OrderedDict
 from typing import Any, Dict, List
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
+
+# --- NEW CUSTOM MODULE FOR PHYSICS-INFORMED PADDING ---
+class PaddedConv2D(nn.Module):
+    """
+    A custom 2D convolutional layer that applies physics-informed padding before
+    the convolution operation. This is designed for the specific flow problem:
+    - Z-axis (Top/Bottom): Zero-padding for no-slip walls.
+    - Max X-axis (Right): Reflection-padding for the outlet.
+    - Min X-axis (Left): Replication-padding for the inlet.
+    """
+    def __init__(self, in_channels: int, out_channels: int, kernel_size: int, stride: int):
+        super().__init__()
+        # For a kernel_size of 3, the padding amount is 1.
+        self.padding_amount = (kernel_size - 1) // 2
+
+        # The actual convolution layer has no padding, as we handle it manually.
+        self.conv = nn.Conv2d(
+            in_channels,
+            out_channels,
+            kernel_size=kernel_size,
+            stride=stride,
+            padding=0  # IMPORTANT: Manual padding is done in the forward pass.
+        )
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        Applies padding sequentially to each boundary based on its physics.
+        The padding tuple for F.pad is (pad_left, pad_right, pad_top, pad_bottom).
+        """
+        p = self.padding_amount
+        
+        # 1. Pad Z-axis (Top/Bottom) with Zeros for the no-slip condition.
+        # Pads by `p` on the top and `p` on the bottom.
+        padded_x = F.pad(x, (0, 0, p, p), mode='constant', value=0)
+
+        # 2. Pad Max X-axis (Right) with Reflection for the outlet condition.
+        # Pads by `p` on the right side.
+        padded_x = F.pad(padded_x, (0, p, 0, 0), mode='reflect')
+
+        # 3. Pad Min X-axis (Left) with Replication for the inlet condition.
+        # Pads by `p` on the left side.
+        padded_x = F.pad(padded_x, (p, 0, 0, 0), mode='replicate')
+
+        # Now, apply the convolution to the correctly padded tensor.
+        return self.conv(padded_x)
+
 
 class Encoder2D(nn.Module):
     """
-    A true 2D CNN Encoder.
+    A true 2D CNN Encoder, now using the custom PaddedConv2D layers.
     """
     def __init__(
         self,
@@ -21,17 +69,18 @@ class Encoder2D(nn.Module):
         self.latent_dim = latent_dim
         self.in_channels = in_channels
 
+        # --- MODIFIED: Replaced nn.Conv2d with our new PaddedConv2D ---
         self.conv_network = nn.Sequential(
-            nn.Conv2d(self.in_channels, 32, kernel_size=3, stride=2, padding=1),
+            PaddedConv2D(self.in_channels, 32, kernel_size=3, stride=2),
             nn.GELU(),
             nn.BatchNorm2d(32),
-            nn.Conv2d(32, 64, kernel_size=3, stride=2, padding=1),
+            PaddedConv2D(32, 64, kernel_size=3, stride=2),
             nn.GELU(),
             nn.BatchNorm2d(64),
-            nn.Conv2d(64, 128, kernel_size=3, stride=2, padding=1),
+            PaddedConv2D(64, 128, kernel_size=3, stride=2),
             nn.GELU(),
             nn.BatchNorm2d(128),
-            nn.Conv2d(128, 256, kernel_size=3, stride=2, padding=1),
+            PaddedConv2D(128, 256, kernel_size=3, stride=2),
             nn.GELU(),
             nn.BatchNorm2d(256),
         )
@@ -54,6 +103,7 @@ class Encoder2D(nn.Module):
 class Decoder2D(nn.Module):
     """
     A true 2D CNN Decoder.
+    (No changes needed here as padding is handled by the encoder).
     """
     def __init__(
         self,
