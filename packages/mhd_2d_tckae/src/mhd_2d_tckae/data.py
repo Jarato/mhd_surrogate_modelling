@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 # packages/mhd_q2d_tckae/src/mhd_q2d_tckae/data_2d.py
 # Note: This is a modified version for 2D data (X, Z spatial dims).
+# UPDATED: Now centers the data by subtracting the (normalized) mean.
 
 import logging
 from pathlib import Path
@@ -53,31 +54,48 @@ class tcKAEMHDDataset2D(Dataset):
             logging.info(f"Squeezed data shape from 5D to 4D. New shape: {self.data.shape}")
 
 
-        self.min_vals, self.max_vals, self.range = None, None, None
+        # --- MODIFIED: Added mean_vals and mean_norm ---
+        self.min_vals, self.max_vals, self.mean_vals, self.range, self.mean_norm = None, None, None, None, None
         if norm_stats:
             # Reshape stats to be broadcastable over 4D tensor (C, X, Z)
             view_shape = (1, -1, 1, 1)
             all_min = torch.from_numpy(norm_stats['min_vals']).float()
             all_max = torch.from_numpy(norm_stats['max_vals']).float()
+            all_mean = torch.from_numpy(norm_stats['mean_vals']).float() # <-- NEW
+            
             if channels_to_use:
                 indices = [self.all_channel_names.index(name) for name in channels_to_use]
                 self.min_vals = all_min[indices].view(*view_shape)
                 self.max_vals = all_max[indices].view(*view_shape)
+                self.mean_vals = all_mean[indices].view(*view_shape) # <-- NEW
             else:
                 self.min_vals = all_min.view(*view_shape)
                 self.max_vals = all_max.view(*view_shape)
+                self.mean_vals = all_mean.view(*view_shape) # <-- NEW
+            
             self.range = self.max_vals - self.min_vals + 1e-8
+            
+            # Pre-calculate the normalized mean
+            # This is (mean - min) / range * 2.0 - 1.0
+            self.mean_norm = (self.mean_vals - self.min_vals) / self.range * 2.0 - 1.0 # <-- NEW
+        # --- END MODIFICATION ---
 
     def __len__(self) -> int:
         return self.data.shape[0]
 
     def _normalize(self, x: torch.Tensor) -> torch.Tensor:
         if self.min_vals is None: return x
-        return (x - self.min_vals) / self.range * 2.0 - 1.0
+        # First, scale to [-1, 1]
+        x_norm = (x - self.min_vals) / self.range * 2.0 - 1.0
+        # Then, subtract the normalized mean to center the data
+        return x_norm - self.mean_norm # <-- MODIFIED
     
     def _denormalize(self, x_norm: torch.Tensor) -> torch.Tensor:
         if self.min_vals is None: return x_norm
-        return (x_norm + 1.0) / 2.0 * self.range + self.min_vals
+        # First, add back the normalized mean
+        x_scaled = x_norm + self.mean_norm # <-- MODIFIED
+        # Then, denormalize from [-1, 1] to [min, max]
+        return (x_scaled + 1.0) / 2.0 * self.range + self.min_vals # <-- MODIFIED
 
     def __getitem__(self, idx: int) -> torch.Tensor:
         block_len = self.sequence_length + self.steps
@@ -127,27 +145,40 @@ class RolloutMHDDataset2D(Dataset):
         if self.data.ndim == 5 and self.data.shape[2] == 1:
             self.data = np.squeeze(self.data, axis=2)
 
-        self.min_vals, self.max_vals, self.range = None, None, None
+        # --- MODIFIED: Added mean_vals and mean_norm ---
+        self.min_vals, self.max_vals, self.mean_vals, self.range, self.mean_norm = None, None, None, None, None
         if norm_stats:
             # Reshape stats to be broadcastable over 4D tensor (C, X, Z)
             view_shape = (1, -1, 1, 1)
             all_min = torch.from_numpy(norm_stats['min_vals']).float()
             all_max = torch.from_numpy(norm_stats['max_vals']).float()
+            all_mean = torch.from_numpy(norm_stats['mean_vals']).float() # <-- NEW
+            
             if channels_to_use:
                 indices = [self.all_channel_names.index(name) for name in channels_to_use]
                 self.min_vals = all_min[indices].view(*view_shape)
                 self.max_vals = all_max[indices].view(*view_shape)
+                self.mean_vals = all_mean[indices].view(*view_shape) # <-- NEW
             else:
                 self.min_vals = all_min.view(*view_shape)
                 self.max_vals = all_max.view(*view_shape)
+                self.mean_vals = all_mean.view(*view_shape) # <-- NEW
+            
             self.range = self.max_vals - self.min_vals + 1e-8
+            
+            # Pre-calculate the normalized mean
+            self.mean_norm = (self.mean_vals - self.min_vals) / self.range * 2.0 - 1.0 # <-- NEW
+        # --- END MODIFICATION ---
 
     def __len__(self) -> int:
         return self.data.shape[0]
 
     def _normalize(self, x: torch.Tensor) -> torch.Tensor:
         if self.min_vals is None: return x
-        return (x - self.min_vals) / self.range * 2.0 - 1.0
+        # First, scale to [-1, 1]
+        x_norm = (x - self.min_vals) / self.range * 2.0 - 1.0
+        # Then, subtract the normalized mean to center the data
+        return x_norm - self.mean_norm # <-- MODIFIED
 
     def __getitem__(self, idx: int) -> torch.Tensor:
         sequence = self.data[idx : idx + self.rollout_steps + 1]
