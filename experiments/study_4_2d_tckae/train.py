@@ -114,9 +114,23 @@ def setup_data_and_stats(args: argparse.Namespace) -> Dict[str, Any]:
     else:
         logging.info(f"Computing normalization stats on {train_size} training timesteps.")
         train_data_raw = timeseries[:train_size]
-        min_vals = np.min(train_data_raw, axis=(0, 1, 2))
-        max_vals = np.max(train_data_raw, axis=(0, 1, 2))
-        norm_stats = {"min_vals": min_vals, "max_vals": max_vals}
+        
+        # Dynamically determine the axes for reduction, assuming channels are last.
+        # This matches the external computation script.
+        stat_axes = tuple(range(train_data_raw.ndim - 1))
+        logging.info(
+            f"Input data has {train_data_raw.ndim} dimensions. Calculating stats over axes: {stat_axes}"
+        )
+        
+        min_vals = np.min(train_data_raw, axis=stat_axes)
+        max_vals = np.max(train_data_raw, axis=stat_axes)
+        mean_vals = np.mean(train_data_raw, axis=stat_axes)
+        
+        norm_stats = {
+            "min_vals": min_vals, 
+            "max_vals": max_vals, 
+            "mean_vals": mean_vals
+        }
 
     train_block_len = args.sequence_length + args.steps
     val_seq_len = args.validation_rollout_steps + 1
@@ -469,3 +483,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
