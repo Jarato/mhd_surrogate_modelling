@@ -83,7 +83,9 @@ def main():
         raise ValueError("The training set is empty. Cannot compute statistics.")
 
     # Compute statistics on the training set ONLY
-    logging.info("Calculating min, max, and mean statistics per channel on the training set...")
+    logging.info(
+        "Calculating min, max, mean, and std statistics per channel on the training set..."
+    )
 
     # Dynamically determine the axes for reduction. This works for both
     # 4D (T, X, Z, C) and 5D (T, X, Y, Z, C) data by selecting all axes except
@@ -96,12 +98,14 @@ def main():
     min_vals = np.min(train_data, axis=stat_axes)
     max_vals = np.max(train_data, axis=stat_axes)
     mean_vals = np.mean(train_data, axis=stat_axes)
+    std_vals = np.std(train_data, axis=stat_axes)  # <-- Added standard deviation
 
-    logging.info("Min/Max/Mean calculation complete.")
+    logging.info("Min/Max/Mean/Std calculation complete.")
     logging.info("--- Per-Channel Statistics (from Training Set) ---")
     for i, name in enumerate(labels):
         logging.info(
-            f"Channel '{name}': Min = {min_vals[i]:.6f}, Max = {max_vals[i]:.6f}, Mean = {mean_vals[i]:.6f}"
+            # Added Std to the log output
+            f"Channel '{name}': Min = {min_vals[i]:.6f}, Max = {max_vals[i]:.6f}, Mean = {mean_vals[i]:.6f}, Std = {std_vals[i]:.6f}"
         )
     logging.info("-------------------------------------------------")
 
@@ -111,6 +115,7 @@ def main():
         min_vals=min_vals,
         max_vals=max_vals,
         mean_vals=mean_vals,
+        std_vals=std_vals,  # <-- Added std_vals to the saved file
     )
     logging.info(f"Normalization stats saved to {output_path}")
 
