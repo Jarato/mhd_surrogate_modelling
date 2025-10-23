@@ -47,16 +47,20 @@ MIN_SIZE=4.0   # Minimum size (in inches) for a single plot's height.
 # --- Color Scale for Main Plots (Ground Truth & Prediction) ---
 # NOTE: Adjust these values based on the typical range of your divergence data.
 COLOR_MAP="seismic"
-# VMIN="-5.0"
-# VMAX="5.0"
-# VCENTER="0.0"
+# VMIN="-0.1"
+# VMAX="0.1"
+VMIN="-3"
+VMAX="3"
+VCENTER="0.0"
 
 # --- Color Scale for Difference Plot ---
 # NOTE: Adjust these values based on the typical range of your divergence error.
 COLOR_MAP_DIFF="seismic"
-# VMIN_DIFF="-5.0"
-# VMAX_DIFF="5.0"
-# VCENTER_DIFF="0.0"
+# VMIN_DIFF="-0.1"
+# VMAX_DIFF="0.1"
+VMIN_DIFF="-3"
+VMAX_DIFF="3"
+VCENTER_DIFF="0.0"
 
 
 # --- SCRIPT LOGIC ---
@@ -69,7 +73,7 @@ channel="divergence"
 alias="Divergence"
 
 # Construct the output filename dynamically
-output_filename="comparison_vid_${alias}.mp4"
+output_filename="comparison_vid_${alias}_color_high.mp4"
 output_path="${OUTPUT_DIR}/${output_filename}"
 
 # Construct the full command for the comparison script
@@ -86,13 +90,13 @@ command="python $VIDEO_SCRIPT_PATH \
     --base-size $BASE_SIZE \
     --min-size $MIN_SIZE \
     --cmap \"$COLOR_MAP\" \
-    # --vmins \"$channel:$VMIN\" \
-    # --vmaxs \"$channel:$VMAX\" \
-    # --vcenters \"$channel:$VCENTER\" \
+    --vmins \"$channel:$VMIN\" \
+    --vmaxs \"$channel:$VMAX\" \
+    --vcenters \"$channel:$VCENTER\" \
     --cmap-diff \"$COLOR_MAP_DIFF\" \
-    # --vmins-diff \"$channel:$VMIN_DIFF\" \
-    # --vmaxs-diff \"$channel:$VMAX_DIFF\" \
-    # --vcenters-diff \"$channel:$VCENTER_DIFF\""
+    --vmins-diff \"$channel:$VMIN_DIFF\" \
+    --vmaxs-diff \"$channel:$VMAX_DIFF\" \
+    --vcenters-diff \"$channel:$VCENTER_DIFF\""
 
 # Print the command to the console and then execute it
 echo "=============================================================================="

@@ -25,14 +25,13 @@ VIDEO_SCRIPT_PATH="create_comparison_video.py"
 # --- Input Paths ---
 # Specify one or more RANKs to process in this array
 # Example: RANKS=("1" "2" "5" "10")
-# RANKS=("0" "1" "2" "3" "4" "6")
-RANKS=("4" "5" "6")
+RANKS=("0" "1" "2" "3" "4" "6")
 
 # Base directory for the experiments. The script will append the specific rank folder to this path.
 BASE_EVAL_DIR="/cephfs/users/skowronek/Documents/PhD/nuclear_fusion_cooling/prediction/mhd_surrogate_modelling/experiments/study_4_2d_tckae/output/tc_size_exploration/ld512_M16_K16_Ktc16_gtc1.0_bwd_False/eval/latent_space_analysis/"
 
 # --- Video Parameters ---
-FPS=2
+FPS=4
 NUM_WORKERS=128
 BASE_SIZE=20.0 # Base size (in inches) for the plot's width.
 MIN_SIZE=4.0   # Minimum size (in inches) for a single plot's height.
