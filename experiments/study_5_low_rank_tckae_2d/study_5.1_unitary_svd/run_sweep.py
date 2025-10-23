@@ -22,9 +22,9 @@ NORM_STATS_PATH = "/raid/skowronek/preprocessed_dns_output/01-Cold_Runs/01-Re16K
 
 # Define the mandatory persistent directory and optional scratch directory
 # These will be the top-level directories for all sweep runs.
-BASE_PERSISTENT_DIR = Path("/cephfs/users/skowronek/Documents/PhD/nuclear_fusion_cooling/prediction/mhd_surrogate_modelling/experiments/study_4_2d_tckae/output/test/")
+BASE_PERSISTENT_DIR = Path("/cephfs/users/skowronek/Documents/PhD/nuclear_fusion_cooling/prediction/mhd_surrogate_modelling/experiments/study_5_low_rank_tckae_2d/study_5.1_unitary_svd/output/test/")
 
-# BASE_SCRATCH_DIR = Path("/raid/skowronek/mhd_surrogate_modelling/experiments/study_3_q2d_tckae/output/test/")
+# BASE_SCRATCH_DIR = Path("/raid/skowronek/mhd_surrogate_modelling/experiments/study_5_low_rank_tckae_2d/study_5.1_unitary_svd/output/test/")
 BASE_SCRATCH_DIR = None
 
 # --- Hyperparameter Grid ---
