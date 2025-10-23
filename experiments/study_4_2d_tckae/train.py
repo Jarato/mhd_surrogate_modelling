@@ -112,7 +112,7 @@ def setup_data_and_stats(args: argparse.Namespace) -> Dict[str, Any]:
         with np.load(args.norm_stats_path) as data:
             norm_stats = {key: data[key] for key in data.files}
     else:
-        logging.info(f"Computing normalization stats on {train_size} training timesteps.")
+        logging.info(f"Computing normalization stats (min, max, mean, std) on {train_size} training timesteps.")
         train_data_raw = timeseries[:train_size]
         
         # Dynamically determine the axes for reduction, assuming channels are last.
@@ -125,11 +125,13 @@ def setup_data_and_stats(args: argparse.Namespace) -> Dict[str, Any]:
         min_vals = np.min(train_data_raw, axis=stat_axes)
         max_vals = np.max(train_data_raw, axis=stat_axes)
         mean_vals = np.mean(train_data_raw, axis=stat_axes)
+        std_vals = np.std(train_data_raw, axis=stat_axes) # <-- Added std calculation
         
         norm_stats = {
             "min_vals": min_vals, 
             "max_vals": max_vals, 
-            "mean_vals": mean_vals
+            "mean_vals": mean_vals,
+            "std_vals": std_vals  # <-- Added std to dictionary
         }
 
     train_block_len = args.sequence_length + args.steps
