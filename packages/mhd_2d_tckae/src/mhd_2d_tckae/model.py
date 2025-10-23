@@ -2,6 +2,7 @@
 # packages/mhd_q2d_tckae/src/mhd_q2d_tckae/model_2d.py
 # Note: This is a modified version for 2D data (X, Z spatial dims)
 # with custom physics-informed padding.
+# UPDATED: Removed Tanh() from Decoder output to support standardization.
 
 from collections import OrderedDict
 from typing import Any, Dict, List
@@ -146,7 +147,8 @@ class Decoder2D(nn.Module):
             nn.GELU(),
             nn.BatchNorm2d(32),
             nn.ConvTranspose2d(32, self.out_channels, kernel_size=3, stride=2, padding=1, output_padding=1),
-            nn.Tanh(),
+            # --- MODIFIED: Removed nn.Tanh() ---
+            # nn.Tanh(), # This was removed because standardized data is not bounded to [-1, 1]
         )
 
     def forward(

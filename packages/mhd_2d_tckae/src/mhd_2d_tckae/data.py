@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 # packages/mhd_q2d_tckae/src/mhd_q2d_tckae/data_2d.py
 # Note: This is a modified version for 2D data (X, Z spatial dims).
-# UPDATED: Now centers the data by subtracting the (normalized) mean.
+# UPDATED: Now standardizes the data using mean and std deviation.
 
 import logging
 from pathlib import Path
@@ -54,36 +54,25 @@ class tcKAEMHDDataset2D(Dataset):
             logging.info(f"Squeezed data shape from 5D to 4D. New shape: {self.data.shape}")
 
 
-        # --- MODIFIED: Added mean_vals and new scaling logic ---
-        self.min_vals, self.max_vals, self.mean_vals, self.max_abs_dev = None, None, None, None
+        # --- MODIFIED: Switched to Mean/Std normalization ---
+        self.mean_vals, self.std_vals = None, None
         if norm_stats:
             # Reshape stats to be broadcastable over 4D tensor (C, X, Z)
             view_shape = (1, -1, 1, 1)
-            all_min = torch.from_numpy(norm_stats['min_vals']).float()
-            all_max = torch.from_numpy(norm_stats['max_vals']).float()
-            all_mean = torch.from_numpy(norm_stats['mean_vals']).float() # <-- NEW
+            all_mean = torch.from_numpy(norm_stats['mean_vals']).float()
+            all_std = torch.from_numpy(norm_stats['std_vals']).float() # <-- NEW
             
             if channels_to_use:
                 indices = [self.all_channel_names.index(name) for name in channels_to_use]
-                self.min_vals = all_min[indices].view(*view_shape)
-                self.max_vals = all_max[indices].view(*view_shape)
-                self.mean_vals = all_mean[indices].view(*view_shape) # <-- NEW
+                self.mean_vals = all_mean[indices].view(*view_shape)
+                self.std_vals = all_std[indices].view(*view_shape) # <-- NEW
             else:
-                self.min_vals = all_min.view(*view_shape)
-                self.max_vals = all_max.view(*view_shape)
-                self.mean_vals = all_mean.view(*view_shape) # <-- NEW
+                self.mean_vals = all_mean.view(*view_shape)
+                self.std_vals = all_std.view(*view_shape) # <-- NEW
             
-            # --- NEW SCALING LOGIC ---
-            # Calculate the maximum deviation from the mean
-            max_dev_from_mean = torch.maximum(
-                torch.abs(self.max_vals - self.mean_vals),
-                torch.abs(self.min_vals - self.mean_vals)
-            )
-            self.max_abs_dev = max_dev_from_mean + 1e-8 # Add epsilon for stability
-            
-            # Remove old range and mean_norm
-            # self.range = self.max_vals - self.min_vals + 1e-8 
-            # self.mean_norm = (self.mean_vals - self.min_vals) / self.range * 2.0 - 1.0
+            # --- NEW SCALING LOGIC (Standardization) ---
+            # Add epsilon for numerical stability
+            self.std_vals = self.std_vals + 1e-8 
             # --- END MODIFICATION ---
         # --- END MODIFICATION ---
 
@@ -91,14 +80,14 @@ class tcKAEMHDDataset2D(Dataset):
         return self.data.shape[0]
 
     def _normalize(self, x: torch.Tensor) -> torch.Tensor:
-        if self.min_vals is None: return x
-        # Center at 0 and scale by max absolute deviation
-        return (x - self.mean_vals) / self.max_abs_dev # <-- MODIFIED
+        if self.mean_vals is None: return x
+        # Center at 0 and scale by standard deviation
+        return (x - self.mean_vals) / self.std_vals # <-- MODIFIED
     
     def _denormalize(self, x_norm: torch.Tensor) -> torch.Tensor:
-        if self.min_vals is None: return x_norm
+        if self.mean_vals is None: return x_norm
         # De-scale and add back mean
-        return (x_norm * self.max_abs_dev) + self.mean_vals # <-- MODIFIED
+        return (x_norm * self.std_vals) + self.mean_vals # <-- MODIFIED
 
     def __getitem__(self, idx: int) -> torch.Tensor:
         block_len = self.sequence_length + self.steps
@@ -148,36 +137,25 @@ class RolloutMHDDataset2D(Dataset):
         if self.data.ndim == 5 and self.data.shape[2] == 1:
             self.data = np.squeeze(self.data, axis=2)
 
-        # --- MODIFIED: Added mean_vals and new scaling logic ---
-        self.min_vals, self.max_vals, self.mean_vals, self.max_abs_dev = None, None, None, None
+        # --- MODIFIED: Switched to Mean/Std normalization ---
+        self.mean_vals, self.std_vals = None, None
         if norm_stats:
             # Reshape stats to be broadcastable over 4D tensor (C, X, Z)
             view_shape = (1, -1, 1, 1)
-            all_min = torch.from_numpy(norm_stats['min_vals']).float()
-            all_max = torch.from_numpy(norm_stats['max_vals']).float()
-            all_mean = torch.from_numpy(norm_stats['mean_vals']).float() # <-- NEW
+            all_mean = torch.from_numpy(norm_stats['mean_vals']).float()
+            all_std = torch.from_numpy(norm_stats['std_vals']).float() # <-- NEW
             
             if channels_to_use:
                 indices = [self.all_channel_names.index(name) for name in channels_to_use]
-                self.min_vals = all_min[indices].view(*view_shape)
-                self.max_vals = all_max[indices].view(*view_shape)
-                self.mean_vals = all_mean[indices].view(*view_shape) # <-- NEW
+                self.mean_vals = all_mean[indices].view(*view_shape)
+                self.std_vals = all_std[indices].view(*view_shape) # <-- NEW
             else:
-                self.min_vals = all_min.view(*view_shape)
-                self.max_vals = all_max.view(*view_shape)
-                self.mean_vals = all_mean.view(*view_shape) # <-- NEW
+                self.mean_vals = all_mean.view(*view_shape)
+                self.std_vals = all_std.view(*view_shape) # <-- NEW
             
-            # --- NEW SCALING LOGIC ---
-            # Calculate the maximum deviation from the mean
-            max_dev_from_mean = torch.maximum(
-                torch.abs(self.max_vals - self.mean_vals),
-                torch.abs(self.min_vals - self.mean_vals)
-            )
-            self.max_abs_dev = max_dev_from_mean + 1e-8 # Add epsilon for stability
-            
-            # Remove old range and mean_norm
-            # self.range = self.max_vals - self.min_vals + 1e-8
-            # self.mean_norm = (self.mean_vals - self.min_vals) / self.range * 2.0 - 1.0
+            # --- NEW SCALING LOGIC (Standardization) ---
+            # Add epsilon for numerical stability
+            self.std_vals = self.std_vals + 1e-8 
             # --- END MODIFICATION ---
         # --- END MODIFICATION ---
 
@@ -185,9 +163,9 @@ class RolloutMHDDataset2D(Dataset):
         return self.data.shape[0]
 
     def _normalize(self, x: torch.Tensor) -> torch.Tensor:
-        if self.min_vals is None: return x
-        # Center at 0 and scale by max absolute deviation
-        return (x - self.mean_vals) / self.max_abs_dev # <-- MODIFIED
+        if self.mean_vals is None: return x
+        # Center at 0 and scale by standard deviation
+        return (x - self.mean_vals) / self.std_vals # <-- MODIFIED
 
     def __getitem__(self, idx: int) -> torch.Tensor:
         sequence = self.data[idx : idx + self.rollout_steps + 1]
@@ -197,4 +175,3 @@ class RolloutMHDDataset2D(Dataset):
         # Permute to (T, C, X, Z)
         tensor_seq = torch.from_numpy(sequence).float().permute(0, 3, 1, 2)
         return self._normalize(tensor_seq)
-
