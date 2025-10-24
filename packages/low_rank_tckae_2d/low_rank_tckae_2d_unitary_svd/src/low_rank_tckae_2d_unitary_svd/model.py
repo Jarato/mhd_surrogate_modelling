@@ -1,7 +1,15 @@
 # -*- coding: utf-8 -*-
-# packages/mhd_q2d_tckae/src/mhd_q2d_tckae/model.py
+# packages/mhd_q2d_tckae/src/mhd_q2d_tckae/model_svd.py
 # Note: This is a modified version for 2D data (X, Z spatial dims)
 # with a new SVD-based Koopman operator.
+#
+# --- MODIFICATION ---
+# The model now dynamically supports two modes via a flag:
+# 1. (Default) Koopman operator on the high-dimensional flattened feature space (F).
+# 2. (Optional) Koopman operator on a lower-dimensional bottlenecked latent space (d).
+#
+# This is controlled by 'use_flattened_for_koopman' and the optional
+# 'latent_dim' and 'bottleneck_dim' arguments.
 
 from collections import OrderedDict
 from typing import Any, Dict, List
@@ -59,14 +67,17 @@ class PaddedConv2D(nn.Module):
 class Encoder2D(nn.Module):
     """
     A true 2D CNN Encoder, now using the custom PaddedConv2D layers.
+    --- MODIFIED ---
+    The fully-connected network is now just a Flatten operation.
+    The output is the high-dimensional flattened feature map.
     """
     def __init__(
         self,
         in_channels: int,
-        latent_dim: int,
+        # latent_dim: int, <-- REMOVED
     ):
         super().__init__()
-        self.latent_dim = latent_dim
+        # self.latent_dim = latent_dim <-- REMOVED
         self.in_channels = in_channels
 
         # --- MODIFIED: Replaced nn.Conv2d with our new PaddedConv2D ---
@@ -87,7 +98,9 @@ class Encoder2D(nn.Module):
         
         self.fc_network = nn.Sequential(
             nn.Flatten(),
-            # The Linear layers will be added dynamically.
+            # --- MODIFIED ---
+            # The Linear layers are no longer added here.
+            # The output of the encoder is the flattened feature map.
         )
 
     def forward(
@@ -103,37 +116,30 @@ class Encoder2D(nn.Module):
 class Decoder2D(nn.Module):
     """
     A true 2D CNN Decoder.
-    (No changes needed here as padding is handled by the encoder).
+    --- MODIFIED ---
+    This module is now just the "un-convolution". It takes the
+    high-dimensional flattened feature map as input.
     """
     def __init__(
         self,
-        latent_dim: int,
-        bottleneck_dim: int,
+        # latent_dim: int, <-- REMOVED
+        # bottleneck_dim: int, <-- REMOVED
         out_channels: int,
-        encoder_flattened_size: int,
+        # encoder_flattened_size: int, <-- REMOVED
         conv_output_shape: tuple[int, ...],
         target_spatial_dims: tuple[int, int],
-        use_bottleneck: bool = True,
+        # use_bottleneck: bool = True, <-- REMOVED
     ):
         super().__init__()
-        self.latent_dim = latent_dim
+        # self.latent_dim = latent_dim <-- REMOVED
         self.out_channels = out_channels
-        self.encoder_flattened_size = encoder_flattened_size
+        # self.encoder_flattened_size = encoder_flattened_size <-- REMOVED
         self.conv_output_shape = conv_output_shape
         self.target_spatial_dims = target_spatial_dims
 
-        fc_layers = []
-        if use_bottleneck:
-            fc_layers.extend([
-                nn.Linear(self.latent_dim, bottleneck_dim),
-                nn.GELU(),
-                nn.Linear(bottleneck_dim, self.encoder_flattened_size),
-            ])
-        else:
-            fc_layers.append(
-                nn.Linear(self.latent_dim, self.encoder_flattened_size)
-            )
-        self.fc_network = nn.Sequential(*fc_layers)
+        # --- MODIFIED ---
+        # The fc_network has been removed.
+        # --- END MODIFICATION ---
 
         self.conv_transpose_network = nn.Sequential(
             nn.ConvTranspose2d(256, 128, kernel_size=3, stride=2, padding=1, output_padding=1),
@@ -145,15 +151,19 @@ class Decoder2D(nn.Module):
             nn.ConvTranspose2d(64, 32, kernel_size=3, stride=2, padding=1, output_padding=1),
             nn.GELU(),
             nn.BatchNorm2d(32),
-            nn.ConvTranspose2d(32, self.out_channels, kernel_size=3, stride=2, padding=1, output_padding=1),
+            nn.ConvTranspose2D(32, self.out_channels, kernel_size=3, stride=2, padding=1, output_padding=1),
         )
 
     def forward(
         self,
         z: torch.Tensor,
     ) -> torch.Tensor:
-        x = self.fc_network(z)
-        x = x.view(-1, *self.conv_output_shape)
+        # --- MODIFIED ---
+        # x = self.fc_network(z) <-- REMOVED
+        # The input 'z' is now the flattened feature map.
+        # We just need to reshape it.
+        x = z.view(-1, *self.conv_output_shape)
+        # --- END MODIFICATION ---
         x = self.conv_transpose_network(x)
         
         # Crop to target dimension if necessary (due to conv arithmetic)
@@ -168,73 +178,107 @@ class tcKoopmanAutoencoder2D(nn.Module):
     The main Temporally-Consistent 2D Koopman Autoencoder model.
     
     --- MODIFIED ---
-    Now uses an SVD-based parameterization for the Koopman operator
-    K = U * Sigma * V^T
-    to enforce unitarity through loss terms.
+    The dynamics can now operate on either the flattened feature space 'F'
+    or a bottlenecked latent space 'd', controlled by flags.
+    
+    'latent_dim' (d) is the size of the Koopman space (either F or d_bottleneck)
+    'koopman_rank' (r) is the rank of the low-rank approximation.
     """
     def __init__(
         self,
         in_channels: int,
-        latent_dim: int,
-        koopman_rank: int, # <-- NEW: Rank 'r' of the SVD operator
+        koopman_rank: int, # <-- 'r' of the SVD operator
         input_spatial_dims: tuple[int, int],
         steps: int,
         steps_back: int,
         steps_tc: int,
         sequence_length: int, # M
-        bottleneck_dim: int = 4096,
-        use_bottleneck: bool = True,
+        # --- NEW DYNAMIC ARGUMENTS ---
+        use_flattened_for_koopman: bool = True,
+        latent_dim: int | None = None,      # 'd' (if not using flattened)
+        bottleneck_dim: int | None = None,  # 'b' (if not using flattened)
     ):
         super().__init__()
-        self.use_bottleneck = use_bottleneck
         self.steps = steps
         self.steps_back = steps_back
         self.steps_tc = steps_tc
-        self.latent_dim = latent_dim
         self.koopman_rank = koopman_rank
+        self.use_flattened_for_koopman = use_flattened_for_koopman
         
         x_dim, z_dim = input_spatial_dims
         
-        self.encoder = Encoder2D(in_channels, latent_dim)
+        # Encoder is now just the ConvNet + Flatten
+        self.encoder = Encoder2D(in_channels)
         
+        # We still need to do a dummy pass to find the flattened size
         with torch.no_grad():
             dummy_input = torch.zeros(1, in_channels, x_dim, z_dim)
+            conv_output_before_flatten = self.encoder.conv_network(dummy_input)
+            flattened_output = self.encoder.fc_network(conv_output_before_flatten)
             
-            conv_output = self.encoder.conv_network(dummy_input)
-            flattened_size = conv_output.flatten(1).shape[1]
-            
-            if self.use_bottleneck:
-                self.encoder.fc_network.add_module(
-                    "1", nn.Linear(flattened_size, bottleneck_dim)
-                )
-                self.encoder.fc_network.add_module("2", nn.GELU())
-                self.encoder.fc_network.add_module(
-                    "3", nn.Linear(bottleneck_dim, latent_dim)
-                )
-            else:
-                self.encoder.fc_network.add_module(
-                    "1", nn.Linear(flattened_size, latent_dim)
-                )
+            flattened_size = flattened_output.shape[1]      # This is 'F'
+            conv_output_shape = conv_output_before_flatten.shape[1:]
 
-            conv_output_shape = conv_output.shape[1:]
-
+        # Decoder is now just the ConvTransposeNet
         self.decoder = Decoder2D(
-            latent_dim=latent_dim,
-            bottleneck_dim=bottleneck_dim,
             out_channels=in_channels,
-            encoder_flattened_size=flattened_size,
             conv_output_shape=conv_output_shape,
             target_spatial_dims=input_spatial_dims,
-            use_bottleneck=self.use_bottleneck,
         )
 
-        # --- NEW SVD-based Koopman Operator Parameters ---
+        # --- NEW: CONDITIONAL BOTTLENECK AND KOOPMAN SPACE ---
+        
+        # Default: Koopman space is the flattened space
+        self.bottleneck_to_latent = nn.Identity()
+        self.latent_to_bottleneck = nn.Identity()
+        self.koopman_space_dim = flattened_size # 'd' = 'F'
+
+        if not self.use_flattened_for_koopman:
+            # If flag is false, build the bottleneck layers
+            if latent_dim is None or bottleneck_dim is None:
+                raise ValueError(
+                    "If 'use_flattened_for_koopman' is False, "
+                    "'latent_dim' and 'bottleneck_dim' must be provided."
+                )
+            
+            logging.info(
+                f"Using bottleneck: Flattened ({flattened_size}) -> "
+                f"Bottleneck ({bottleneck_dim}) -> Latent ({latent_dim})"
+            )
+            
+            self.bottleneck_to_latent = nn.Sequential(
+                nn.Linear(flattened_size, bottleneck_dim),
+                nn.GELU(),
+                nn.Linear(bottleneck_dim, latent_dim)
+            )
+            self.latent_to_bottleneck = nn.Sequential(
+                nn.Linear(latent_dim, bottleneck_dim),
+                nn.GELU(),
+                nn.Linear(bottleneck_dim, flattened_size)
+            )
+            # Koopman space is the bottlenecked latent space
+            self.koopman_space_dim = latent_dim # 'd' = 'd_bottleneck'
+
+        # self.latent_dim is a convenience attribute for the *actual* size
+        # of the space where the Koopman operator lives.
+        self.latent_dim = self.koopman_space_dim
+        logging.info(
+            f"Initializing Koopman SVD operator in space d={self.latent_dim} "
+            f"with rank r={self.koopman_rank}"
+        )
+        
+        # --- END OF CONDITIONAL BLOCK ---
+
+
+        # --- SVD Koopman Operator Parameters ---
         # K = U * Sigma * V^T
+        # self.koopman_space_dim is the 'd' (either F or d_bottleneck)
+        # self.koopman_rank is 'r'
         # U_learn: (d, r)
         # V_learn: (d, r)
         # Sigma_learn: (r,)
-        self.U_learn = nn.Parameter(torch.empty(self.latent_dim, self.koopman_rank))
-        self.V_learn = nn.Parameter(torch.empty(self.latent_dim, self.koopman_rank))
+        self.U_learn = nn.Parameter(torch.empty(self.koopman_space_dim, self.koopman_rank))
+        self.V_learn = nn.Parameter(torch.empty(self.koopman_space_dim, self.koopman_rank))
         self.Sigma_learn = nn.Parameter(torch.empty(self.koopman_rank))
         
         # Initialize parameters for stability
@@ -245,17 +289,31 @@ class tcKoopmanAutoencoder2D(nn.Module):
 
 
     def encode(self, x: torch.Tensor) -> torch.Tensor:
-        return self.encoder(x)
+        """
+        Encodes the input image 'x' into the Koopman space.
+        If using bottleneck, x -> z_flat -> z_latent
+        If not,            x -> z_flat -> (Identity) -> z_flat
+        """
+        z_flat = self.encoder(x)
+        z_koopman = self.bottleneck_to_latent(z_flat)
+        return z_koopman
 
-    def decode(self, z: torch.Tensor) -> torch.Tensor:
-        return self.decoder(z)
+    def decode(self, z_koopman: torch.Tensor) -> torch.Tensor:
+        """
+        Decodes a state 'z_koopman' from the Koopman space back to the image space.
+        If using bottleneck, z_latent -> z_flat -> x_recon
+        If not,            z_flat -> (Identity) -> z_flat -> x_recon
+        """
+        z_flat = self.latent_to_bottleneck(z_koopman)
+        x_recon = self.decoder(z_flat)
+        return x_recon
 
     def koopman_step(self, z: torch.Tensor) -> torch.Tensor:
         """
         Applies the forward Koopman operator: z_k+1 = z_k * K
         where K = U * Sigma * V^T
         """
-        # z: (B, d)
+        # z: (B, d) where d is self.koopman_space_dim
         # U_learn: (d, r)
         # Sigma_learn: (r,)
         # V_learn: (d, r)
@@ -277,7 +335,7 @@ class tcKoopmanAutoencoder2D(nn.Module):
         Applies the backward Koopman operator: z_k-1 = z_k * K^-1
         where K^-1 = V * Sigma^-1 * U^T
         """
-        # z: (B, d)
+        # z: (B, d) where d is self.koopman_space_dim
         
         # z_v = z @ V -> (B, r)
         z_v = z @ self.V_learn
@@ -310,7 +368,7 @@ class tcKoopmanAutoencoder2D(nn.Module):
             latent_key = "latent_states_back"
         else:
             raise ValueError(f"Unknown mode: {mode}")
-
+        # z is now the state in the correct Koopman space (flattened or bottlenecked)
         z = self.encode(x)
         
         predicted_states = []
@@ -320,8 +378,12 @@ class tcKoopmanAutoencoder2D(nn.Module):
         for _ in range(max_steps):
             z_k = op(z_k)
             latent_states.append(z_k)
+            # self.decode() correctly handles decoding from either space
             predicted_states.append(self.decode(z_k))
             
+        # self.decode() correctly handles decoding from either space
         predicted_states.append(self.decode(z))
         
         return {state_key: predicted_states, latent_key: latent_states}
+
+
