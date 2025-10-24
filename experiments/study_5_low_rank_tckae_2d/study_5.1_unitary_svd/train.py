@@ -62,13 +62,19 @@ def parse_args() -> argparse.Namespace:
     optim_group.add_argument("--clip-grad-value", type=float, default=25.0, help="Value to clip gradients to.")
     
     model_group = parser.add_argument_group("Model Architecture")
-    model_group.add_argument("--latent-dim", type=int, default=128, help="Dimension of the latent space (d).")
-    # --- NEW ARGUMENT ---
-    model_group.add_argument("--koopman-rank", type=int, default=None, help="Rank 'r' for the SVD Koopman operator. Defaults to latent_dim if not set.")
-    model_group.add_argument("--bottleneck-dim", type=int, default=4096, help="Dimension of the intermediate bottleneck layer.")
-    model_group.add_argument('--use-bottleneck', dest='use_bottleneck', action='store_true', help="Force the use of the bottleneck layer.")
-    model_group.add_argument('--no-bottleneck', dest='use_bottleneck', action='store_false', help="Disable the bottleneck layer.")
+    # --- MODIFIED ARGS ---
+    model_group.add_argument("--latent-dim", type=int, default=None, help="Dimension of the latent space (d). Required if --no-flattened-for-koopman is set.")
+    model_group.add_argument("--koopman-rank", type=int, default=None, help="Rank 'r' for the SVD Koopman operator. If not set, defaults to --latent-dim (if using bottleneck) or fails otherwise.")
+    model_group.add_argument("--bottleneck-dim", type=int, default=None, help="Dimension of the intermediate bottleneck layer. Required if --no-flattened-for-koopman and --use-bottleneck are set.")
+    
+    model_group.add_argument('--use-flattened-for-koopman', dest='use_flattened_for_koopman', action='store_true', help="Use the high-dim flattened space for Koopman. (Default)")
+    model_group.add_argument('--no-flattened-for-koopman', dest='use_flattened_for_koopman', action='store_false', help="Use a lower-dim latent space for Koopman.")
+    parser.set_defaults(use_flattened_for_koopman=True)
+    
+    model_group.add_argument('--use-bottleneck', dest='use_bottleneck', action='store_true', help="Force the use of the bottleneck layer (if not using flattened).")
+    model_group.add_argument('--no-bottleneck', dest='use_bottleneck', action='store_false', help="Disable the bottleneck layer (if not using flattened).")
     parser.set_defaults(use_bottleneck=True)
+    # --- END MODIFIED ARGS ---
     
     tckae_group = parser.add_argument_group("tcKAE Hyperparameters")
     tckae_group.add_argument("--steps", type=int, default=15, help="Steps for learning forward dynamics (K).")
@@ -448,8 +454,20 @@ def main():
         # --- MODIFIED: Ensure resumed run uses checkpoint's HParams ---
         args.sequence_length, args.steps = model_config["sequence_length"], model_config["steps"]
         args.channels = model_config.get("channels_used")
-        args.latent_dim = model_config["latent_dim"]
-        args.koopman_rank = model_config.get("koopman_rank", args.latent_dim) # <-- NEW
+        
+        # Load the new config flags
+        args.use_flattened_for_koopman = model_config.get("use_flattened_for_koopman", False) # Default to old behavior if flag missing
+        args.use_bottleneck = model_config.get("use_bottleneck", True) # Default to old behavior if flag missing
+        args.latent_dim = model_config.get("latent_dim") # Will be None if not present
+        args.bottleneck_dim = model_config.get("bottleneck_dim") # Will be None if not present
+        args.koopman_rank = model_config.get("koopman_rank") 
+        
+        if args.koopman_rank is None:
+             # Fallback for checkpoints saved *just* before this change
+             # but after latent_dim was added
+             args.koopman_rank = model_config.get("latent_dim")
+             logging.warning(f"Resumed checkpoint missing 'koopman_rank', falling back to 'latent_dim': {args.koopman_rank}")
+        # --- END MODIFIED ---
 
         data_assets = create_dataloaders(args, {**data_dict, "norm_stats": checkpoint["norm_stats"], "train_indices": checkpoint["train_indices"], "val_indices": checkpoint["val_indices"]})
         
@@ -476,21 +494,33 @@ def main():
         data_assets = create_dataloaders(args, data_dict)
         
         # --- MODIFIED: Add koopman_rank to config ---
-        koopman_rank_r = args.koopman_rank if args.koopman_rank else args.latent_dim
-        logging.info(f"Initializing model with Latent Dim (d)={args.latent_dim} and Koopman Rank (r)={koopman_rank_r}")
+        koopman_rank_r = args.koopman_rank
+        if koopman_rank_r is None:
+            if not args.use_flattened_for_koopman and args.latent_dim is not None:
+                koopman_rank_r = args.latent_dim
+                logging.info(f"Koopman rank not set, defaulting to latent_dim: {koopman_rank_r}")
+            else:
+                # This is an error. If using flattened, or if latent_dim is also None, rank must be set.
+                raise ValueError("Must provide --koopman-rank. (It can only be defaulted to --latent-dim when --no-flattened-for-koopman is set)")
+        
+        logging.info(f"Initializing model with Koopman Rank (r)={koopman_rank_r}")
         
         model_config = {
             "in_channels": data_assets["sample_input_shape"][0],
-            "latent_dim": args.latent_dim,
-            "koopman_rank": koopman_rank_r, # <-- NEW
+            "koopman_rank": koopman_rank_r, # <-- This is 'r'
             "input_spatial_dims": data_assets["sample_input_shape"][1:],
             "steps": args.steps,
             "steps_back": args.steps_back,
             "steps_tc": args.steps_tc,
             "sequence_length": args.sequence_length,
-            "bottleneck_dim": args.bottleneck_dim,
-            "use_bottleneck": args.use_bottleneck
+            # Pass the new flags
+            "use_flattened_for_koopman": args.use_flattened_for_koopman,
+            "use_bottleneck": args.use_bottleneck,
+            "latent_dim": args.latent_dim,      # This is 'd' (or None)
+            "bottleneck_dim": args.bottleneck_dim,  # This is 'b' (or None)
         }
+        # --- END MODIFIED ---
+        
         model = tcKoopmanAutoencoder2D(**model_config).to(DEVICE)
         optimizer = Adam(model.parameters(), lr=args.lr)
         scheduler = ReduceLROnPlateau(optimizer, 'min', factor=args.lr_factor, patience=args.lr_patience)
@@ -514,10 +544,11 @@ def main():
     
     # Update hparams with values from model_config to reflect actual running config
     hparams.update({
-        'latent_dim': model_config['latent_dim'],
-        'koopman_rank': model_config.get('koopman_rank', model_config['latent_dim']), # <-- NEW
-        'bottleneck_dim': model_config.get('bottleneck_dim', 4096),
+        'koopman_rank': model_config['koopman_rank'],
+        'use_flattened_for_koopman': model_config.get('use_flattened_for_koopman', False), # <-- NEW
         'use_bottleneck': model_config.get('use_bottleneck', True),
+        'latent_dim': model_config.get('latent_dim'),      # <-- MODIFIED
+        'bottleneck_dim': model_config.get('bottleneck_dim'),  # <-- MODIFIED
         'steps': model_config['steps'],
         'steps_back': model_config['steps_back'],
         'steps_tc': model_config['steps_tc'],
@@ -526,7 +557,10 @@ def main():
     
     # Clean up non-scalar values for hparam logging
     for key, value in hparams.items():
-        if isinstance(value, (Path, list)): hparams[key] = str(value)
+        if isinstance(value, (Path, list)): 
+            hparams[key] = str(value)
+        elif value is None:
+            hparams[key] = "None" # Convert None to string for logging
 
     metric_dict = {
         'hparam/best_val_loss': final_metrics["best_val_loss"],
@@ -542,3 +576,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
