@@ -289,6 +289,10 @@ class tcKoopmanAutoencoder2D(nn.Module):
                 self.latent_to_bottleneck = nn.Sequential(
                     nn.Linear(latent_dim, flattened_size)
                 )
+        
+        # --- NEW: Final activation before Koopman space ---
+        self.final_encoder_activation = nn.GELU()
+        # --- END NEW ---
 
         # self.latent_dim is a convenience attribute for the *actual* size
         # of the space where the Koopman operator lives.
@@ -322,11 +326,11 @@ class tcKoopmanAutoencoder2D(nn.Module):
     def encode(self, x: torch.Tensor) -> torch.Tensor:
         """
         Encodes the input image 'x' into the Koopman space.
-        If using bottleneck, x -> z_flat -> z_latent
-        If not,            x -> z_flat -> (Identity) -> z_flat
+        Applies a final GELU activation before the Koopman space.
         """
         z_flat = self.encoder(x)
-        z_koopman = self.bottleneck_to_latent(z_flat)
+        z_before_activation = self.bottleneck_to_latent(z_flat)
+        z_koopman = self.final_encoder_activation(z_before_activation)
         return z_koopman
 
     def decode(self, z_koopman: torch.Tensor) -> torch.Tensor:
@@ -416,4 +420,5 @@ class tcKoopmanAutoencoder2D(nn.Module):
         predicted_states.append(self.decode(z))
         
         return {state_key: predicted_states, latent_key: latent_states}
+
 
