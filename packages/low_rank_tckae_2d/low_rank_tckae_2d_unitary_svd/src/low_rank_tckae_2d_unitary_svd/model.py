@@ -4,15 +4,19 @@
 # with a new SVD-based Koopman operator.
 #
 # --- MODIFICATION ---
-# The model now dynamically supports two modes via a flag:
-# 1. (Default) Koopman operator on the high-dimensional flattened feature space (F).
-# 2. (Optional) Koopman operator on a lower-dimensional bottlenecked latent space (d).
-#
-# This is controlled by 'use_flattened_for_koopman' and the optional
-# 'latent_dim' and 'bottleneck_dim' arguments.
+# The model now dynamically supports three modes via flags:
+# 1. (use_flattened_for_koopman=True):
+#    Koopman op on the high-dimensional flattened feature space (F).
+# 2. (use_flattened_for_koopman=False, use_bottleneck=True):
+#    Koopman op on a lower-dim latent space (d), with an intermediate
+#    bottleneck layer (b). Path: F -> b -> d
+# 3. (use_flattened_for_koopman=False, use_bottleneck=False):
+#    Koopman op on a lower-dim latent space (d), with a direct
+#    FC layer. Path: F -> d
 
 from collections import OrderedDict
 from typing import Any, Dict, List
+import logging # <-- Added for logging info
 
 import torch
 import torch.nn as nn
@@ -151,7 +155,7 @@ class Decoder2D(nn.Module):
             nn.ConvTranspose2d(64, 32, kernel_size=3, stride=2, padding=1, output_padding=1),
             nn.GELU(),
             nn.BatchNorm2d(32),
-            nn.ConvTranspose2D(32, self.out_channels, kernel_size=3, stride=2, padding=1, output_padding=1),
+            nn.ConvTranspose2d(32, self.out_channels, kernel_size=3, stride=2, padding=1, output_padding=1), # <-- Fixed typo
         )
 
     def forward(
@@ -193,10 +197,11 @@ class tcKoopmanAutoencoder2D(nn.Module):
         steps_back: int,
         steps_tc: int,
         sequence_length: int, # M
-        # --- NEW DYNAMIC ARGUMENTS ---
+        # --- MODIFIED DYNAMIC ARGUMENTS ---
         use_flattened_for_koopman: bool = True,
+        use_bottleneck: bool = True, # <-- RE-INTRODUCED
         latent_dim: int | None = None,      # 'd' (if not using flattened)
-        bottleneck_dim: int | None = None,  # 'b' (if not using flattened)
+        bottleneck_dim: int | None = None,  # 'b' (if not using flattened and using bottleneck)
     ):
         super().__init__()
         self.steps = steps
@@ -204,6 +209,7 @@ class tcKoopmanAutoencoder2D(nn.Module):
         self.steps_tc = steps_tc
         self.koopman_rank = koopman_rank
         self.use_flattened_for_koopman = use_flattened_for_koopman
+        self.use_bottleneck = use_bottleneck # <-- NEW
         
         x_dim, z_dim = input_spatial_dims
         
@@ -226,38 +232,63 @@ class tcKoopmanAutoencoder2D(nn.Module):
             target_spatial_dims=input_spatial_dims,
         )
 
-        # --- NEW: CONDITIONAL BOTTLENECK AND KOOPMAN SPACE ---
+        # --- MODIFIED: CONDITIONAL BOTTLENECK AND KOOPMAN SPACE ---
         
         # Default: Koopman space is the flattened space
         self.bottleneck_to_latent = nn.Identity()
         self.latent_to_bottleneck = nn.Identity()
-        self.koopman_space_dim = flattened_size # 'd' = 'F'
-
-        if not self.use_flattened_for_koopman:
-            # If flag is false, build the bottleneck layers
-            if latent_dim is None or bottleneck_dim is None:
+        
+        if self.use_flattened_for_koopman:
+            # STATE 1: Koopman op on flattened space (F)
+            self.koopman_space_dim = flattened_size # 'd' = 'F'
+            logging.info(
+                f"Using flattened space for Koopman. Operator space d={self.koopman_space_dim}"
+            )
+        else:
+            # STATE 2 or 3: Koopman op on latent space (d)
+            if latent_dim is None:
                 raise ValueError(
-                    "If 'use_flattened_for_koopman' is False, "
-                    "'latent_dim' and 'bottleneck_dim' must be provided."
+                    "If 'use_flattened_for_koopman' is False, 'latent_dim' must be provided."
                 )
             
-            logging.info(
-                f"Using bottleneck: Flattened ({flattened_size}) -> "
-                f"Bottleneck ({bottleneck_dim}) -> Latent ({latent_dim})"
-            )
-            
-            self.bottleneck_to_latent = nn.Sequential(
-                nn.Linear(flattened_size, bottleneck_dim),
-                nn.GELU(),
-                nn.Linear(bottleneck_dim, latent_dim)
-            )
-            self.latent_to_bottleneck = nn.Sequential(
-                nn.Linear(latent_dim, bottleneck_dim),
-                nn.GELU(),
-                nn.Linear(bottleneck_dim, flattened_size)
-            )
-            # Koopman space is the bottlenecked latent space
             self.koopman_space_dim = latent_dim # 'd' = 'd_bottleneck'
+
+            if self.use_bottleneck:
+                # STATE 2: Flattened -> Bottleneck -> Latent
+                if bottleneck_dim is None:
+                    raise ValueError(
+                        "If 'use_bottleneck' is True (and not using flattened), "
+                        "'bottleneck_dim' must be provided."
+                    )
+                
+                logging.info(
+                    f"Using bottleneck: Flattened ({flattened_size}) -> "
+                    f"Bottleneck ({bottleneck_dim}) -> Latent ({latent_dim})"
+                )
+                
+                self.bottleneck_to_latent = nn.Sequential(
+                    nn.Linear(flattened_size, bottleneck_dim),
+                    nn.GELU(),
+                    nn.Linear(bottleneck_dim, latent_dim)
+                )
+                self.latent_to_bottleneck = nn.Sequential(
+                    nn.Linear(latent_dim, bottleneck_dim),
+                    nn.GELU(),
+                    nn.Linear(bottleneck_dim, flattened_size)
+                )
+            
+            else:
+                # STATE 3: Flattened -> Latent (No Bottleneck)
+                logging.info(
+                    f"Using direct connection (no bottleneck): "
+                    f"Flattened ({flattened_size}) -> Latent ({latent_dim})"
+                )
+                self.bottleneck_to_latent = nn.Sequential(
+                    nn.Linear(flattened_size, latent_dim)
+                )
+                self.latent_to_bottleneck = nn.Sequential(
+                    nn.Linear(latent_dim, flattened_size)
+                )
 
         # self.latent_dim is a convenience attribute for the *actual* size
         # of the space where the Koopman operator lives.
@@ -385,5 +416,4 @@ class tcKoopmanAutoencoder2D(nn.Module):
         predicted_states.append(self.decode(z))
         
         return {state_key: predicted_states, latent_key: latent_states}
-
 
