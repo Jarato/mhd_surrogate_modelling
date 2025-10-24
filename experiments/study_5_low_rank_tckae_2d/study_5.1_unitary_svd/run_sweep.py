@@ -48,11 +48,11 @@ param_grid = {
     
     # --- Architectural Sweep ---
     # These flags control the model's structure
-    'use_flattened_for_koopman': [True, False],
-    'use_bottleneck': [True, False],
-    'latent_dim': [None, 256],            # 'd' (Required if not flat)
-    'bottleneck_dim': [None, 4096],       # 'b' (Required if not flat and use_bottleneck)
-    'koopman_rank': [256, 512, None],     # 'r' (None defaults to latent_dim in bottleneck modes)
+    'use_flattened_for_koopman': [True],
+    'use_bottleneck': [False],
+    'latent_dim': [None],            # 'd' (Required if not flat)
+    'bottleneck_dim': [None],       # 'b' (Required if not flat and use_bottleneck)
+    'koopman_rank': [16],     # 'r' (None defaults to latent_dim in bottleneck modes)
 }
 
 # --- Fixed Training Arguments ---
