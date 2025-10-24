@@ -1,5 +1,7 @@
 # -*- coding: utf-8 -*-
 # experiments/study_3_q2d_tckae/run_sweep.py
+# --- MODIFIED to run with train_svd.py and its new dynamic architecture flags ---
+# --- MODIFIED to group all runs into a single, timestamped sweep directory ---
 
 import subprocess
 import itertools
@@ -7,11 +9,16 @@ from pathlib import Path
 import logging
 import argparse
 import shutil
+from datetime import datetime # <-- Added import
 
 # --- Configuration ---
 # This script should be run from its own directory:
 # cd experiments/study_3_q2d_tckae
 # python run_sweep.py | tee output/sweep_log.txt
+
+# --- NEW: Sweep Naming ---
+SWEEP_NAME = "svd_dynamic_sweep"
+NO_TIMESTAMPS = True # If True, uses SWEEP_NAME only. If False, appends timestamp.
 
 # --- Script and Data Paths ---
 TRAIN_SCRIPT = "train.py"
@@ -27,7 +34,7 @@ BASE_PERSISTENT_DIR = Path("/cephfs/users/skowronek/Documents/PhD/nuclear_fusion
 # BASE_SCRATCH_DIR = Path("/raid/skowronek/mhd_surrogate_modelling/experiments/study_5_low_rank_tckae_2d/study_5.1_unitary_svd/output/test/")
 BASE_SCRATCH_DIR = None
 
-# --- Hyperparameter Grid ---
+# --- Hyperparameter Grid (MODIFIED for dynamic architecture) ---
 # Define the parameter space for the grid search.
 param_grid = {
     'lr': [1e-4],
@@ -90,6 +97,24 @@ def main():
     logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
     logging.info("Starting tcKAE (SVD) hyperparameter sweep...")
     
+    # --- NEW: Create a unique, timestamped directory for this specific sweep ---
+    if NO_TIMESTAMPS:
+        sweep_dir_name = f"{SWEEP_NAME}"
+    else:
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        sweep_dir_name = f"{SWEEP_NAME}_{timestamp}"
+
+    SWEEP_BASE_PERSISTENT_DIR = BASE_PERSISTENT_DIR / sweep_dir_name
+    SWEEP_BASE_SCRATCH_DIR = BASE_SCRATCH_DIR / sweep_dir_name if BASE_SCRATCH_DIR else None
+
+    # Create the directories for this sweep
+    SWEEP_BASE_PERSISTENT_DIR.mkdir(parents=True, exist_ok=True)
+    if SWEEP_BASE_SCRATCH_DIR:
+        SWEEP_BASE_SCRATCH_DIR.mkdir(parents=True, exist_ok=True)
+
+    logging.info(f"Saving all runs for this sweep in: {SWEEP_BASE_PERSISTENT_DIR}")
+    # --- END NEW ---
+
     # Create a list of all hyperparameter combinations
     keys, values = zip(*param_grid.items())
     run_configs_all = [dict(zip(keys, v)) for v in itertools.product(*values)]
@@ -168,8 +193,9 @@ def main():
         run_name = "_".join(run_name_parts)
         # --- End of run name modification ---
         
-        persistent_dir = BASE_PERSISTENT_DIR / run_name
-        scratch_dir = BASE_SCRATCH_DIR / run_name if BASE_SCRATCH_DIR else None
+        # --- MODIFIED: Use sweep-specific base directories ---
+        persistent_dir = SWEEP_BASE_PERSISTENT_DIR / run_name
+        scratch_dir = SWEEP_BASE_SCRATCH_DIR / run_name if SWEEP_BASE_SCRATCH_DIR else None
         
         # Store directory paths for potential cleanup later
         created_dirs_for_cleanup.append(persistent_dir)
