@@ -96,7 +96,7 @@ class Encoder2D(nn.Module):
             nn.GELU(),
             nn.BatchNorm2d(128),
             PaddedConv2D(128, 256, kernel_size=3, stride=2),
-            nn.GELU(),
+            # nn.GELU(), <-- REMOVED this line as it was redundant
             nn.BatchNorm2d(256),
         )
         
@@ -420,5 +420,4 @@ class tcKoopmanAutoencoder2D(nn.Module):
         predicted_states.append(self.decode(z))
         
         return {state_key: predicted_states, latent_key: latent_states}
-
 
