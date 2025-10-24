@@ -31,24 +31,28 @@ BASE_SCRATCH_DIR = None
 # Define the parameter space for the grid search.
 param_grid = {
     'lr': [1e-4],
-    'latent_dim': [256],
-    'koopman_rank': [16],
-    'bottleneck_dim': [4096],
-    'use_bottleneck': [True],
     'batch_size': [64],
     'validation_batch_size': [16],
-    'sequence_length': [1], # This is M - Reduced from 4 to 2 to lower memory usage
-    'steps': [1],           # This is K for forward dynamics
-    'steps_back': [0],      # K for backward dynamics
+    'sequence_length': [1],
+    'steps': [1],
+    'steps_back': [0],
     'steps_tc': [0],
     'epoch-trans': [0],
     'gamma_identity': [1.0],
     'gamma_fwd': [1.0],
     'gamma_tc': [0],
-    'gamma_bwd': [0],           # Used only if backward=True
-    'gamma_svd_ortho': [0],
-    'gamma_svd_sigma': [0],
-    'backward': [False], # Sweep between tcKAE and tcKAE+cKAE
+    'gamma_bwd': [0],
+    'gamma_svd_ortho': [1e-5], # Weight for orthonormality loss
+    'gamma_svd_sigma': [1e-5], # Weight for singular value loss
+    'backward': [False],
+    
+    # --- Architectural Sweep ---
+    # These flags control the model's structure
+    'use_flattened_for_koopman': [True, False],
+    'use_bottleneck': [True, False],
+    'latent_dim': [None, 256],            # 'd' (Required if not flat)
+    'bottleneck_dim': [None, 4096],       # 'b' (Required if not flat and use_bottleneck)
+    'koopman_rank': [256, 512, None],     # 'r' (None defaults to latent_dim in bottleneck modes)
 }
 
 # --- Fixed Training Arguments ---
@@ -70,7 +74,7 @@ fixed_args = {
 
 def main():
     """Main function to run the hyperparameter sweep."""
-    parser = argparse.ArgumentParser(description="Run a hyperparameter sweep for tcKAE (SVD Version).") # <-- MODIFIED
+    parser = argparse.ArgumentParser(description="Run a hyperparameter sweep for tcKAE (SVD Version).")
     parser.add_argument(
         "--resume",
         action="store_true",
@@ -84,37 +88,83 @@ def main():
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
-    logging.info("Starting tcKAE (SVD) hyperparameter sweep...") # <-- MODIFIED
+    logging.info("Starting tcKAE (SVD) hyperparameter sweep...")
     
     # Create a list of all hyperparameter combinations
     keys, values = zip(*param_grid.items())
-    run_configs = [dict(zip(keys, v)) for v in itertools.product(*values)]
+    run_configs_all = [dict(zip(keys, v)) for v in itertools.product(*values)]
+    
+    logging.info(f"Generated {len(run_configs_all)} total parameter combinations. Validating...")
+    
+    run_configs = []
+    # --- Validation Block ---
+    # Filter out invalid architectural combinations
+    for config in run_configs_all:
+        is_flat = config['use_flattened_for_koopman']
+        is_bottle = config['use_bottleneck']
+        ld = config['latent_dim']
+        bd = config['bottleneck_dim']
+        kr = config['koopman_rank']
 
-    logging.info(f"Generated {len(run_configs)} unique hyperparameter configurations.")
+        if is_flat:
+            # STATE 1: Koopman on flattened space.
+            # ld, bd must be None. kr must be set.
+            if ld is None and bd is None and kr is not None:
+                # To reduce redundant runs, only run this when use_bottleneck is False
+                if not is_bottle:
+                    run_configs.append(config)
+        
+        else:
+            # STATE 2 or 3: Koopman on latent space.
+            # ld must NOT be None.
+            if ld is None:
+                continue
+
+            if is_bottle:
+                # STATE 2: Bottleneck path F -> b -> d
+                # bd must NOT be None.
+                if bd is not None:
+                    run_configs.append(config)
+            else:
+                # STATE 3: Direct path F -> d
+                # bd must BE None.
+                if bd is None:
+                    run_configs.append(config)
+    # --- End Validation ---
+
+    logging.info(f"Found {len(run_configs)} valid hyperparameter configurations to run.")
 
     created_dirs_for_cleanup = []
 
     for i, config in enumerate(run_configs):
+        
         # --- Create a descriptive run name (MODIFIED) ---
+        run_name_parts = []
+        kr_str = config['koopman_rank'] if config['koopman_rank'] is not None else 'auto'
         
-        # Use .get() for koopman_rank for safety, default to latent_dim if not in grid
-        koopman_rank = config.get('koopman_rank', config['latent_dim'])
-        
-        run_name_parts = [
-            f"ld{config['latent_dim']}",
-            f"kr{koopman_rank}", # <-- NEW
+        if config['use_flattened_for_koopman']:
+            run_name_parts.append(f"flat_kr{kr_str}")
+        else:
+            run_name_parts.append(f"ld{config['latent_dim']}_kr{kr_str}")
+            if config['use_bottleneck']:
+                run_name_parts.append(f"bn{config['bottleneck_dim']}")
+            else:
+                run_name_parts.append("direct")
+
+        run_name_parts.extend([
             f"M{config['sequence_length']}",
             f"K{config['steps']}",
             f"Ktc{config['steps_tc']}",
             f"gtc{config['gamma_tc']}",
-            f"g_svdo{config['gamma_svd_ortho']}", # <-- NEW
-            f"g_svds{config['gamma_svd_sigma']}", # <-- NEW
-        ]
+            f"g_svdo{config['gamma_svd_ortho']}",
+            f"g_svds{config['gamma_svd_sigma']}",
+        ])
+        
         if config['backward']:
-            # Note: Removed _gc (gamma_con) from the name
             run_name_parts.append(f"bwd_True_gb{config['gamma_bwd']}")
         else:
             run_name_parts.append("bwd_False")
+        
         run_name = "_".join(run_name_parts)
         # --- End of run name modification ---
         
@@ -152,13 +202,16 @@ def main():
         if should_resume:
             cmd.append("--resume")
 
-        # Add hyperparameters from the config
+        # --- MODIFIED: Add hyperparameters from the config ---
         for key, value in config.items():
-            if key in ['use_bottleneck', 'backward']:
+            # Handle boolean flags
+            if key in ['use_bottleneck', 'backward', 'use_flattened_for_koopman']:
                 if value:
                     cmd.append(f'--{key.replace("_", "-")}')
-            else:
+            # Handle None values (don't add them to cmd)
+            elif value is not None:
                 cmd.extend([f"--{key.replace('_', '-')}", str(value)])
+        # --- END MODIFICATION ---
                 
         for key, value in fixed_args.items():
             cmd.extend([f"--{key.replace('_', '-')}", str(value)])
@@ -189,3 +242,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
