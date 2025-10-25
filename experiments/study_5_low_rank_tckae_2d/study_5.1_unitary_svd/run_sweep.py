@@ -181,6 +181,8 @@ def main():
             f"K{config['steps']}",
             f"Ktc{config['steps_tc']}",
             f"gtc{config['gamma_tc']}",
+            f"gi{config['gamma_identity']}", # <-- ADDED
+            f"gfwd{config['gamma_fwd']}",   # <-- ADDED
             f"g_svdo{config['gamma_svd_ortho']}",
             f"g_svds{config['gamma_svd_sigma']}",
         ])
