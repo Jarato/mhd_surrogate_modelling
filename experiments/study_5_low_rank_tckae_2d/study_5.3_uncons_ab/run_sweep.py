@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# experiments/study_5_low_rank_tckae_2d/study_5.1_unitary_svd/run_sweep.py
+# experiments/study_5_low_rank_tckae_2d/study_5.3_uncons_ab/run_sweep.py
 # --- MODIFIED to run with train.py for the AB-Decomposition model ---
 # --- MODIFIED to group all runs into a single, timestamped sweep directory ---
 
