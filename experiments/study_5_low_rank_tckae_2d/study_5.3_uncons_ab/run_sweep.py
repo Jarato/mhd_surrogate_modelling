@@ -36,8 +36,6 @@ BASE_SCRATCH_DIR = Path("/raid/skowronek/mhd_surrogate_modelling/experiments/stu
 
 # --- Hyperparameter Grid (MODIFIED for AB decomposition) ---
 # Define the parameter space for the grid search.
-# --- Hyperparameter Grid (MODIFIED for AB decomposition) ---
-# Define the parameter space for the grid search.
 param_grid = {
     'lr': [1e-4],
     'batch_size': [32],
@@ -66,7 +64,7 @@ param_grid = {
 # --- Fixed Training Arguments ---
 # These arguments will be the same for all runs.
 fixed_args = {
-    "epochs": 2,
+    "epochs": 1,
     "patience": 40,
     "lr_patience": 10,
     "clip_grad_value": 128,
@@ -75,7 +73,7 @@ fixed_args = {
     "validation_num_workers": 0,
     "checkpoint_save_freq": 32,
     "persistent_save_freq": 1024,
-    "validation_rollout_steps": 32,
+    "validation_rollout_steps": 8,
     "val-split": 0.1,
 }
 
