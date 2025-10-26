@@ -36,12 +36,14 @@ BASE_SCRATCH_DIR = Path("/raid/skowronek/mhd_surrogate_modelling/experiments/stu
 
 # --- Hyperparameter Grid (MODIFIED for AB decomposition) ---
 # Define the parameter space for the grid search.
+# --- Hyperparameter Grid (MODIFIED for AB decomposition) ---
+# Define the parameter space for the grid search.
 param_grid = {
     'lr': [1e-4],
-    'batch_size': [64],
-    'validation_batch_size': [256],
+    'batch_size': [32],
+    'validation_batch_size': [128],
     'sequence_length': [1],
-    'steps': [1],
+    'steps': [8],
     'steps_back': [0],
     'steps_tc': [0],
     'epoch-trans': [0],
@@ -58,13 +60,13 @@ param_grid = {
     'use_bottleneck': [False],
     'latent_dim': [None],            # 'd' (Required if not flat)
     'bottleneck_dim': [None],        # 'b' (Required if not flat and use_bottleneck)
-    'koopman_rank': [16],      # 'r' (None defaults to latent_dim in bottleneck modes)
+    'koopman_rank': [64],      # 'r' (None defaults to latent_dim in bottleneck modes)
 }
 
 # --- Fixed Training Arguments ---
 # These arguments will be the same for all runs.
 fixed_args = {
-    "epochs": 1,
+    "epochs": 2,
     "patience": 40,
     "lr_patience": 10,
     "clip_grad_value": 128,
@@ -73,7 +75,7 @@ fixed_args = {
     "validation_num_workers": 0,
     "checkpoint_save_freq": 32,
     "persistent_save_freq": 1024,
-    "validation_rollout_steps": 8,
+    "validation_rollout_steps": 32,
     "val-split": 0.1,
 }
 
