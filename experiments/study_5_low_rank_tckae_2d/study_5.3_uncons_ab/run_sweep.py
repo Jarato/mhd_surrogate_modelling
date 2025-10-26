@@ -24,13 +24,15 @@ NO_TIMESTAMPS = True # If True, uses SWEEP_NAME only. If False, appends timestam
 TRAIN_SCRIPT = "train.py"
 DATA_PATH = "/raid/skowronek/preprocessed_dns_output/01-Cold_Runs/01-Re16K_Ha325/T1492_x1151_y1_z127_c2/preprocessed/train_val_set.npz"
 NORM_STATS_PATH = "/raid/skowronek/preprocessed_dns_output/01-Cold_Runs/01-Re16K_Ha325/T1492_x1151_y1_z127_c2/preprocessed/normalization_stats.npz"
+# DATA_PATH = "/raid/skowronek/preprocessed_dns_output/01-Cold_Runs/01-Re16K_Ha325/interp/prep2/train_val_set.npz"
+# NORM_STATS_PATH = "/raid/skowronek/preprocessed_dns_output/01-Cold_Runs/01-Re16K_Ha325/interp/prep2/normalization_stats.npz"
 
 # Define the mandatory persistent directory and optional scratch directory
 # These will be the top-level directories for all sweep runs.
 # --- MODIFIED: Updated path for AB model ---
-BASE_PERSISTENT_DIR = Path("/cephfs/users/skowronek/Documents/PhD/nuclear_fusion_cooling/prediction/mhd_surrogate_modelling/experiments/study_5_low_rank_tckae_2d/study_5.2_uncons_ab/output/test/")
+BASE_PERSISTENT_DIR = Path("/cephfs/users/skowronek/Documents/PhD/nuclear_fusion_cooling/prediction/mhd_surrogate_modelling/experiments/study_5_low_rank_tckae_2d/study_5.3_uncons_ab/output/test/")
 
-# BASE_SCRATCH_DIR = Path("/raid/skowronek/mhd_surrogate_modelling/experiments/study_5_low_rank_tckae_2d/study_5.2_uncons_ab/output/test/")
+# BASE_SCRATCH_DIR = Path("/raid/skowronek/mhd_surrogate_modelling/experiments/study_5_low_rank_tckae_2d/study_5.3_uncons_ab/output/test/")
 BASE_SCRATCH_DIR = None
 
 # --- Hyperparameter Grid (MODIFIED for AB decomposition) ---
