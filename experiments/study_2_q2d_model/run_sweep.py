@@ -12,7 +12,7 @@ import argparse
 # cd experiments/study_2_q2d_model
 # python run_sweep.py
 # For logging use:
-# python run_sweep.py | tee output/sweep_log.txt
+# python run_sweep.py 2>&1 | tee output/sweep_log.txt
 
 # --- Script and Data Paths ---
 TRAIN_SCRIPT = "train.py"

@@ -14,7 +14,7 @@ from datetime import datetime # <-- Added import
 # --- Configuration ---
 # This script should be run from its own directory:
 # cd experiments/study_3_q2d_tckae
-# python run_sweep.py | tee output/sweep_log.txt
+# python run_sweep.py 2>&1 | tee output/sweep_log.txt
 
 # --- NEW: Sweep Naming ---
 SWEEP_NAME = "svd_dynamic_sweep"

@@ -14,7 +14,7 @@ from datetime import datetime
 # --- Configuration ---
 # This script should be run from its own directory:
 # cd experiments/study_3_q2d_tckae_uncons_ab
-# python run_sweep.py | tee output/sweep_log.txt
+# python run_sweep.py 2>&1 | tee output/sweep_log.txt
 
 # --- NEW: Sweep Naming ---
 SWEEP_NAME = "ab_uncons_sweep"
