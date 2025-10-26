@@ -32,15 +32,14 @@ NORM_STATS_PATH = "/raid/skowronek/preprocessed_dns_output/01-Cold_Runs/01-Re16K
 # --- MODIFIED: Updated path for AB model ---
 BASE_PERSISTENT_DIR = Path("/cephfs/users/skowronek/Documents/PhD/nuclear_fusion_cooling/prediction/mhd_surrogate_modelling/experiments/study_5_low_rank_tckae_2d/study_5.3_uncons_ab/output/test/")
 
-# BASE_SCRATCH_DIR = Path("/raid/skowronek/mhd_surrogate_modelling/experiments/study_5_low_rank_tckae_2d/study_5.3_uncons_ab/output/test/")
-BASE_SCRATCH_DIR = None
+BASE_SCRATCH_DIR = Path("/raid/skowronek/mhd_surrogate_modelling/experiments/study_5_low_rank_tckae_2d/study_5.3_uncons_ab/output/test/")
 
 # --- Hyperparameter Grid (MODIFIED for AB decomposition) ---
 # Define the parameter space for the grid search.
 param_grid = {
     'lr': [1e-4],
     'batch_size': [64],
-    'validation_batch_size': [16],
+    'validation_batch_size': [256],
     'sequence_length': [1],
     'steps': [1],
     'steps_back': [0],
