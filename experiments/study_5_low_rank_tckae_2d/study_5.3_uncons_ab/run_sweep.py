@@ -13,7 +13,7 @@ from datetime import datetime
 
 # --- Configuration ---
 # This script should be run from its own directory:
-# cd experiments/study_3_q2d_tckae_uncons_ab
+# cd experiments/study_5_low_rank_tckae_2d/study_5.3_uncons_ab
 # python run_sweep.py 2>&1 | tee output/sweep_log.txt
 
 # --- NEW: Sweep Naming ---

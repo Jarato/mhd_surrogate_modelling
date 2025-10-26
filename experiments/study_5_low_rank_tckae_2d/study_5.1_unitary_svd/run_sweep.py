@@ -13,7 +13,7 @@ from datetime import datetime # <-- Added import
 
 # --- Configuration ---
 # This script should be run from its own directory:
-# cd experiments/study_3_q2d_tckae
+# cd experiments/study_5_low_rank_tckae_2d/study_5.1_unitary_svd
 # python run_sweep.py 2>&1 | tee output/sweep_log.txt
 
 # --- NEW: Sweep Naming ---
@@ -31,8 +31,7 @@ NORM_STATS_PATH = "/raid/skowronek/preprocessed_dns_output/01-Cold_Runs/01-Re16K
 # These will be the top-level directories for all sweep runs.
 BASE_PERSISTENT_DIR = Path("/cephfs/users/skowronek/Documents/PhD/nuclear_fusion_cooling/prediction/mhd_surrogate_modelling/experiments/study_5_low_rank_tckae_2d/study_5.1_unitary_svd/output/test/")
 
-# BASE_SCRATCH_DIR = Path("/raid/skowronek/mhd_surrogate_modelling/experiments/study_5_low_rank_tckae_2d/study_5.1_unitary_svd/output/test/")
-BASE_SCRATCH_DIR = None
+BASE_SCRATCH_DIR = Path("/raid/skowronek/mhd_surrogate_modelling/experiments/study_5_low_rank_tckae_2d/study_5.1_unitary_svd/output/test/")
 
 # --- Hyperparameter Grid (MODIFIED for dynamic architecture) ---
 # Define the parameter space for the grid search.

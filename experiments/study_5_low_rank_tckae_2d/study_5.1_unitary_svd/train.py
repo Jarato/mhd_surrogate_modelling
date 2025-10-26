@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# experiments/study_3_q2d_tckae/train.py
+# experiments/study_5_low_rank_tckae_2d/study_5.1_unitary_svd/train.py
 # Note: This training script is modified to support the
 # SVD-based Koopman operator model (model.py)
 

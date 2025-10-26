@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# experiments/study_3_q2d_tckae_uncons_ab/train.py
+# experiments/study_5_low_rank_tckae_2d/study_5.3_uncons_ab/train.py
 # Note: This training script is modified to support the
 # AB-Decomposition Koopman operator model (model.py)
 #
