@@ -22,7 +22,7 @@ import torch.nn as nn
 from tqdm import tqdm
 
 # Ensure this import path matches your project structure
-from low_rank_tckae_2d_unitary_svd.model import tcKoopmanAutoencoder2D
+from low_rank_tckae_2d_stable_svd.model import tcKoopmanAutoencoder2D
 
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
