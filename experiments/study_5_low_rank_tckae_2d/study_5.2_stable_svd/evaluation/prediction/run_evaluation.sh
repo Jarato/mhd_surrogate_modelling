@@ -23,7 +23,7 @@ OUTPUT_DIR="/cephfs/users/skowronek/Documents/PhD/nuclear_fusion_cooling/predict
 
 echo "Running SVD prediction generation..."
 
-python gen_prediction_svd.py \
+python gen_prediction.py \
     --model-path "$MODEL_PATH" \
     --test-data-path "$TEST_DATA_PATH" \
     --norm-stats-path "$NORM_STATS_PATH" \
