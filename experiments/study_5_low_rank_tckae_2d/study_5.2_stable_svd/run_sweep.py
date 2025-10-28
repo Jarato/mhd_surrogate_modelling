@@ -234,17 +234,37 @@ def main():
         if should_resume:
             cmd.append("--resume")
 
-        # --- Add hyperparameters from the config (Unchanged logic) ---
+        # --- MODIFIED: Correctly handle boolean flags ---
         for key, value in config.items():
-            # Handle boolean flags
-            if key in ['use_bottleneck', 'backward', 'use_flattened_for_koopman']:
+            
+            # --- Handle store_true/store_false pairs ---
+            if key == 'use_flattened_for_koopman':
                 if value:
-                    cmd.append(f'--{key.replace("_", "-")}')
-            # Handle None values (don't add them to cmd)
-            elif value is not None:
+                    cmd.append('--use-flattened-for-koopman')
+                else:
+                    cmd.append('--no-flattened-for-koopman') # <-- FIX
+
+            elif key == 'use_bottleneck':
+                if value:
+                    cmd.append('--use-bottleneck')
+                else:
+                    cmd.append('--no-bottleneck') # <-- FIX
+
+            # --- Handle store_true (only) flags ---
+            elif key == 'backward':
+                if value:
+                    cmd.append('--backward')
+                # If False, do nothing (argparse default is False)
+
+            # --- Handle None values (don't add them to cmd) ---
+            elif value is None:
+                continue # Skip None values like 'bottleneck_dim': [None]
+
+            # --- Handle all other key-value pairs (lr, batch_size, etc.) ---
+            else:
                 cmd.extend([f"--{key.replace('_', '-')}", str(value)])
         # --- END MODIFICATION ---
-                
+            
         for key, value in fixed_args.items():
             cmd.extend([f"--{key.replace('_', '-')}", str(value)])
 
