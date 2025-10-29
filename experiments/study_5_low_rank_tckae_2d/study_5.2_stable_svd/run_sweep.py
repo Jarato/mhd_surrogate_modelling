@@ -4,9 +4,10 @@
 # --- MODIFIED ---
 # This script is adapted from the "unitary_svd" sweep script.
 # It is configured to run the STABLE SVD model by:
-# 1. Calling "train_stable.py" instead of "train.py".
-# 2. Using the "--gamma-svd-stability" parameter instead of "--gamma-svd-sigma".
+# 1. Calling "train.py" (which now contains the stable SVD logic).
+# 2. Using the "--gamma-svd-stability" parameter.
 # 3. Pointing to a new output directory for this "stable" study.
+# 4. Added --save-best-to-scratch flag handling (as a fixed_arg).
 # --- END MODIFICATION ---
 
 import subprocess
@@ -63,8 +64,8 @@ param_grid = {
     'use_flattened_for_koopman': [True],
     'use_bottleneck': [False],
     'latent_dim': [None],            # 'd' (Required if not flat)
-    'bottleneck_dim': [None],        # 'b' (Required if not flat and use_bottleneck)
-    'koopman_rank': [64],      # 'r' (None defaults to latent_dim in bottleneck modes)
+    'bottleneck_dim': [None],            # 'b' (Required if not flat and use_bottleneck)
+    'koopman_rank': [64],     # 'r' (None defaults to latent_dim in bottleneck modes)
 }
 
 # --- Fixed Training Arguments ---
@@ -81,6 +82,7 @@ fixed_args = {
     "persistent_save_freq": 1024,
     "validation_rollout_steps": 8,
     "val-split": 0.1,
+    "save_best_to_scratch": True, # <-- MOVED HERE
 }
 
 
@@ -265,8 +267,18 @@ def main():
                 cmd.extend([f"--{key.replace('_', '-')}", str(value)])
         # --- END MODIFICATION ---
             
+        # --- MODIFIED: Handle fixed args, including booleans ---
         for key, value in fixed_args.items():
-            cmd.extend([f"--{key.replace('_', '-')}", str(value)])
+            # Handle store_true (only) flags
+            if key == 'save_best_to_scratch':
+                if value:
+                    cmd.append('--save-best-to-scratch')
+                # If False, do nothing
+            
+            # Handle other key-value pairs
+            else:
+                cmd.extend([f"--{key.replace('_', '-')}", str(value)])
+        # --- END MODIFICATION ---
 
         # Execute the training script
         try:
@@ -294,3 +306,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
