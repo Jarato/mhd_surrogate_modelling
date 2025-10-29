@@ -33,10 +33,7 @@ core = [
     "scipy",
     "h5py",
     "matplotlib",
-]
-dev = [
-    "pytest",
-    "black",
+    "imageio[ffmpeg]",
 ]
 
 
