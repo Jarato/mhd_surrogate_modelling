@@ -7,10 +7,16 @@
 # L_sigma = || Sigma - 1 ||^2 (forcing unitarity)
 # to:
 # L_stability = || ReLU(Sigma - 1) ||^2 (forcing stability, sigma <= 1)
+#
+# --- MODIFICATION (User Request) ---
+# Added --save-best-to-scratch flag.
+# - If set, 'best_model.pth' is saved to scratch_dir during training.
+# - After training, the 'best_model.pth' is copied from scratch to persistent_dir.
 # --- END MODIFICATION ---
 
 import argparse
 import logging
+import shutil  # <-- ADDED for final copy
 from pathlib import Path
 from typing import Any, Dict, Tuple
 
@@ -55,6 +61,13 @@ def parse_args() -> argparse.Namespace:
     train_group.add_argument("--seed", type=int, default=42, help="Random seed for the train/val split.")
     train_group.add_argument("--checkpoint-save-freq", type=int, default=1, help="Frequency (in epochs) to save the latest checkpoint.")
     train_group.add_argument("--persistent-save-freq", type=int, default=10, help="Frequency (in epochs) to save a checkpoint to persistent storage if scratch-dir is used.")
+    # --- MODIFIED: Added new argument ---
+    train_group.add_argument(
+        '--save-best-to-scratch', 
+        action='store_true', 
+        help="Save the 'best_model.pth' to scratch_dir during training. (Default: persistent_dir)"
+    )
+    # --- END MODIFICATION ---
     train_group.add_argument("--epochs", type=int, default=200, help="Maximum number of training epochs.")
     train_group.add_argument("--batch-size", type=int, default=4, help="Number of independent blocks per batch for training.")
     train_group.add_argument("--validation-batch-size", type=int, default=None, help="Batch size for validation. Defaults to training batch size if not set.")
@@ -355,7 +368,7 @@ def run_training_loop(
     data_assets: Dict[str, Any],
     dirs: Dict[str, Path],
     writer: SummaryWriter,
-):
+) -> Dict[str, Any]: # <-- MODIFIED: Return type
     """Executes the main training and validation loop for all epochs."""
     # Unpack assets
     model = training_state["model"]
@@ -375,6 +388,18 @@ def run_training_loop(
         "svd_stability": args.gamma_svd_stability # <-- Renamed
     }
     
+    # --- MODIFIED: Determine where to save the best model ---
+    if args.save_best_to_scratch and scratch_dir:
+        best_model_save_dir = scratch_dir
+        logging.info(f"Will save 'best_model.pth' to scratch directory: {scratch_dir}")
+    else:
+        best_model_save_dir = persistent_dir
+        if args.save_best_to_scratch and not scratch_dir:
+            logging.warning("--save-best-to-scratch was set, but --scratch-dir is not. Defaulting to persistent_dir.")
+        else:
+            logging.info(f"Will save 'best_model.pth' to persistent directory: {persistent_dir}")
+    # --- END MODIFICATION ---
+
     # Loop state
     best_val_loss = training_state["best_val_loss"]
     patience_counter = training_state["patience_counter"]
@@ -424,8 +449,11 @@ def run_training_loop(
             best_val_loss, patience_counter, best_epoch = avg_val_losses["total"], 0, epoch + 1
             losses_at_best_epoch = avg_val_losses
             best_model_data = {'config': training_state["model_config"], 'model_state_dict': model.state_dict(), 'channels_used': data_assets["channels_used"], 'norm_stats': data_assets["norm_stats"]}
-            torch.save(best_model_data, persistent_dir / "best_model.pth")
-            logging.info(f"New best model saved to persistent storage (Val Rollout Loss: {best_val_loss:.4f})")
+            
+            # --- MODIFIED: Use new save path ---
+            torch.save(best_model_data, best_model_save_dir / "best_model.pth")
+            logging.info(f"New best model saved to {best_model_save_dir.name} (Val Rollout Loss: {best_val_loss:.4f})")
+            # --- END MODIFICATION ---
         else:
             patience_counter += 1
 
@@ -445,7 +473,15 @@ def run_training_loop(
             logging.info("Early stopping triggered.")
             break
             
-    return {"best_val_loss": best_val_loss, "best_epoch": best_epoch, "losses_at_best": losses_at_best_epoch}
+    # --- MODIFIED: Return info needed for final copy ---
+    final_best_model_path = best_model_save_dir / "best_model.pth"
+    return {
+        "best_val_loss": best_val_loss, 
+        "best_epoch": best_epoch, 
+        "losses_at_best": losses_at_best_epoch,
+        "final_best_model_path": final_best_model_path
+    }
+    # --- END MODIFICATION ---
 
 
 # --- 6. Orchestration ---
@@ -480,10 +516,10 @@ def main():
         args.koopman_rank = model_config.get("koopman_rank") 
         
         if args.koopman_rank is None:
-                 # Fallback for checkpoints saved *just* before this change
-                 # but after latent_dim was added
-                 args.koopman_rank = model_config.get("latent_dim")
-                 logging.warning(f"Resumed checkpoint missing 'koopman_rank', falling back to 'latent_dim': {args.koopman_rank}")
+                # Fallback for checkpoints saved *just* before this change
+                # but after latent_dim was added
+                args.koopman_rank = model_config.get("latent_dim")
+                logging.warning(f"Resumed checkpoint missing 'koopman_rank', falling back to 'latent_dim': {args.koopman_rank}")
         # --- END MODIFIED ---
 
         data_assets = create_dataloaders(args, {**data_dict, "norm_stats": checkpoint["norm_stats"], "train_indices": checkpoint["train_indices"], "val_indices": checkpoint["val_indices"]})
@@ -553,6 +589,21 @@ def main():
         dirs={"persistent": persistent_dir, "scratch": scratch_dir},
         writer=writer
     )
+
+    # --- MODIFIED: Copy best model from scratch to persistent if needed ---
+    final_best_model_path = final_metrics.get("final_best_model_path")
+    
+    if args.save_best_to_scratch and scratch_dir and final_best_model_path and final_best_model_path.exists():
+        if final_best_model_path.parent == scratch_dir:
+            try:
+                shutil.copy2(final_best_model_path, persistent_dir / "best_model.pth")
+                logging.info(f"Copied final 'best_model.pth' from scratch to persistent storage.")
+            except Exception as e:
+                logging.error(f"Failed to copy 'best_model.pth' from scratch to persistent: {e}")
+        # else: it was already in persistent_dir, no copy needed.
+    elif final_best_model_path and not final_best_model_path.exists():
+         logging.warning(f"Training finished, but 'best_model.pth' was not found at {final_best_model_path}. No final copy was made.")
+    # --- END MODIFICATION ---
 
     # --- Finalize and Log HParams ---
     hparams = vars(args).copy()
