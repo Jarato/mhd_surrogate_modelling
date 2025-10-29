@@ -23,7 +23,7 @@ VIDEO_SCRIPT_PATH="create_comparison_video.py"
 
 # --- Input Paths ---
 # Base directory where the evaluation output (prediction & difference files) is stored
-EVAL_DIR="/cephfs/users/skowronek/Documents/PhD/nuclear_fusion_cooling/prediction/mhd_surrogate_modelling/experiments/study_5_low_rank_tckae_2d/study_5.2_stable_svd/output/gamma_exploration_K16_val16/flat_kr16_M1_K16_Ktc0_gtc0_gi0.01_gfwd100.0_g_svdo1e-05_g_svdstab1e-05_bwd_False/eval/pred/"
+EVAL_DIR="/cephfs/users/skowronek/Documents/PhD/nuclear_fusion_cooling/prediction/mhd_surrogate_modelling/experiments/study_5_low_rank_tckae_2d/study_5.2_stable_svd/output/cnn_fc_suffix_layer/K16_val16_latent8192_koop16/ld8192_kr16_direct_M1_K16_Ktc0_gtc0_gi0.1_gfwd10.0_g_svdo0.0001_g_svdstab1e-05_bwd_False/eval/pred/"
 # EVAL_DIR="/cephfs/users/skowronek/Documents/PhD/nuclear_fusion_cooling/prediction/mhd_surrogate_modelling/experiments/study_4_2d_tckae/output/no_tc/ld256_M1_K64_Ktc0_gtc0.0_gi10.0_bwd_False/eval/prediction_analysis/"
 
 # Full path to the original ground truth test set
