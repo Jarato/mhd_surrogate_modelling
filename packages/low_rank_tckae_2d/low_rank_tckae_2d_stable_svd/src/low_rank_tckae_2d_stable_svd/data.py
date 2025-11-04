@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# packages/mhd_q2d_tckae/src/mhd_q2d_tckae/data_2d.py
+# packages/low_rank_tckae_2d/low_rank_tckae_2d_stable_svd/src/low_rank_tckae_2d_stable_svd/data.py
 # Note: This is a modified version for 2D data (X, Z spatial dims).
 # UPDATED: Now standardizes the data using mean and std deviation.
 
