@@ -8,10 +8,10 @@
 # to:
 # L_stability = || ReLU(Sigma - 1) ||^2 (forcing stability, sigma <= 1)
 #
-# --- MODIFICATION (User Request) ---
-# Added --save-best-to-scratch flag.
-# - If set, 'best_model.pth' is saved to scratch_dir during training.
-# - After training, the 'best_model.pth' is copied from scratch to persistent_dir.
+# --- MODIFICATION: Optimized Saving Strategy ---
+# 1. The "best model" state_dict is now held in CPU RAM to save VRAM and disk I/O.
+# 2. The best_model.pth file is only written to disk (from the RAM copy)
+#    at the same time a checkpoint is saved, ensuring no data loss on crash.
 # --- END MODIFICATION ---
 
 import argparse
@@ -351,14 +351,37 @@ def find_latest_checkpoint(persistent_dir: Path, scratch_dir: Path | None) -> Pa
     return scratch_ckpt if scratch_exists else persistent_ckpt
 
 
-def save_checkpoint(data: Dict[str, Any], epoch: int, save_freq: int, persistent_dir: Path, scratch_dir: Path | None, is_last_epoch: bool = False, is_persistent_save: bool = False):
-    """Saves the current training state as a checkpoint."""
-    if (epoch + 1) % save_freq == 0 or is_last_epoch:
+# --- MODIFIED ---
+def save_checkpoint(
+    data: Dict[str, Any], 
+    epoch: int, 
+    save_freq: int, 
+    persistent_dir: Path, 
+    scratch_dir: Path | None, 
+    is_last_epoch: bool = False, 
+    is_persistent_save: bool = False
+):
+    """
+    Saves the current training state as a checkpoint.
+    
+    --- MODIFIED (User Request) ---
+    This function ONLY saves the 'latest_checkpoint.pth'.
+    The 'best_model.pth' is now saved *only* at the end of the
+    training run by the `run_training_loop` function.
+    """
+    
+    should_save_checkpoint_to_scratch = (epoch + 1) % save_freq == 0 or is_last_epoch
+    should_save_checkpoint_to_persistent = scratch_dir and (is_persistent_save or is_last_epoch)
+
+    if should_save_checkpoint_to_scratch:
         save_dir = scratch_dir if scratch_dir else persistent_dir
         torch.save(data, save_dir / "latest_checkpoint.pth")
-
-    if scratch_dir and (is_persistent_save or is_last_epoch):
+        
+    if should_save_checkpoint_to_persistent:
+        # This block runs if scratch_dir is used AND it's time for a persistent save.
         torch.save(data, persistent_dir / "latest_checkpoint.pth")
+        logging.info(f"Checkpoint synced to persistent storage (epoch {epoch+1}).")
+# --- END MODIFICATION ---
 
 
 # --- 5. Main Training Loop ---
@@ -405,6 +428,12 @@ def run_training_loop(
     patience_counter = training_state["patience_counter"]
     best_epoch = training_state["best_epoch"]
     losses_at_best_epoch = training_state["losses_at_best_epoch"]
+    
+    # --- MODIFIED: Load in-memory best model state ---
+    best_model_state_dict_cpu = training_state["best_model_state_dict_cpu"]
+    best_model_meta_data = training_state["best_model_meta_data"]
+    # --- END MODIFICATION ---
+
 
     for epoch in range(training_state["start_epoch"], args.epochs):
         model.train()
@@ -448,40 +477,57 @@ def run_training_loop(
         if avg_val_losses["total"] < best_val_loss:
             best_val_loss, patience_counter, best_epoch = avg_val_losses["total"], 0, epoch + 1
             losses_at_best_epoch = avg_val_losses
-            best_model_data = {'config': training_state["model_config"], 'model_state_dict': model.state_dict(), 'channels_used': data_assets["channels_used"], 'norm_stats': data_assets["norm_stats"]}
             
-            # --- MODIFIED: Use new save path ---
-            torch.save(best_model_data, best_model_save_dir / "best_model.pth")
-            logging.info(f"New best model saved to {best_model_save_dir.name} (Val Rollout Loss: {best_val_loss:.4f})")
+            # --- MODIFIED: Save best model to CPU RAM instead of disk ---
+            best_model_state_dict_cpu = model.state_dict().to('cpu')
+            best_model_meta_data = {
+                'config': training_state["model_config"], 
+                'channels_used': data_assets["channels_used"], 
+                'norm_stats': data_assets["norm_stats"]
+            }
+            logging.info(f"New best model state captured in RAM (Val Rollout Loss: {best_val_loss:.4f})")
             # --- END MODIFICATION ---
+            
         else:
             patience_counter += 1
 
+        # --- MODIFIED: Add in-memory best model state to checkpoint data ---
         checkpoint_data = {
             "epoch": epoch, "config": training_state["model_config"], "model_state_dict": model.state_dict(),
             "optimizer_state_dict": optimizer.state_dict(), "scheduler_state_dict": scheduler.state_dict(),
             "best_val_loss": best_val_loss, "patience_counter": patience_counter, "best_epoch": best_epoch,
             "losses_at_best_epoch": losses_at_best_epoch, "train_indices": data_assets["train_indices"],
             "val_indices": data_assets["val_indices"], "channels_used": data_assets["channels_used"],
-            "norm_stats": data_assets["norm_stats"]
+            "norm_stats": data_assets["norm_stats"],
+            "best_model_state_dict_cpu": best_model_state_dict_cpu, # <-- ADDED
+            "best_model_meta_data": best_model_meta_data           # <-- ADDED
         }
+        # --- END MODIFICATION ---
+        
         is_last = (epoch == args.epochs - 1)
         is_persistent_save = (epoch + 1) % args.persistent_save_freq == 0
+        
+        # --- MODIFIED: save_checkpoint no longer saves best_model.pth ---
         save_checkpoint(checkpoint_data, epoch, args.checkpoint_save_freq, persistent_dir, scratch_dir, is_last, is_persistent_save)
+        # --- END MODIFICATION ---
 
         if patience_counter >= args.patience:
             logging.info("Early stopping triggered.")
             break
             
-    # --- MODIFIED: Return info needed for final copy ---
-    final_best_model_path = best_model_save_dir / "best_model.pth"
-    return {
-        "best_val_loss": best_val_loss, 
-        "best_epoch": best_epoch, 
-        "losses_at_best": losses_at_best_epoch,
-        "final_best_model_path": final_best_model_path
-    }
+    # --- MODIFIED: Save the best model at the end of the run ---
+    if best_model_state_dict_cpu and best_model_meta_data:
+        logging.info(f"Saving best model (from epoch {best_epoch}) to persistent storage.")
+        best_model_save_data = {
+            **best_model_meta_data,
+            'model_state_dict': best_model_state_dict_cpu
+        }
+        torch.save(best_model_save_data, persistent_dir / "best_model.pth")
+    else:
+        logging.warning("Training finished, but no best model state was captured to save.")
     # --- END MODIFICATION ---
+            
+    return {"best_val_loss": best_val_loss, "best_epoch": best_epoch, "losses_at_best": losses_at_best_epoch}
 
 
 # --- 6. Orchestration ---
@@ -501,7 +547,8 @@ def main():
 
     if resume_checkpoint_path:
         logging.info(f"Resuming training from {resume_checkpoint_path}")
-        checkpoint = torch.load(resume_checkpoint_path, map_location=DEVICE)
+        # --- MODIFIED: Load checkpoint to CPU first to avoid VRAM spike if resuming on different device ---
+        checkpoint = torch.load(resume_checkpoint_path, map_location='cpu')
         
         model_config = checkpoint["config"]
         # --- MODIFIED: Ensure resumed run uses checkpoint's HParams ---
@@ -516,14 +563,15 @@ def main():
         args.koopman_rank = model_config.get("koopman_rank") 
         
         if args.koopman_rank is None:
-                # Fallback for checkpoints saved *just* before this change
-                # but after latent_dim was added
-                args.koopman_rank = model_config.get("latent_dim")
-                logging.warning(f"Resumed checkpoint missing 'koopman_rank', falling back to 'latent_dim': {args.koopman_rank}")
+                    # Fallback for checkpoints saved *just* before this change
+                    # but after latent_dim was added
+                    args.koopman_rank = model_config.get("latent_dim")
+                    logging.warning(f"Resumed checkpoint missing 'koopman_rank', falling back to 'latent_dim': {args.koopman_rank}")
         # --- END MODIFIED ---
 
         data_assets = create_dataloaders(args, {**data_dict, "norm_stats": checkpoint["norm_stats"], "train_indices": checkpoint["train_indices"], "val_indices": checkpoint["val_indices"]})
         
+        # --- MODIFIED: Load model to device ---
         model = tcKoopmanAutoencoder2D(**model_config).to(DEVICE)
         model.load_state_dict(checkpoint["model_state_dict"])
         
@@ -533,12 +581,16 @@ def main():
         scheduler = ReduceLROnPlateau(optimizer, 'min', factor=args.lr_factor, patience=args.lr_patience)
         scheduler.load_state_dict(checkpoint["scheduler_state_dict"])
         
+        # --- MODIFIED: Load in-memory best model state ---
         training_state = {
             "model": model, "optimizer": optimizer, "scheduler": scheduler, "model_config": model_config,
             "start_epoch": checkpoint["epoch"] + 1, "best_val_loss": checkpoint["best_val_loss"],
             "patience_counter": checkpoint["patience_counter"], "best_epoch": checkpoint.get("best_epoch", 0),
-            "losses_at_best_epoch": checkpoint.get("losses_at_best_epoch", {})
+            "losses_at_best_epoch": checkpoint.get("losses_at_best_epoch", {}),
+            "best_model_state_dict_cpu": checkpoint.get("best_model_state_dict_cpu"), # <-- ADDED (will be None if old checkpoint)
+            "best_model_meta_data": checkpoint.get("best_model_meta_data")           # <-- ADDED (will be None if old checkpoint)
         }
+        # --- END MODIFICATION ---
 
     else:
         if args.resume:
@@ -576,11 +628,15 @@ def main():
         optimizer = Adam(model.parameters(), lr=args.lr)
         scheduler = ReduceLROnPlateau(optimizer, 'min', factor=args.lr_factor, patience=args.lr_patience)
 
+        # --- MODIFIED: Initialize in-memory best model state as None ---
         training_state = {
             "model": model, "optimizer": optimizer, "scheduler": scheduler, "model_config": model_config,
             "start_epoch": 0, "best_val_loss": float("inf"), "patience_counter": 0, "best_epoch": 0,
-            "losses_at_best_epoch": {}
+            "losses_at_best_epoch": {},
+            "best_model_state_dict_cpu": None, # <-- ADDED
+            "best_model_meta_data": None       # <-- ADDED
         }
+        # --- END MODIFICATION ---
 
     all_data_assets = {**data_dict, **data_assets}
     
@@ -642,3 +698,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
