@@ -1,0 +1,38 @@
+# pyproject.toml for the flow_matching_2d_base package
+
+[build-system]
+requires = ["setuptools>=59.6.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "flow_matching_2d_base"
+version = "0.1.0"
+authors = [
+  { name="Michael Skowronek", email="michael.skowronek.91@gmail.com" },
+]
+description = "No time."
+readme = "README.md"
+requires-python = ">=3.10"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Intended Audience :: Science/Research",
+    "Topic :: Scientific/Engineering",
+]
+
+# The only required dependency is our own core package.
+dependencies = []
+
+# Optional dependencies document what is needed without forcing installation.
+[project.optional-dependencies]
+torch = [
+    "torch",
+    "torchvision",
+]
+dev = [
+    "numpy", # For cases where it's only a dev dependency
+]
+
+[project.urls]
+"Homepage" = "https://github.com/MichaelSkowronek/mhd_surogate_modelling"

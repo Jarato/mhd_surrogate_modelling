@@ -1,0 +1,1 @@
+-e ../../packages/flow_matching_2d/flow_matching_2d_base~=0.1.0
