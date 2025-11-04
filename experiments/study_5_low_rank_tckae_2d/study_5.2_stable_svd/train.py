@@ -356,26 +356,12 @@ def save_checkpoint(
     """
     Saves the current training state as a checkpoint.
     
-    --- MODIFIED ---
-    This function now also saves the 'best_model.pth' from the in-memory
-    state_dict (`best_model_state_dict_cpu`) whenever a checkpoint is written.
-    This ensures the best model state is persisted to disk for crash recovery
-    without requiring I/O on every single validation improvement.
+    --- MODIFIED (User Request) ---
+    This function ONLY saves the 'latest_checkpoint.pth'.
+    The 'best_model.pth' is now saved *only* at the end of the
+    training run by the `run_training_loop` function.
     """
     
-    # --- MODIFIED: Extract best_model data first ---
-    best_model_state = data.get('best_model_state_dict_cpu')
-    best_model_meta = data.get('best_model_meta_data')
-    best_model_save_data = None
-    best_model_logged = False # Flag to prevent duplicate logging
-    
-    if best_model_state and best_model_meta:
-        best_model_save_data = {
-            **best_model_meta, 
-            'model_state_dict': best_model_state
-        }
-    # --- END MODIFICATION ---
-
     should_save_checkpoint_to_scratch = (epoch + 1) % save_freq == 0 or is_last_epoch
     should_save_checkpoint_to_persistent = scratch_dir and (is_persistent_save or is_last_epoch)
 
@@ -383,22 +369,10 @@ def save_checkpoint(
         save_dir = scratch_dir if scratch_dir else persistent_dir
         torch.save(data, save_dir / "latest_checkpoint.pth")
         
-        # --- MODIFIED: Always save best_model to persistent_dir when saving a checkpoint ---
-        if best_model_save_data:
-            torch.save(best_model_save_data, persistent_dir / "best_model.pth")
-            logging.info(f"Best model (from epoch {data.get('best_epoch', 'N/A')}) synced to persistent storage.")
-            best_model_logged = True
-        # --- END MODIFICATION ---
-
     if should_save_checkpoint_to_persistent:
         # This block runs if scratch_dir is used AND it's time for a persistent save.
         torch.save(data, persistent_dir / "latest_checkpoint.pth")
-        
-        # --- MODIFIED: Save best_model if it hasn't been saved already by the block above ---
-        if best_model_save_data and not best_model_logged:
-            torch.save(best_model_save_data, persistent_dir / "best_model.pth")
-            logging.info(f"Best model (from epoch {data.get('best_epoch', 'N/A')}) synced to persistent storage.")
-        # --- END MODIFICATION ---
+        logging.info(f"Checkpoint synced to persistent storage (epoch {epoch+1}).")
 # --- END MODIFICATION ---
 
 
@@ -512,11 +486,26 @@ def run_training_loop(
         
         is_last = (epoch == args.epochs - 1)
         is_persistent_save = (epoch + 1) % args.persistent_save_freq == 0
+        
+        # --- MODIFIED: save_checkpoint no longer saves best_model.pth ---
         save_checkpoint(checkpoint_data, epoch, args.checkpoint_save_freq, persistent_dir, scratch_dir, is_last, is_persistent_save)
+        # --- END MODIFICATION ---
 
         if patience_counter >= args.patience:
             logging.info("Early stopping triggered.")
             break
+            
+    # --- MODIFIED: Save the best model at the end of the run ---
+    if best_model_state_dict_cpu and best_model_meta_data:
+        logging.info(f"Saving best model (from epoch {best_epoch}) to persistent storage.")
+        best_model_save_data = {
+            **best_model_meta_data,
+            'model_state_dict': best_model_state_dict_cpu
+        }
+        torch.save(best_model_save_data, persistent_dir / "best_model.pth")
+    else:
+        logging.warning("Training finished, but no best model state was captured to save.")
+    # --- END MODIFICATION ---
             
     return {"best_val_loss": best_val_loss, "best_epoch": best_epoch, "losses_at_best": losses_at_best_epoch}
 
@@ -674,3 +663,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
