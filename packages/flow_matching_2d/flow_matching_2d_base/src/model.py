@@ -78,8 +78,8 @@ class PaddedConv2D(nn.Module):
         in_channels: int, 
         out_channels: int, 
         kernel_size: int, 
-        stride: int = 1, # Default stride to 1, as DoubleConv uses
-        padding: str = "same" # This argument is now ignored but kept for compatibility
+        stride: int = 1 # Default stride to 1, as DoubleConv uses
+        # padding: str = "same" # <-- REMOVED
     ):
         super().__init__()
         # For a kernel_size of 3, the padding amount is 1.
@@ -132,11 +132,12 @@ class MaxPool(nn.Module):
 class DoubleConv(nn.Module):
     # --- MODIFIED ---
     # Now uses PaddedConv2D instead of nn.Conv2d
+    # Removed unused padding and padding_mode arguments
     def __init__(self, 
                  in_channels, 
                  out_channels, 
-                 padding="same",      # Ignored, handled by PaddedConv2D
-                 padding_mode="zeros",# Ignored, handled by PaddedConv2D
+                 # padding="same",      # <-- REMOVED
+                 # padding_mode="zeros",# <-- REMOVED
                  dims=2,
                  nl=nn.ReLU(),
                  include_norm=True):
@@ -169,10 +170,11 @@ class ResNetBlock(nn.Module):
     # --- MODIFIED ---
     # Simplified to use DoubleConv, which now handles its own padding.
     # Removed manual padding logic from the forward pass.
+    # Removed unused padding argument
     def __init__(self, 
                  in_channels, 
                  out_channels, 
-                 padding: Tuple[str, ...], # This is now IGNORED, but kept for UNet compatibility
+                 # padding: Tuple[str, ...], # <-- REMOVED
                  dims=2,
                  nl=nn.ReLU(),
                  include_norm=True):
@@ -185,7 +187,7 @@ class ResNetBlock(nn.Module):
         # which applies the physics-informed padding *before* the conv.
         self.dc = DoubleConv(
             in_channels, out_channels, 
-            padding="valid", # This is passed to DoubleConv
+            # padding="valid", # This was passed to DoubleConv, which no longer accepts it
             dims=dims, nl=nl, include_norm=include_norm
         )
         self.conv = conv_cls(in_channels, out_channels, kernel_size=1)
@@ -207,19 +209,17 @@ class ResNetBlock(nn.Module):
     
 class UNet(nn.Module):
     # --- MODIFIED ---
-    # The 'padding' argument is now passed down to ResNetBlock,
-    # but ResNetBlock and DoubleConv will ignore it in favor
-    # of the hard-coded physics-informed padding in PaddedConv2D.
+    # The 'padding' argument is now removed entirely.
     def __init__(self, 
                  in_channels=1, 
                  out_channels=1, 
                  features=(32, 64),
-                 padding=("zeros", "zeros"), # Kept for API compatibility
+                 # padding=("zeros", "zeros"), # <-- REMOVED
                  nl=nn.ReLU()):
         super().__init__()
-        self.padding = padding # Stored, but functionally ignored
-        self.dims = len(self.padding)
-        assert self.dims in [1,2,3]
+        # self.padding = padding # <-- REMOVED
+        self.dims = 2 # Hard-coded to 2D for PaddedConv2D
+        # assert self.dims in [1,2,3] # No longer needed
         if self.dims != 2:
             raise ValueError("Physics-informed padding (PaddedConv2D) only supports dims=2")
             
@@ -258,9 +258,9 @@ class UNet(nn.Module):
 
     def add_top_unet_block(self, in_channels, bridge_channels, out_channels):
         # Note: self.padding is passed, but will be ignored by ResNetBlock/DoubleConv
-        encoder = ResNetBlock(in_channels,     bridge_channels, padding=self.padding, nl=self.nl, dims=self.dims, include_norm=False) 
-        bridge  = ResNetBlock(bridge_channels, bridge_channels, padding=self.padding, nl=self.nl, dims=self.dims, include_norm=False) 
-        decoder = ResNetBlock(bridge_channels, out_channels,    padding=self.padding, nl=self.nl, dims=self.dims, include_norm=False) 
+        encoder = ResNetBlock(in_channels,     bridge_channels, nl=self.nl, dims=self.dims, include_norm=False) 
+        bridge  = ResNetBlock(bridge_channels, bridge_channels, nl=self.nl, dims=self.dims, include_norm=False) 
+        decoder = ResNetBlock(bridge_channels, out_channels,    nl=self.nl, dims=self.dims, include_norm=False) 
 
         self.encoders.append( encoder )
         self.bridges.append(  bridge )
@@ -270,9 +270,9 @@ class UNet(nn.Module):
         top_channels = self.encoders[-1].out_channels
 
         # Note: self.padding is passed, but will be ignored by ResNetBlock/DoubleConv
-        encoder = ResNetBlock(top_channels,    bridge_channels, padding=self.padding, nl=self.nl, dims=self.dims, include_norm=False) 
-        bridge  = ResNetBlock(bridge_channels, bridge_channels, padding=self.padding, nl=self.nl, dims=self.dims, include_norm=False) 
-        decoder = ResNetBlock(bridge_channels, top_channels,    padding=self.padding, nl=self.nl, dims=self.dims, include_norm=False) 
+        encoder = ResNetBlock(top_channels,    bridge_channels, nl=self.nl, dims=self.dims, include_norm=False) 
+        bridge  = ResNetBlock(bridge_channels, bridge_channels, nl=self.nl, dims=self.dims, include_norm=False) 
+        decoder = ResNetBlock(bridge_channels, top_channels,    nl=self.nl, dims=self.dims, include_norm=False) 
 
         self.encoders.append( encoder )
         self.bridges.append(  bridge )
@@ -313,7 +313,7 @@ class FlowMatchingUNet(nn.Module):
             in_channels=unet_in_channels,
             out_channels=unet_out_channels,
             features=features,
-            # padding=unet_padding, # <-- REMOVED
+            # padding=unet_padding, # <-- This was already removed
             nl=nn.GELU() # Use GELU as in the tcKAE model
         )
 
@@ -342,4 +342,3 @@ class FlowMatchingUNet(nn.Module):
         predicted_velocity = self.unet(model_input)
         
         return predicted_velocity
-
