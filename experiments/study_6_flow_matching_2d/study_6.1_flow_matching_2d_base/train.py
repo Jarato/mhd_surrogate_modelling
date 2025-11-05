@@ -74,7 +74,14 @@ def parse_args() -> argparse.Namespace:
     train_group.add_argument("--validation-num-workers", type=int, default=None, help="Number of workers for validation. Defaults to num-workers if not set.")
     train_group.add_argument("--validation-rollout-steps", type=int, default=50, help="Number of auto-regressive steps for validation.")
     # --- NEW ARGUMENT ---
-    train_group.add_argument("--validation-ode-steps", type=int, default=10, help="Number of Euler steps to solve the FM ODE during validation.")
+    train_group.add_argument("--validation-ode-steps", type=int, default=10, help="Number of ODE steps for validation.")
+    train_group.add_argument(
+        "--validation-solver", 
+        type=str, 
+        default="midpoint", 
+        choices=["euler", "midpoint"], 
+        help="ODE solver for validation rollout."
+    )
 
     optim_group = parser.add_argument_group("Optimizer and Scheduler")
     optim_group.add_argument("--lr", type=float, default=1e-4, help="Initial learning rate.")
@@ -262,7 +269,8 @@ def validate_epoch_rollout_fm(
     model: FlowMatchingUNet, 
     dataloader: DataLoader, 
     rollout_steps: int,
-    ode_steps: int
+    ode_steps: int,
+    solver: str = "midpoint" # <-- ADDED
 ) -> Dict[str, float]:
     """
     Performs auto-regressive rollout validation by solving the FM ODE.
@@ -296,14 +304,27 @@ def validate_epoch_rollout_fm(
                 for t_step in range(ode_steps):
                     # t_val is the current time, from 0 to (1 - dt)
                     t_val = t_step * dt
-                    # Create a batch of time tensors
-                    t = torch.full((x_t.shape[0],), t_val, device=DEVICE)
+                    t_batch = torch.full((x_t.shape[0],), t_val, device=DEVICE)
                     
-                    # Get velocity v(x_t, t, y_k)
-                    velocity = model(x_t, t, y_condition)
+                    if solver == 'euler':
+                        # Euler step: x_{t+dt} = x_t + v*dt
+                        velocity = model(x_t, t_batch, y_condition)
+                        x_t = x_t + velocity * dt
                     
-                    # Euler step: x_{t+dt} = x_t + v*dt
-                    x_t = x_t + velocity * dt
+                    elif solver == 'midpoint':
+                        # Midpoint method (RK2)
+                        # k1 = v(x_t, t, y_k)
+                        k1 = model(x_t, t_batch, y_condition)
+                        
+                        # k2 = v(x_t + k1*dt/2, t + dt/2, y_k)
+                        t_mid_val = t_val + dt / 2.0
+                        x_mid = x_t + k1 * (dt / 2.0)
+                        t_mid_batch = torch.full((x_t.shape[0],), t_mid_val, device=DEVICE)
+                        k2 = model(x_mid, t_mid_batch, y_condition)
+                        
+                        # x_{t+dt} = x_t + k2 * dt
+                        x_t = x_t + k2 * dt
+                
                 # --- End ODE Solver ---
                 
                 # The final x_t (which is x_1) is our prediction for y_{k+1}
@@ -426,7 +447,8 @@ def run_training_loop(
         avg_val_losses = validate_epoch_rollout_fm(
             model, val_loader, 
             args.validation_rollout_steps, 
-            args.validation_ode_steps
+            args.validation_ode_steps,
+            args.validation_solver # <-- ADDED
         )
         # --- END MODIFICATION ---
         
@@ -610,6 +632,7 @@ def main():
     hparams.update({
         'features': str(model_config['features']),
         'time_embed_dim': model_config['time_embed_dim'],
+        'validation_solver': args.validation_solver, # <-- ADDED
         'channels': ",".join(data_assets["channels_used"]) if data_assets["channels_used"] is not None else "all"
     })
     
