@@ -465,8 +465,12 @@ def run_training_loop(
             # losses_at_best_epoch now just contains 'total'
             losses_at_best_epoch = avg_val_losses
             
-            # Save best model to CPU RAM
-            best_model_state_dict_cpu = model.state_dict().to('cpu')
+            # --- FIX: Create a CPU copy of the state_dict tensors ---
+            # .state_dict() returns an OrderedDict, which has no .to() method.
+            # We must iterate and move each tensor to 'cpu' manually.
+            best_model_state_dict_cpu = {k: v.to('cpu') for k, v in model.state_dict().items()}
+            # --- END FIX ---
+            
             best_model_meta_data = {
                 'config': training_state["model_config"], 
                 'channels_used': data_assets["channels_used"], 
