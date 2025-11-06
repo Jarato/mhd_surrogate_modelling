@@ -9,6 +9,10 @@
 # 3. Pointing to new output directories for "study_6.1".
 # 4. Removing all tcKAE-specific logic (param grid, validation, run naming).
 # 5. Configured for a single test run as requested.
+#
+# --- MODIFICATION (User Request) ---
+# - Moved 'validation_rollout_steps' from fixed_args to param_grid.
+# - Added 'validation_rollout_steps' to the run_name generation.
 # --- END MODIFICATION ---
 
 import subprocess
@@ -31,7 +35,7 @@ NO_TIMESTAMPS = True # If True, uses SWEEP_NAME only. If False, appends timestam
 # --- Script and Data Paths (MODIFIED) ---
 # Assumes this script is in .../study_6.1_flow_matching_2d_base/
 # and train.py is in the same directory.
-TRAIN_SCRIPT = "train.py" 
+TRAIN_SCRIPT = "train.py"
 DATA_PATH = "/raid/skowronek/preprocessed_dns_output/01-Cold_Runs/01-Re16K_Ha325/T1492_x1151_y1_z127_c2/preprocessed/train_val_set.npz"
 NORM_STATS_PATH = "/raid/skowronek/preprocessed_dns_output/01-Cold_Runs/01-Re16K_Ha325/T1492_x1151_y1_z127_c2/preprocessed/normalization_stats.npz"
 
@@ -45,10 +49,14 @@ param_grid = {
     'lr': [1e-4],
     'batch_size': [32],
     'validation_batch_size': [128],
-    
+
     # --- NEW Model Architecture ---
     'features': [[64, 128, 256]], # Note: The value is a list
     'time_embed_dim': [64],
+    
+    # <-- MOVED from fixed_args as requested.
+    # Add more values like [4, 8, 16] to sweep this parameter.
+    'validation_rollout_steps': [8], 
 }
 
 # --- Fixed Training Arguments (MODIFIED) ---
@@ -62,7 +70,7 @@ fixed_args = {
     "validation_num_workers": 0,
     "checkpoint_save_freq": 32,
     "persistent_save_freq": 1024,
-    "validation_rollout_steps": 8,
+    # "validation_rollout_steps": 8, # <-- REMOVED from here.
     "val-split": 0.1,
     "validation_ode_steps": 8,      # <-- NEW
     "validation_solver": "midpoint"  # <-- NEW
@@ -128,6 +136,8 @@ def main():
         run_name_parts.extend([
             feat_str,
             f"t{config['time_embed_dim']}",
+            # <-- ADDED to make run names unique if sweeping this param.
+            f"vroll{config['validation_rollout_steps']}", 
         ])
         
         run_name = "_".join(run_name_parts)
