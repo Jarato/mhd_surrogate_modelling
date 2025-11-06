@@ -1,70 +1,41 @@
 # -*- coding: utf-8 -*-
 # packages/flow_matching_2d/flow_matching_2d_base/src/flow_matching_2d_base/model.py
 #
-# Implements a conditional Flow Matching model for 2D data.
+# --- MODIFIED ---
+# This model file combines the UNet architecture from the user-provided 'unet.py'
+# with the 'PaddedConv2D' (physics-informed padding) from the user's
+# 'low_rank_tckae_2d' model.
 #
-# --- MODIFICATION ---
-# Integrated the physics-informed padding (PaddedConv2D) from the
-# user's tcKAE model (study 5.2) into the UNet architecture.
-# - The UNet's DoubleConv block now uses PaddedConv2D.
-# - ResNetBlock is simplified, as padding is handled by PaddedConv2D.
-# - Removed generic 'padding' arguments in favor of this specific implementation.
-# --- END MODIFICATION ---
+# Key components:
+# 1. PaddedConv2D: The user's custom Conv2D layer with physics-padding.
+# 2. MaxPool, DoubleConv, ResNetBlock, UNet: Adapted from 'unet.py' to use
+#    PaddedConv2D and remove all generic padding arguments.
+# 3. SinusoidalTimeEmbedding: Standard module for flow/diffusion models.
+# 4. FlowMatchingUNet: The top-level wrapper that combines the UNet with
+#    time embeddings and conditional inputs.
+#
+# --- FIX (11-06-2025) ---
+# Added 'F.pad' logic in the UNet 'forward' method to fix a RuntimeError
+# caused by odd spatial dimensions (e.g., 127) leading to a mismatch
+# in the skip connections (e.g., size 63 vs 62).
+# --- END FIX ---
 
-import copy
 import math
+import copy
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from typing import Tuple, List
+import logging
+from typing import List, Tuple
 
-# --- Utility (from original) ---
-# This pad function is no longer used by ResNetBlock, but kept
-# in case other modules need it. The new PaddedConv2D handles
-# padding internally.
-def pad(x: torch.Tensor, dim: int, extent: int, padding_mode: str) -> torch.Tensor:
-    """
-    Manually pads a specific dimension of a tensor.
-    """
-    if padding_mode == "zeros":
-        padding_mode = "constant"
-    
-    num_dims = x.ndim
-    pad_tuple = [0] * (2 * num_dims)
-    pad_dim_index = (num_dims - 1) - dim 
-    pad_tuple[2 * pad_dim_index] = extent
-    pad_tuple[2 * pad_dim_index + 1] = extent
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(levelname)s - %(message)s",
+)
 
-    return F.pad(x, tuple(pad_tuple), mode=padding_mode, value=0.0)
 
-# --- Sinusoidal Time Embedding ---
-# Standard module for embedding time 't' in flow/diffusion models.
-
-class SinusoidalTimeEmbedding(nn.Module):
-    """Sinusoidal time embeddings."""
-    def __init__(self, dim: int):
-        super().__init__()
-        self.dim = dim
-
-    def forward(self, t: torch.Tensor) -> torch.Tensor:
-        """
-        Args:
-            t (torch.Tensor): A 1D tensor of time steps, shape (B,).
-        
-        Returns:
-            torch.Tensor: Time embeddings, shape (B, dim).
-        """
-        device = t.device
-        half_dim = self.dim // 2
-        embeddings = math.log(10000) / (half_dim - 1)
-        embeddings = torch.exp(torch.arange(half_dim, device=device) * -embeddings)
-        embeddings = t[:, None] * embeddings[None, :]
-        embeddings = torch.cat((embeddings.sin(), embeddings.cos()), dim=-1)
-        if self.dim % 2 == 1: # Zero pad if dim is odd
-             embeddings = F.pad(embeddings, (0, 1), "constant", 0)
-        return embeddings
-
-# --- NEW: Physics-Informed Padding (from tcKAE model) ---
+# --- CUSTOM MODULE FOR PHYSICS-INFORMED PADDING ---
+# From user's low_rank_tckae_2d model.py
 class PaddedConv2D(nn.Module):
     """
     A custom 2D convolutional layer that applies physics-informed padding before
@@ -73,14 +44,7 @@ class PaddedConv2D(nn.Module):
     - Max X-axis (Right): Reflection-padding for the outlet.
     - Min X-axis (Left): Replication-padding for the inlet.
     """
-    def __init__(
-        self, 
-        in_channels: int, 
-        out_channels: int, 
-        kernel_size: int, 
-        stride: int = 1 # Default stride to 1, as DoubleConv uses
-        # padding: str = "same" # <-- REMOVED
-    ):
+    def __init__(self, in_channels: int, out_channels: int, kernel_size: int, stride: int):
         super().__init__()
         # For a kernel_size of 3, the padding amount is 1.
         self.padding_amount = (kernel_size - 1) // 2
@@ -116,47 +80,56 @@ class PaddedConv2D(nn.Module):
         # Now, apply the convolution to the correctly padded tensor.
         return self.conv(padded_x)
 
-# --- UNet Architecture (Ported from user-provided unet.py) ---
+
+# --- UNET BUILDING BLOCKS (Adapted from user's unet.py) ---
 
 class MaxPool(nn.Module):
+    """
+    Wrapper for 1D/2D/3D Max Pooling.
+    (From user's unet.py)
+    """
     def __init__(self, *ks):
         super().__init__()
         if len(ks) == 1:   self.mp = nn.MaxPool1d(ks, ks)
         elif len(ks) == 2: self.mp = nn.MaxPool2d(ks, ks)
         elif len(ks) == 3: self.mp = nn.MaxPool3d(ks, ks)
-        else: raise Exception()
+        else: raise Exception("Invalid number of dimensions for MaxPool.")
 
     def forward(self, x):
         return self.mp(x)
 
+
 class DoubleConv(nn.Module):
-    # --- MODIFIED ---
-    # Now uses PaddedConv2D instead of nn.Conv2d
-    # Removed unused padding and padding_mode arguments
-    def __init__(self, 
-                 in_channels, 
-                 out_channels, 
-                 # padding="same",      # <-- REMOVED
-                 # padding_mode="zeros",# <-- REMOVED
-                 dims=2,
-                 nl=nn.ReLU(),
+    """
+    Double Convolution block (Conv -> Norm -> NL -> Conv).
+    
+    --- MODIFIED ---
+    - Uses PaddedConv2D instead of nn.Conv2d.
+    - All 'padding' arguments removed as padding is now hard-coded.
+    - Uses nn.InstanceNorm2d as seen in unet.py.
+    """
+    def __init__(self,
+                 in_channels,
+                 out_channels,
+                 dims=2, # Kept for potential 3D extension, though PaddedConv2D is 2D
+                 nl=nn.GELU(), # Defaulted to GELU
                  include_norm=True):
         super().__init__()
-        # Use our custom physics-padded conv layer
-        conv_cls = PaddedConv2D 
         
         if dims != 2:
-            raise ValueError("PaddedConv2D is only implemented for dims=2")
+            raise ValueError(f"PaddedConv2D is only for dims=2, but got dims={dims}")
 
         self.norm = None
         if include_norm:
-            norm_cls = [nn.InstanceNorm1d, nn.InstanceNorm2d, nn.InstanceNorm3d][dims-1]
-            self.norm = norm_cls(num_features = out_channels, eps=1.0)
+            # Using InstanceNorm as in the original unet.py
+            self.norm = nn.InstanceNorm2d(num_features=out_channels, eps=1.0)
 
-        self.nl = nl 
-        # PaddedConv2D uses kernel_size=3, stride=1 (implied by "same" padding)
-        self.conv1 = conv_cls(in_channels,  out_channels, kernel_size=3, stride=1)
-        self.conv2 = conv_cls(out_channels, out_channels, kernel_size=3, stride=1)
+        self.nl = nl
+        
+        # --- MODIFIED: Use PaddedConv2D ---
+        # Note: Stride=1, Kernel=3 is standard for UNet DoubleConv
+        self.conv1 = PaddedConv2D(in_channels, out_channels, kernel_size=3, stride=1)
+        self.conv2 = PaddedConv2D(out_channels, out_channels, kernel_size=3, stride=1)
         # --- END MODIFICATION ---
 
     def forward(self, x):
@@ -166,62 +139,64 @@ class DoubleConv(nn.Module):
         x = self.conv2(x)
         return x
 
+
 class ResNetBlock(nn.Module):
-    # --- MODIFIED ---
-    # Simplified to use DoubleConv, which now handles its own padding.
-    # Removed manual padding logic from the forward pass.
-    # Removed unused padding argument
-    def __init__(self, 
-                 in_channels, 
-                 out_channels, 
-                 # padding: Tuple[str, ...], # <-- REMOVED
+    """
+    ResNet block (Input -> DoubleConv) + (Input -> 1x1 Conv).
+    
+    --- MODIFIED ---
+    - 'padding' arguments removed.
+    - Manual padding in forward() removed, as DoubleConv now handles it.
+    - Uses nn.Conv2d for the 1x1 kernel (which doesn't need padding).
+    """
+    def __init__(self,
+                 in_channels,
+                 out_channels,
                  dims=2,
-                 nl=nn.ReLU(),
+                 nl=nn.GELU(), # Defaulted to GELU
                  include_norm=True):
         super().__init__()
-        conv_cls = [nn.Conv1d, nn.Conv2d, nn.Conv3d][dims-1]
+        
+        if dims != 2:
+            raise ValueError(f"PaddedConv2D is only for dims=2, but got dims={dims}")
+            
         self.in_channels = in_channels
         self.out_channels = out_channels
-
-        # DoubleConv now uses "valid" padding internally via PaddedConv2D
-        # which applies the physics-informed padding *before* the conv.
-        self.dc = DoubleConv(
-            in_channels, out_channels, 
-            # padding="valid", # This was passed to DoubleConv, which no longer accepts it
-            dims=dims, nl=nl, include_norm=include_norm
-        )
-        self.conv = conv_cls(in_channels, out_channels, kernel_size=1)
-        # self.padding = padding (No longer needed)
         self.dims = dims
 
-    def forward(self, x):
-        # x1, x2 = x.clone(), x.clone() (No longer need separate clones)
+        self.dc = DoubleConv(in_channels, out_channels, dims=dims, nl=nl, include_norm=include_norm)
         
-        # Manual padding is no longer needed here.
-        # for pm, dim_idx in zip(self.padding, range(self.dims)):
-        #     x1 = pad(x1, dim=2+dim_idx, extent=2, padding_mode=pm)
+        # 1x1 Conv for the residual connection
+        self.conv = nn.Conv2d(in_channels, out_channels, kernel_size=1)
 
-        y = self.conv(x) # 1x1 conv for residual
-        z = self.dc(x)   # DoubleConv on *unpadded* input
+    def forward(self, x):
+        # --- MODIFIED: Removed manual padding ---
+        # The DoubleConv 'self.dc' now handles its own padding internally.
+        z = self.dc(x)
+        
+        # Residual 1x1 conv path
+        y = self.conv(x)
         # --- END MODIFICATION ---
 
         return y + z
-    
+
+
 class UNet(nn.Module):
-    # --- MODIFIED ---
-    # The 'padding' argument is now removed entirely.
-    def __init__(self, 
-                 in_channels=1, 
-                 out_channels=1, 
+    """
+    UNet architecture.
+    
+    --- MODIFIED ---
+    - 'padding' arguments removed.
+    - 'nl' (non-linearity) defaulted to GELU.
+    - **FIX:** Added F.pad in forward() to handle odd-sized inputs.
+    """
+    def __init__(self,
+                 in_channels=1,
+                 out_channels=1,
                  features=(32, 64),
-                 # padding=("zeros", "zeros"), # <-- REMOVED
-                 nl=nn.ReLU()):
+                 nl=nn.GELU()): # Defaulted to GELU
         super().__init__()
-        # self.padding = padding # <-- REMOVED
-        self.dims = 2 # Hard-coded to 2D for PaddedConv2D
-        # assert self.dims in [1,2,3] # No longer needed
-        if self.dims != 2:
-            raise ValueError("Physics-informed padding (PaddedConv2D) only supports dims=2")
+        self.dims = 2 # Hard-coded for 2D
             
         self.encoders = torch.nn.ModuleList([])
         self.bridges  = torch.nn.ModuleList([])
@@ -234,7 +209,7 @@ class UNet(nn.Module):
         self.out_channels = out_channels
 
         self.add_top_unet_block(in_channels, features[0], out_channels)
-        for k in range(len(features)-1): 
+        for k in range(len(features)-1):
             self.append_unet_block(features[k+1])
 
     def forward(self, x):
@@ -244,23 +219,41 @@ class UNet(nn.Module):
             x_bridged.append( self.bridges[k](x) )
             if k < len(self.encoders) - 1: x = self.pool(x)
         
-        x_up = None # Initialize x_up
+        x_up = None # Initialize
+        
         for k in range(len(self.decoders)-1, -1, -1):
-            if k == len(self.decoders)-1: 
+            if k == len(self.decoders)-1:
+                # At the bottom of the U, start with zeros
                 x_up = torch.zeros_like( x_bridged[k] )
             
-            if x_up is None:
-                raise RuntimeError("x_up should not be None in decoder loop")
-
+            # --- FIX for odd-sized inputs ---
+            # Pad x_up to match x_bridged[k] if sizes differ
+            # This handles cases where max-pooling (e.g., 63 -> 31)
+            # followed by upsampling (e.g., 31 -> 62)
+            # results in a size mismatch with the skip connection (e.g., 63).
+            if x_up.shape != x_bridged[k].shape:
+                # B, C, H, W
+                target_shape = x_bridged[k].shape
+                # (pad_left, pad_right, pad_top, pad_bottom)
+                # We pad on the right and bottom, assuming dims[2]=H, dims[3]=W
+                padding_dims = (
+                    0, target_shape[3] - x_up.shape[3], # W
+                    0, target_shape[2] - x_up.shape[2]  # H
+                )
+                x_up = F.pad(x_up, padding_dims, "constant", 0)
+            # --- END FIX ---
+            
             x = self.decoders[k]( x_bridged[k] + x_up )
-            if k > 0:  x_up = self.up(x)
+            
+            if k > 0:
+                x_up = self.up(x)
+                
         return x
 
     def add_top_unet_block(self, in_channels, bridge_channels, out_channels):
-        # Note: self.padding is passed, but will be ignored by ResNetBlock/DoubleConv
-        encoder = ResNetBlock(in_channels,     bridge_channels, nl=self.nl, dims=self.dims, include_norm=False) 
-        bridge  = ResNetBlock(bridge_channels, bridge_channels, nl=self.nl, dims=self.dims, include_norm=False) 
-        decoder = ResNetBlock(bridge_channels, out_channels,    nl=self.nl, dims=self.dims, include_norm=False) 
+        encoder = ResNetBlock(in_channels,     bridge_channels, nl=self.nl, dims=self.dims, include_norm=False)
+        bridge  = ResNetBlock(bridge_channels, bridge_channels, nl=self.nl, dims=self.dims, include_norm=False)
+        decoder = ResNetBlock(bridge_channels, out_channels,    nl=self.nl, dims=self.dims, include_norm=False)
 
         self.encoders.append( encoder )
         self.bridges.append(  bridge )
@@ -269,76 +262,98 @@ class UNet(nn.Module):
     def append_unet_block(self, bridge_channels):
         top_channels = self.encoders[-1].out_channels
 
-        # Note: self.padding is passed, but will be ignored by ResNetBlock/DoubleConv
-        encoder = ResNetBlock(top_channels,    bridge_channels, nl=self.nl, dims=self.dims, include_norm=False) 
-        bridge  = ResNetBlock(bridge_channels, bridge_channels, nl=self.nl, dims=self.dims, include_norm=False) 
-        decoder = ResNetBlock(bridge_channels, top_channels,    nl=self.nl, dims=self.dims, include_norm=False) 
+        encoder = ResNetBlock(top_channels,    bridge_channels, nl=self.nl, dims=self.dims, include_norm=False)
+        bridge  = ResNetBlock(bridge_channels, bridge_channels, nl=self.nl, dims=self.dims, include_norm=False)
+        decoder = ResNetBlock(bridge_channels, top_channels,    nl=self.nl, dims=self.dims, include_norm=False)
 
         self.encoders.append( encoder )
         self.bridges.append(  bridge )
         self.decoders.append( decoder )
 
 
-# --- Main Flow Matching Model ---
+# --- FLOW MATCHING WRAPPER AND TIME EMBEDDING ---
+
+class SinusoidalTimeEmbedding(nn.Module):
+    """
+    Standard sinusoidal time embedding module.
+    Takes a 1D batch of times t (B,) and maps it to (B, dim).
+    """
+    def __init__(self, dim):
+        super().__init__()
+        self.dim = dim
+
+    def forward(self, t):
+        device = t.device
+        half_dim = self.dim // 2
+        embeddings = math.log(10000) / (half_dim - 1)
+        embeddings = torch.exp(torch.arange(half_dim, device=device) * -embeddings)
+        embeddings = t[:, None] * embeddings[None, :]
+        embeddings = torch.cat((embeddings.sin(), embeddings.cos()), dim=-1)
+        
+        # Handle odd dimension
+        if self.dim % 2 == 1:
+            embeddings = F.pad(embeddings, (0, 1), "constant", 0)
+            
+        return embeddings
+
 
 class FlowMatchingUNet(nn.Module):
     """
-    Wrapper for the UNet to implement the conditional flow matching model.
-    v_t_theta(x_t, t, y_k)
+    Top-level wrapper for the Flow Matching model.
+    
+    This module:
+    1. Takes (x_t, t, y_k) as input.
+    2. Generates time embeddings for t.
+    3. Concatenates (x_t, t_embed, y_k) along the channel dimension.
+    4. Passes the combined tensor through the UNet.
+    5. Returns the UNet's output (the predicted velocity).
     """
-    # --- MODIFIED ---
-    # Removed 'unet_padding' argument as it's no longer used.
     def __init__(
         self,
-        in_channels: int,           # Channels of x_t
-        condition_channels: int,    # Channels of y_k
-        time_embed_dim: int,
-        features: List[int],        # UNet features, e.g., [64, 128, 256]
-        # unet_padding: Tuple[str, ...] = ("zeros", "zeros") # <-- REMOVED
+        in_channels: int,           # Channels in x_t (e.g., 2 for vx, vz)
+        condition_channels: int,    # Channels in y_k (e.g., 2 for vx, vz)
+        time_embed_dim: int,        # Dimension for time embedding (e.g., 64)
+        features: List[int] = (32, 64, 128) # UNet feature map sizes
     ):
         super().__init__()
         
-        self.time_embedding = SinusoidalTimeEmbedding(time_embed_dim)
-        
-        # Calculate total input channels for the UNet
-        # We concatenate x_t, time_embedding, and condition y_k
+        self.in_channels = in_channels
+        self.condition_channels = condition_channels
+        self.time_embed_dim = time_embed_dim
+
+        # 1. Time embedding module
+        self.time_embed = SinusoidalTimeEmbedding(time_embed_dim)
+
+        # 2. Total channels for UNet input
         unet_in_channels = in_channels + time_embed_dim + condition_channels
         
-        # The UNet output should match the channels of x_t,
-        # as it's predicting the velocity (x_1 - x_0) which has
-        # the same shape as x_t.
-        unet_out_channels = in_channels 
-        
+        # 3. The UNet
         self.unet = UNet(
             in_channels=unet_in_channels,
-            out_channels=unet_out_channels,
-            features=features,
-            # padding=unet_padding, # <-- This was already removed
-            nl=nn.GELU() # Use GELU as in the tcKAE model
+            out_channels=in_channels, # Output is velocity, same channels as input
+            features=features
         )
-
-    def forward(
-        self, 
-        x_t: torch.Tensor, # Interpolated state (B, C, H, W)
-        t: torch.Tensor,   # Time (B,)
-        y_k: torch.Tensor  # Condition (B, C, H, W)
-    ) -> torch.Tensor:
+        
+    def forward(self, 
+                x_t: torch.Tensor,       # (B, C_in, H, W)
+                t: torch.Tensor,         # (B,)
+                y_k: torch.Tensor        # (B, C_cond, H, W)
+               ) -> torch.Tensor:
         
         # 1. Get time embedding
         # t_embed: (B, time_embed_dim)
-        t_embed = self.time_embedding(t)
+        t_embed = self.time_embed(t)
         
-        # 2. Expand time embedding to match spatial dims
-        # t_embed_spatial: (B, time_embed_dim, H, W)
-        B, C, H, W = x_t.shape
-        t_embed_spatial = t_embed.view(B, -1, 1, 1).expand(B, -1, H, W)
+        # 2. Expand time embedding to spatial dimensions
+        # (B, time_embed_dim) -> (B, time_embed_dim, 1, 1)
+        t_embed_spatial = t_embed[:, :, None, None]
+        # (B, time_embed_dim, 1, 1) -> (B, time_embed_dim, H, W)
+        t_embed_expanded = t_embed_spatial.expand(-1, -1, x_t.shape[2], x_t.shape[3])
         
         # 3. Concatenate all inputs along the channel dimension
-        # model_input: (B, C + time_embed_dim + C_cond, H, W)
-        model_input = torch.cat([x_t, t_embed_spatial, y_k], dim=1)
+        model_input = torch.cat([x_t, t_embed_expanded, y_k], dim=1)
         
         # 4. Pass through UNet
-        # predicted_velocity: (B, C, H, W)
         predicted_velocity = self.unet(model_input)
         
         return predicted_velocity
