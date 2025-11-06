@@ -545,7 +545,9 @@ def main():
         # --- MODIFIED: Ensure resumed run uses checkpoint's HParams ---
         args.channels = model_config.get("channels_used")
         args.features = model_config.get("features")
-        args.time-embed-dim = model_config.get("time_embed_dim")
+        # --- FIX: Use underscore instead of hyphen ---
+        args.time_embed_dim = model_config.get("time_embed_dim")
+        # --- END FIX ---
         # --- END MODIFIED ---
 
         data_assets = create_dataloaders(args, {**data_dict, "norm_stats": checkpoint["norm_stats"], "train_indices": checkpoint["train_indices"], "val_indices": checkpoint["val_indices"]})
