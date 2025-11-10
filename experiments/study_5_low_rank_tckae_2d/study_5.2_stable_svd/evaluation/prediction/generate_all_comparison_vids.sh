@@ -1,5 +1,6 @@
 #!/bin/bash
-
+# experiments/study_5_low_rank_tckae_2d/study_5.2_stable_svd/evaluation/prediction/generate_all_comparison_vids.sh
+#
 # ==============================================================================
 # Batch Comparison Video Generation Script for 2D NPZ Data
 #

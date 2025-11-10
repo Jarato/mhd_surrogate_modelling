@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# scripts/create_comparison_video.py
+# experiments/study_5_low_rank_tckae_2d/study_5.2_stable_svd/evaluation/prediction/create_comparison_video.py
 
 import argparse
 from pathlib import Path

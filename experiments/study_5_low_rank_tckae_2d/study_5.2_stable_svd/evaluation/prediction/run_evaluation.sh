@@ -1,5 +1,6 @@
 #!/bin/bash
-
+# experiments/study_5_low_rank_tckae_2d/study_5.2_stable_svd/evaluation/prediction/run_evaluation.py
+#
 # This script runs the new prediction generation script.
 #
 # --- ACTION REQUIRED ---
