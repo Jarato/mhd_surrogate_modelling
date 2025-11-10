@@ -50,7 +50,7 @@ def solve_flow_ode(model, y_condition, steps, solver, device):
     Solves the Flow Matching ODE to generate y_{k+1} given y_k (y_condition).
     Goes from t=0 (noise) to t=1 (data).
     """
-# 1. Sample initial noise x_0 ~ N(0, I)
+    # 1. Sample initial noise x_0 ~ N(0, I)
     x_t = torch.randn_like(y_condition)
     
     dt = 1.0 / steps
@@ -214,7 +214,11 @@ def main():
 
     logging.info("--- PREDICTION EVALUATION COMPLETE ---")
     logging.info(f"Solver: {args.solver} ({args.ode_steps} steps)")
-    logging.info(f"Overall MSE: {avg_rollout_mse_total:.6f} | R²: {r_squared_total:.4f}")
+    logging.info(f"Overall MSE: {avg_rollout_mse_total:.6f} | R²: {r_squared_total:.4f}\n")
+
+    logging.info("--- Per-Channel Metrics ---")
+    for i, name in enumerate(channel_names):
+        logging.info(f"Channel '{name}':\t Avg MSE = {avg_mse_per_channel[i]:.6f},\t R² = {r_squared_per_channel[i]:.4f}")
 
 if __name__ == "__main__":
     main()
