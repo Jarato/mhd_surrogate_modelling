@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+# experiments/study_5_low_rank_tckae_2d/study_5.2_stable_svd/evaluation/prediction/gen_prediction.py
 #
 # This script is an updated version of gen_prediction_2d_separated.py
 #
