@@ -46,7 +46,7 @@ PRED_SCRIPT_PATH="gen_prediction.py"
 VIDEO_SCRIPT_PATH="create_comparison_video.py"
 
 # --- Step 1: Prediction Parameters ---
-ODE_STEPS=8        # Higher = more accurate but slower (try 10, 20, 50)
+ODE_STEPS=32        # Higher = more accurate but slower (try 10, 20, 50)
 SOLVER="midpoint"  # 'euler' or 'midpoint' (midpoint is generally better)
 SEED=42            # Change this to test generation variance
 
@@ -60,7 +60,7 @@ aliases=("u")
 
 # Video settings
 FPS=2
-NUM_WORKERS=128
+NUM_WORKERS=10
 BASE_SIZE=20.0 # Base size (in inches) for the plot's width.
 MIN_SIZE=4.0   # Minimum size (in inches) for a single plot's height.
 
