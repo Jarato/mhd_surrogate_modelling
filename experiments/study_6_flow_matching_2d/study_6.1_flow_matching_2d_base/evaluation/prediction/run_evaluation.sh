@@ -9,32 +9,36 @@
 #
 # --- USAGE ---
 # Run all steps:
-#   ./run_full_evaluation.sh
+#   ./run_evaluation.sh
 #
 # Run prediction generation ONLY:
-#   ./run_full_evaluation.sh --prediction-only
+#   ./run_evaluation.sh --prediction-only
 #
 # Run video generation ONLY (assumes predictions already exist):
-#   ./run_full_evaluation.sh --video-only
+#   ./run_evaluation.sh --video-only
 #
 # Run all, but skip prediction:
-#   ./run_full_evaluation.sh --skip-prediction
+#   ./run_evaluation.sh --skip-prediction
 #
 # Run all, but skip video:
-#   ./run_full_evaluation.sh --skip-video
+#   ./run_evaluation.sh --skip-video
 # ==============================================================================
 
 # --- ACTION REQUIRED: CONFIGURE YOUR PATHS & PARAMETERS HERE ---
 
 # --- Core Paths ---
 # Path to your Flow Matching *best_model.pth* file
-MODEL_PATH="/cephfs/users/skowronek/Documents/PhD/nuclear_fusion_cooling/prediction/mhd_surrogate_modelling/experiments/study_6_flow_matching_2d/study_6.1_flow_matching_2d_base/output/valrol1/f64-128-256_t64_vroll1_ode8/best_model.pth"
+# MODEL_PATH="/cephfs/users/skowronek/Documents/PhD/nuclear_fusion_cooling/prediction/mhd_surrogate_modelling/experiments/study_6_flow_matching_2d/study_6.1_flow_matching_2d_base/output/sweep_valrol_steps8/f64-128-256_t64_vroll8/best_model.pth"
 
 # Path to your *test_set.npz* file (Used for prediction input AND video ground truth)
-TEST_DATA_PATH="/cephfs/users/skowronek/Documents/PhD/nuclear_fusion_cooling/data/preprocessed_dns_output/01-Cold_Runs/01-Re16K_Ha325/T1492_x1151_y1_z127_c2/preprocessed/test_set.npz"
+# TEST_DATA_PATH="/cephfs/users/skowronek/Documents/PhD/nuclear_fusion_cooling/data/preprocessed_dns_output/01-Cold_Runs/01-Re16K_Ha325/T1492_x1151_y1_z127_c2/preprocessed/test_set.npz"
 
 # Path to the *normalization_stats.npz* file.
-NORM_STATS_PATH="/cephfs/users/skowronek/Documents/PhD/nuclear_fusion_cooling/data/preprocessed_dns_output/01-Cold_Runs/01-Re16K_Ha325/T1492_x1151_y1_z127_c2/preprocessed/normalization_stats.npz"
+# NORM_STATS_PATH="/cephfs/users/skowronek/Documents/PhD/nuclear_fusion_cooling/data/preprocessed_dns_output/01-Cold_Runs/01-Re16K_Ha325/T1492_x1151_y1_z127_c2/preprocessed/normalization_stats.npz"
+
+# --- Config File ---
+# This file provides the paths above.
+CONFIG_FILE="evaluation.conf"
 
 # --- Script Paths ---
 # Assumes scripts are in the same directory. Update if needed.
@@ -77,7 +81,17 @@ VCENTERS_DIFF="vx:0.0 vz:0.0"
 # ------------------------------------------------------------------------------
 
 
-# --- 1. SCRIPT LOGIC: PARSE FLAGS ---
+# --- 1. SCRIPT LOGIC: LOAD CONFIG & PARSE FLAGS ---
+
+# Source the configuration file
+if [ ! -f "$CONFIG_FILE" ]; then
+    echo "ERROR: Configuration file not found!"
+    echo "Please create '$CONFIG_FILE' and set MODEL_PATH, TEST_DATA_PATH, and NORM_STATS_PATH."
+    exit 1
+fi
+source "$CONFIG_FILE"
+echo "Loaded configuration from $CONFIG_FILE"
+
 RUN_PREDICTION=true
 RUN_VIDEO=true
 
