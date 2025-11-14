@@ -27,6 +27,7 @@ def main():
     # --- Mode Selection ---
     parser.add_argument("--mode", type=str, default="individual", choices=["individual", "combined"], help="Video generation mode.")
     parser.add_argument("--base-pred-dir", type=Path, default=None, help="Base directory containing 'sample_XX' subfolders (for 'combined' mode).")
+    parser.add_argument("--video-grid-cols", type=int, default=3, help="Number of columns for the 'combined' video grid (samples).")
 
     # --- Data Selection ---
     parser.add_argument("--channel", type=str, required=True, help="The channel to plot (e.g., 'vx').")
@@ -129,6 +130,7 @@ def main():
             cmap=args.cmap,
             base_size=args.base_size,
             min_size=args.min_size,
+            video_grid_cols=args.video_grid_cols, # <-- PASS IT HERE
         )
 
 if __name__ == "__main__":

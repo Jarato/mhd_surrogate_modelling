@@ -243,13 +243,17 @@ def _create_multi_sample_frame(
     base_size: float,
     min_size: float,
     cmap: str = "viridis",
+    video_grid_cols: int = 3, # <-- NEW ARGUMENT
 ):
-    """Plots a multi-panel frame (GT, Pred_S0, Pred_S1, ...) to a file."""
+    """Plots a multi-panel frame (GT on top, Preds in grid) to a file."""
     x_coords = coords['x']
     z_coords = coords['z']
     
     num_samples = len(pred_slices)
-    num_panels = 1 + num_samples  # 1 for GT, N for samples
+    # --- NEW: Grid Calculation ---
+    ncols = video_grid_cols
+    num_sample_rows = int(np.ceil(num_samples / ncols))
+    nrows = 1 + num_sample_rows  # 1 for GT row, N for sample rows
     
     dpi = 150
     macro_block_size = 16
@@ -270,8 +274,8 @@ def _create_multi_sample_frame(
         panel_width_in = max(min_size, base_size * aspect_ratio)
 
     # Total figure size
-    fig_width_in = panel_width_in * num_panels
-    fig_height_in = panel_height_in
+    fig_width_in = panel_width_in * ncols
+    fig_height_in = panel_height_in * nrows
     
     width_px = int(fig_width_in * dpi)
     height_px = int(fig_height_in * dpi)
@@ -281,9 +285,9 @@ def _create_multi_sample_frame(
     
     figsize = (width_px / dpi, height_px / dpi)
 
-    fig, axes = plt.subplots(1, num_panels, figsize=figsize, sharey=True)
-    if num_panels == 1:
-        axes = [axes] # Make it iterable
+    # --- NEW: Use GridSpec for complex layout ---
+    fig = plt.figure(figsize=figsize)
+    gs = fig.add_gridspec(nrows, ncols, wspace=0.1, hspace=0.3)
 
     # --- Plotting ---
     plot_kwargs = {'shading': 'gouraud', 'cmap': cmap}
@@ -293,23 +297,37 @@ def _create_multi_sample_frame(
         plot_kwargs['vmin'] = vmin
         plot_kwargs['vmax'] = vmax
 
-    # Panel 0: Ground Truth
-    im = axes[0].pcolormesh(x_coords, z_coords, gt_slice.T, **plot_kwargs)
-    axes[0].set_title("Ground Truth")
-    axes[0].set_xlabel(xlabel)
-    axes[0].set_ylabel(ylabel)
+    # --- Panel 0: Ground Truth (spans top row) ---
+    ax_gt = fig.add_subplot(gs[0, :])
+    im = ax_gt.pcolormesh(x_coords, z_coords, gt_slice.T, **plot_kwargs)
+    ax_gt.set_title("Ground Truth")
+    ax_gt.set_xlabel(xlabel)
+    ax_gt.set_ylabel(ylabel)
 
-    # Panels 1...N: Predictions
-    for i, pred_slice in enumerate(pred_slices):
-        ax = axes[i + 1]
-        ax.pcolormesh(x_coords, z_coords, pred_slice.T, **plot_kwargs)
-        ax.set_title(f"Sample {i:02d}")
-        ax.set_xlabel(xlabel)
+    # --- Panels 1...N: Predictions (fill grid below) ---
+    sample_idx = 0
+    for r in range(1, nrows): # Start from row 1
+        for c in range(ncols):
+            if sample_idx < num_samples:
+                ax = fig.add_subplot(gs[r, c], sharey=ax_gt) # Share Y-axis with GT
+                pred_slice = pred_slices[sample_idx]
+                
+                ax.pcolormesh(x_coords, z_coords, pred_slice.T, **plot_kwargs)
+                ax.set_title(f"Sample {sample_idx:02d}")
+                ax.set_xlabel(xlabel)
+                
+                if c != 0: # Not the first column
+                    ax.tick_params(axis='y', labelleft=False)
+                else:
+                    ax.set_ylabel(ylabel) # Only label first col
+                
+                sample_idx += 1
+            # No need to explicitly hide unused axes, GridSpec handles gaps
 
     fig.suptitle(title, fontsize=16)
     
     # Add a single colorbar
-    fig.subplots_adjust(right=0.9, wspace=0.1)
+    fig.subplots_adjust(right=0.9) # Make room
     cbar_ax = fig.add_axes([0.92, 0.15, 0.02, 0.7]) # [left, bottom, width, height]
     fig.colorbar(im, cax=cbar_ax, label=cbar_label)
     
@@ -349,6 +367,7 @@ def _generate_frame_worker_multi_sample(relative_time_index, common_args):
         vmin=common_args['vmin'], vmax=common_args['vmax'], vcenter=common_args['vcenter'],
         base_size=common_args['base_size'], min_size=common_args['min_size'],
         cmap=common_args['cmap'],
+        video_grid_cols=common_args['video_grid_cols'], # <-- PASS IT HERE
     )
     return frame_path
 
@@ -369,6 +388,7 @@ def generate_multi_sample_video(
     vcenters: Optional[Dict[str, float]] = None,
     num_workers: int = 1,
     cmap: str = "viridis",
+    video_grid_cols: int = 3, # <-- NEW ARGUMENT
 ):
     """
     Generates a 2D video comparing Ground Truth to multiple prediction samples.
@@ -454,6 +474,7 @@ def generate_multi_sample_video(
             'cbar_label': cbar_label, 'vmin': vmin, 'vmax': vmax, 'vcenter': vcenter,
             'base_size': base_size, 'min_size': min_size, 'time_offset': time_offset,
             'cmap': cmap,
+            'video_grid_cols': video_grid_cols, # <-- ADD TO COMMON ARGS
         }
         
         worker_func = partial(_generate_frame_worker_multi_sample, common_args=common_args)
