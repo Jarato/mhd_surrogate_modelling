@@ -45,11 +45,11 @@ VIDEO_SCRIPT_PATH="create_comparison_video.py"
 ODE_STEPS=16        # Higher = more accurate but slower (try 10, 20, 50)
 SOLVER="midpoint"  # 'euler' or 'midpoint' (midpoint is generally better)
 BASE_SEED=42       # Base seed. Samples will use BASE_SEED, BASE_SEED+1, ...
-NUM_SAMPLES=2      # <<< NEW: Number of samples to generate
+NUM_SAMPLES=5      # <<< NEW: Number of samples to generate
 FORCE_RERUN=false  # <<< NEW: Set to true to always regenerate samples
 
 # --- Step 2: Video Parameters ---
-VIDEO_MODE="individual" # <<< NEW: 'individual' or 'combined'
+VIDEO_MODE="combined" # <<< NEW: 'individual' or 'combined'
 VIDEO_GRID_COLS=2       # <<< NEW: Number of columns for 'combined' video
 
 # Define the channels and their display aliases to loop over
