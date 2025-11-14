@@ -224,7 +224,7 @@ def main():
             ode_settings=np.array([args.solver, str(args.ode_steps)], dtype='U'),
             seed=current_seed
         )
-        np.savez(pred_.path, timeseries=predicted_timeseries.numpy(), labels=np.array(channel_names, dtype='U'))
+        np.savez(pred_path, timeseries=predicted_timeseries.numpy(), labels=np.array(channel_names, dtype='U'))
         np.savez(diff_path, timeseries=difference_timeseries.numpy(), labels=np.array(channel_names, dtype='U'))
 
         logging.info(f"--- PREDICTION EVALUATION COMPLETE FOR {sample_str} ---")
