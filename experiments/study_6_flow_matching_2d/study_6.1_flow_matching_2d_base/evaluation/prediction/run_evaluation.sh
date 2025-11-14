@@ -51,7 +51,7 @@ FORCE_RERUN=false  # Set to true to always regenerate samples
 # NUM_VIDEO_SAMPLES: How many full timeseries to save for videos (expensive)
 # NUM_STATS_SAMPLES: Total samples to run for stats (cheap). Must be >= NUM_VIDEO_SAMPLES
 NUM_VIDEO_SAMPLES=0
-NUM_STATS_SAMPLES=4
+NUM_STATS_SAMPLES=32
 
 # --- Step 2: Video Parameters ---
 VIDEO_MODE="combined" # 'individual' or 'combined'
