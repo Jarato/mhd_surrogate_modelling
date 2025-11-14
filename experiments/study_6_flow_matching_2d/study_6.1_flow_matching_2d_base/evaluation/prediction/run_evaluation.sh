@@ -46,7 +46,7 @@ PRED_SCRIPT_PATH="gen_prediction.py"
 VIDEO_SCRIPT_PATH="create_comparison_video.py"
 
 # --- Step 1: Prediction Parameters ---
-ODE_STEPS=32        # Higher = more accurate but slower (try 10, 20, 50)
+ODE_STEPS=16        # Higher = more accurate but slower (try 10, 20, 50)
 SOLVER="midpoint"  # 'euler' or 'midpoint' (midpoint is generally better)
 SEED=42            # Change this to test generation variance
 
