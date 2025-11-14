@@ -26,18 +26,8 @@
 
 # --- ACTION REQUIRED: CONFIGURE YOUR PATHS & PARAMETERS HERE ---
 
-# --- Core Paths ---
-# Path to your Flow Matching *best_model.pth* file
-# MODEL_PATH="/cephfs/users/skowronek/Documents/PhD/nuclear_fusion_cooling/prediction/mhd_surrogate_modelling/experiments/study_6_flow_matching_2d/study_6.1_flow_matching_2d_base/output/sweep_valrol_steps8/f64-128-256_t64_vroll8/best_model.pth"
-
-# Path to your *test_set.npz* file (Used for prediction input AND video ground truth)
-# TEST_DATA_PATH="/cephfs/users/skowronek/Documents/PhD/nuclear_fusion_cooling/data/preprocessed_dns_output/01-Cold_Runs/01-Re16K_Ha325/T1492_x1151_y1_z127_c2/preprocessed/test_set.npz"
-
-# Path to the *normalization_stats.npz* file.
-# NORM_STATS_PATH="/cephfs/users/skowronek/Documents/PhD/nuclear_fusion_cooling/data/preprocessed_dns_output/01-Cold_Runs/01-Re16K_Ha325/T1492_x1151_y1_z127_c2/preprocessed/normalization_stats.npz"
-
 # --- Config File ---
-# This file provides the paths above.
+# This file provides the paths to MODEL_PATH, TEST_DATA_PATH, NORM_STATS_PATH
 CONFIG_FILE="evaluation.conf"
 
 # --- Script Paths ---
@@ -48,7 +38,8 @@ VIDEO_SCRIPT_PATH="create_comparison_video.py"
 # --- Step 1: Prediction Parameters ---
 ODE_STEPS=16        # Higher = more accurate but slower (try 10, 20, 50)
 SOLVER="midpoint"  # 'euler' or 'midpoint' (midpoint is generally better)
-SEED=42            # Change this to test generation variance
+BASE_SEED=42       # Base seed. Samples will use BASE_SEED, BASE_SEED+1, ...
+NUM_SAMPLES=1      # <<< NEW: Number of samples to generate
 
 # --- Step 2: Video Parameters ---
 # Define the channels and their display aliases to loop over
@@ -123,15 +114,14 @@ fi
 
 # --- 2. SCRIPT LOGIC: DERIVE PATHS ---
 
-# Directory where the output .npz files will be saved.
+# Directory where the output sample subdirectories will be saved.
 EVAL_OUTPUT_DIR="$(dirname "$MODEL_PATH")/eval/pred/"
 
-# Directory to save the output videos
+# Base directory to save the output videos
 VIDEO_OUTPUT_DIR="${EVAL_OUTPUT_DIR}/comparison_videos/"
 
-# Construct full paths to the prediction and difference files
-PREDICTED_NPZ="${EVAL_OUTPUT_DIR}/predicted_timeseries.npz"
-DIFFERENCE_NPZ="${EVAL_OUTPUT_DIR}/difference_timeseries.npz"
+# NOTE: PREDICTED_NPZ and DIFFERENCE_NPZ are now defined
+# inside the video loop, as they are sample-specific.
 
 
 # --- 3. SCRIPT LOGIC: RUN PREDICTION STEP ---
@@ -142,6 +132,7 @@ if [ "$RUN_PREDICTION" = true ]; then
     echo "Model:    $(basename "$MODEL_PATH")"
     echo "Data:     $(basename "$TEST_DATA_PATH")"
     echo "Solver:   $SOLVER with $ODE_STEPS steps"
+    echo "Samples:  $NUM_SAMPLES (starting from seed $BASE_SEED)"
     echo "Output:   $EVAL_OUTPUT_DIR"
     echo "------------------------------------------------------------------------------"
 
@@ -155,7 +146,8 @@ if [ "$RUN_PREDICTION" = true ]; then
         --output-dir "$EVAL_OUTPUT_DIR" \
         --ode-steps $ODE_STEPS \
         --solver "$SOLVER" \
-        --seed $SEED
+        --seed $BASE_SEED \
+        --num-samples $NUM_SAMPLES
 
     # Check if prediction generation failed
     if [ $? -ne 0 ]; then
@@ -174,63 +166,78 @@ fi
 if [ "$RUN_VIDEO" = true ]; then
     echo ""
     echo "=============================================================================="
-    echo "STEP 2: Running comparison video generation..."
+    echo "STEP 2: Running comparison video generation for $NUM_SAMPLES sample(s)..."
     echo "=============================================================================="
 
-    # Sanity check: Ensure the required .npz files exist before proceeding
-    if [ ! -f "$PREDICTED_NPZ" ] || [ ! -f "$DIFFERENCE_NPZ" ] || [ ! -f "$TEST_DATA_PATH" ]; then
-        echo "ERROR: Cannot generate videos. One or more required files are missing."
-        echo "Check for Ground Truth: $TEST_DATA_PATH"
-        echo "Check for Prediction:   $PREDICTED_NPZ"
-        echo "Check for Difference:   $DIFFERENCE_NPZ"
-        if [ "$RUN_PREDICTION" = false ]; then
-            echo "Hint: You skipped the prediction step. Run without --skip-prediction or --video-only to generate these files."
-        fi
-        exit 1
-    fi
-
-    # Create the output directory if it doesn't exist
-    mkdir -p "$VIDEO_OUTPUT_DIR"
-    echo "Video Output: $VIDEO_OUTPUT_DIR"
-
-    # Loop through each velocity component
-    for i in "${!channels[@]}"; do
-        channel=${channels[$i]}
-        alias=${aliases[$i]}
-
-        # Construct the output filename dynamically
-        output_filename="comparison_vid_${alias}.mp4"
-        output_path="${VIDEO_OUTPUT_DIR}/${output_filename}"
-
-        # Construct the full command for the comparison script
-        command="python $VIDEO_SCRIPT_PATH \
-            --ground-truth-npz \"$TEST_DATA_PATH\" \
-            --predicted-npz \"$PREDICTED_NPZ\" \
-            --difference-npz \"$DIFFERENCE_NPZ\" \
-            --output-path \"$output_path\" \
-            --channel \"$channel\" \
-            --channel-alias \"$alias\" \
-            --fps $FPS \
-            --num-workers $NUM_WORKERS \
-            --base-size $BASE_SIZE \
-            --min-size $MIN_SIZE \
-            --cmap \"$COLOR_MAP\" \
-            --vmins $VMINS \
-            --vmaxs $VMAXS \
-            --vcenters $VCENTERS \
-            --cmap-diff \"$COLOR_MAP_DIFF\" \
-            --vmins-diff $VMINS_DIFF \
-            --vmaxs-diff $VMAXS_DIFF \
-            --vcenters-diff $VCENTERS_DIFF"
-
-        # Print the command to the console and then execute it
-        echo "------------------------------------------------------------------------------"
-        echo "Executing command for channel '$alias' ($channel):"
-        echo "Output: $output_path"
-        echo "------------------------------------------------------------------------------"
-        eval $command
+    # Loop over each generated sample
+    for ((s=0; s < $NUM_SAMPLES; s++)); do
+        SAMPLE_STR=$(printf "sample_%02d" $s)
         echo ""
-    done
+        echo "------------------------------------------------------------------------------"
+        echo "--- Generating videos for $SAMPLE_STR ---"
+        echo "------------------------------------------------------------------------------"
+
+        # Define paths for this specific sample
+        SAMPLE_DIR="${EVAL_OUTPUT_DIR}/${SAMPLE_STR}/"
+        PREDICTED_NPZ="${SAMPLE_DIR}/predicted_timeseries.npz"
+        DIFFERENCE_NPZ="${SAMPLE_DIR}/difference_timeseries.npz"
+
+        # Sanity check: Ensure the required .npz files exist before proceeding
+        if [ ! -f "$PREDICTED_NPZ" ] || [ ! -f "$DIFFERENCE_NPZ" ] || [ ! -f "$TEST_DATA_PATH" ]; then
+            echo "ERROR: Cannot generate videos for $SAMPLE_STR. One or more required files are missing."
+            echo "Check for Ground Truth: $TEST_DATA_PATH"
+            echo "Check for Prediction:   $PREDICTED_NPZ"
+            echo "Check for Difference:   $DIFFERENCE_NPZ"
+            if [ "$RUN_PREDICTION" = false ]; then
+                echo "Hint: You skipped the prediction step. Run without --skip-prediction or --video-only to generate these files."
+            fi
+            continue # Skip to the next sample
+        fi
+
+        # Create the output directory for this sample's videos
+        SAMPLE_VIDEO_OUTPUT_DIR="${VIDEO_OUTPUT_DIR}/${SAMPLE_STR}/"
+        mkdir -p "$SAMPLE_VIDEO_OUTPUT_DIR"
+        echo "Video Output: $SAMPLE_VIDEO_OUTPUT_DIR"
+
+        # Loop through each velocity component
+        for i in "${!channels[@]}"; do
+            channel=${channels[$i]}
+            alias=${aliases[$i]}
+
+            # Construct the output filename dynamically
+            output_filename="comparison_vid_${alias}.mp4"
+            output_path="${SAMPLE_VIDEO_OUTPUT_DIR}/${output_filename}"
+
+            # Construct the full command for the comparison script
+            command="python $VIDEO_SCRIPT_PATH \
+                --ground-truth-npz \"$TEST_DATA_PATH\" \
+                --predicted-npz \"$PREDICTED_NPZ\" \
+                --difference-npz \"$DIFFERENCE_NPZ\" \
+                --output-path \"$output_path\" \
+                --channel \"$channel\" \
+                --channel-alias \"$alias\" \
+                --fps $FPS \
+                --num-workers $NUM_WORKERS \
+                --base-size $BASE_SIZE \
+                --min-size $MIN_SIZE \
+                --cmap \"$COLOR_MAP\" \
+                --vmins $VMINS \
+                --vmaxs $VMAXS \
+                --vcenters $VCENTERS \
+                --cmap-diff \"$COLOR_MAP_DIFF\" \
+                --vmins-diff $VMINS_DIFF \
+                --vmaxs-diff $VMAXS_DIFF \
+                --vcenters-diff $VCENTERS_DIFF"
+
+            # Print the command to the console and then execute it
+            echo "---"
+            echo "Executing command for channel '$alias' ($channel):"
+            echo "Output: $output_path"
+            echo "---"
+            eval $command
+            echo ""
+        done
+    done # End of sample loop
 
     echo "All comparison video generation tasks are complete."
 
