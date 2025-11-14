@@ -243,17 +243,21 @@ def _create_multi_sample_frame(
     base_size: float,
     min_size: float,
     cmap: str = "viridis",
-    video_grid_cols: int = 3, # <-- NEW ARGUMENT
+    video_grid_cols: int = 3,
 ):
-    """Plots a multi-panel frame (GT on top, Preds in grid) to a file."""
+    """
+    Plots a multi-panel frame (GT + Preds) in a single grid.
+    GT is the first panel.
+    """
     x_coords = coords['x']
     z_coords = coords['z']
     
     num_samples = len(pred_slices)
-    # --- NEW: Grid Calculation ---
+    num_panels = 1 + num_samples # GT + N Samples
+    
+    # --- NEW: Grid Calculation (GT is just another panel) ---
     ncols = video_grid_cols
-    num_sample_rows = int(np.ceil(num_samples / ncols))
-    nrows = 1 + num_sample_rows  # 1 for GT row, N for sample rows
+    nrows = int(np.ceil(num_panels / ncols))
     
     dpi = 150
     macro_block_size = 16
@@ -285,9 +289,9 @@ def _create_multi_sample_frame(
     
     figsize = (width_px / dpi, height_px / dpi)
 
-    # --- NEW: Use GridSpec for complex layout ---
-    fig = plt.figure(figsize=figsize)
-    gs = fig.add_gridspec(nrows, ncols, wspace=0.1, hspace=0.3)
+    # --- NEW: Use plt.subplots for simple grid ---
+    fig, axes = plt.subplots(nrows, ncols, figsize=figsize, sharex=True, sharey=True, squeeze=False)
+    axes_flat = axes.flatten()
 
     # --- Plotting ---
     plot_kwargs = {'shading': 'gouraud', 'cmap': cmap}
@@ -297,39 +301,39 @@ def _create_multi_sample_frame(
         plot_kwargs['vmin'] = vmin
         plot_kwargs['vmax'] = vmax
 
-    # --- Panel 0: Ground Truth (spans top row) ---
-    ax_gt = fig.add_subplot(gs[0, :])
-    im = ax_gt.pcolormesh(x_coords, z_coords, gt_slice.T, **plot_kwargs)
-    ax_gt.set_title("Ground Truth")
-    ax_gt.set_xlabel(xlabel)
-    ax_gt.set_ylabel(ylabel)
+    all_data_slices = [gt_slice] + pred_slices
+    all_titles = ["Ground Truth"] + [f"Sample {i:02d}" for i in range(num_samples)]
 
-    # --- Panels 1...N: Predictions (fill grid below) ---
-    sample_idx = 0
-    for r in range(1, nrows): # Start from row 1
-        for c in range(ncols):
-            if sample_idx < num_samples:
-                ax = fig.add_subplot(gs[r, c], sharey=ax_gt) # Share Y-axis with GT
-                pred_slice = pred_slices[sample_idx]
-                
-                ax.pcolormesh(x_coords, z_coords, pred_slice.T, **plot_kwargs)
-                ax.set_title(f"Sample {sample_idx:02d}")
-                ax.set_xlabel(xlabel)
-                
-                if c != 0: # Not the first column
-                    ax.tick_params(axis='y', labelleft=False)
-                else:
-                    ax.set_ylabel(ylabel) # Only label first col
-                
-                sample_idx += 1
-            # No need to explicitly hide unused axes, GridSpec handles gaps
+    im = None # To hold the mappable for colorbar
+
+    for i in range(num_panels):
+        ax = axes_flat[i]
+        data_slice = all_data_slices[i]
+        
+        im = ax.pcolormesh(x_coords, z_coords, data_slice.T, **plot_kwargs)
+        ax.set_title(all_titles[i])
+        
+        # Add labels only to outer plots
+        row = i // ncols
+        col = i % ncols
+        
+        if row == nrows - 1: # Last row
+            ax.set_xlabel(xlabel)
+        
+        if col == 0: # First column
+            ax.set_ylabel(ylabel)
+
+    # Hide any unused axes
+    for i in range(num_panels, len(axes_flat)):
+        axes_flat[i].set_visible(False)
 
     fig.suptitle(title, fontsize=16)
     
     # Add a single colorbar
-    fig.subplots_adjust(right=0.9) # Make room
+    fig.subplots_adjust(right=0.9, wspace=0.1, hspace=0.2)
     cbar_ax = fig.add_axes([0.92, 0.15, 0.02, 0.7]) # [left, bottom, width, height]
-    fig.colorbar(im, cax=cbar_ax, label=cbar_label)
+    if im: # Only add colorbar if we plotted something
+        fig.colorbar(im, cax=cbar_ax, label=cbar_label)
     
     plt.savefig(frame_path, dpi=dpi)
     plt.close(fig)
