@@ -45,6 +45,7 @@ VIDEO_SCRIPT_PATH="create_comparison_video.py"
 ODE_STEPS=16        # Higher = more accurate but slower (try 10, 20, 50)
 SOLVER="midpoint"  # 'euler' or 'midpoint' (midpoint is generally better)
 BASE_SEED=42       # Base seed. Samples will use BASE_SEED, BASE_SEED+1, ...
+NUM_PRED_WORKERS=32 # <<< NEW: Number of parallel workers for gen_prediction.py (-1 for all)
 FORCE_RERUN=false  # Set to true to always regenerate samples
 
 # --- NEW: Sample Configuration ---
@@ -66,7 +67,7 @@ aliases=("u")
 
 # Video settings
 FPS=4
-NUM_WORKERS=10
+NUM_VIDEO_WORKERS=32 # Renamed from NUM_WORKERS to be specific
 BASE_SIZE=20.0 # Base size (in inches) for the plot's width.
 MIN_SIZE=4.0   # Minimum size (in inches) for a single plot's height.
 
@@ -150,6 +151,11 @@ else
             echo "Flag found: Setting stats samples to $2."
             shift; shift
             ;;
+            --num-pred-workers)
+            NUM_PRED_WORKERS="$2"
+            echo "Flag found: Setting prediction workers to $2."
+            shift; shift
+            ;;
         esac
     done
 fi
@@ -173,6 +179,7 @@ if [ "$RUN_PREDICTION" = true ]; then
     echo "Model:    $(basename "$MODEL_PATH")"
     echo "Data:     $(basename "$TEST_DATA_PATH")"
     echo "Solver:   $SOLVER with $ODE_STEPS steps"
+    echo "Workers:  $NUM_PRED_WORKERS"
     echo "Video Samples: $NUM_VIDEO_SAMPLES"
     echo "Total Stats Samples: $NUM_STATS_SAMPLES"
     echo "Output:   $EVAL_OUTPUT_DIR"
@@ -197,7 +204,8 @@ if [ "$RUN_PREDICTION" = true ]; then
         --seed $BASE_SEED \
         --num-video-samples $NUM_VIDEO_SAMPLES \
         --num-stats-samples $NUM_STATS_SAMPLES \
-        $RERUN_FLAG # This will be empty or "--force-rerun"
+        --num-workers $NUM_PRED_WORKERS \
+        $FORCE_FLAG # This will be empty or "--force-rerun"
 
     # Check if prediction generation failed
     if [ $? -ne 0 ]; then
@@ -272,7 +280,7 @@ if [ "$RUN_VIDEO" = true ]; then
                     --channel \"$channel\" \
                     --channel-alias \"$alias\" \
                     --fps $FPS \
-                    --num-workers $NUM_WORKERS \
+                    --num-workers $NUM_VIDEO_WORKERS \
                     --base-size $BASE_SIZE \
                     --min-size $MIN_SIZE \
                     --cmap \"$COLOR_MAP\" \
@@ -330,7 +338,7 @@ if [ "$RUN_VIDEO" = true ]; then
                 --channel \"$channel\" \
                 --channel-alias \"$alias\" \
                 --fps $FPS \
-                --num-workers $NUM_WORKERS \
+                --num-workers $NUM_VIDEO_WORKERS \
                 --base-size $BASE_SIZE \
                 --min-size $MIN_SIZE \
                 --cmap \"$COLOR_MAP\" \
