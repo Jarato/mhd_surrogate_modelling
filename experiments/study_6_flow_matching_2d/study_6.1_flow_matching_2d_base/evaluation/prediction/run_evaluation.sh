@@ -45,12 +45,17 @@ VIDEO_SCRIPT_PATH="create_comparison_video.py"
 ODE_STEPS=16        # Higher = more accurate but slower (try 10, 20, 50)
 SOLVER="midpoint"  # 'euler' or 'midpoint' (midpoint is generally better)
 BASE_SEED=42       # Base seed. Samples will use BASE_SEED, BASE_SEED+1, ...
-NUM_SAMPLES=5      # <<< NEW: Number of samples to generate
-FORCE_RERUN=false  # <<< NEW: Set to true to always regenerate samples
+FORCE_RERUN=false  # Set to true to always regenerate samples
+
+# --- NEW: Sample Configuration ---
+# NUM_VIDEO_SAMPLES: How many full timeseries to save for videos (expensive)
+# NUM_STATS_SAMPLES: Total samples to run for stats (cheap). Must be >= NUM_VIDEO_SAMPLES
+NUM_VIDEO_SAMPLES=0
+NUM_STATS_SAMPLES=4
 
 # --- Step 2: Video Parameters ---
-VIDEO_MODE="combined" # <<< NEW: 'individual' or 'combined'
-VIDEO_GRID_COLS=2       # <<< NEW: Number of columns for 'combined' video
+VIDEO_MODE="combined" # 'individual' or 'combined'
+VIDEO_GRID_COLS=2       # Number of columns for 'combined' video
 
 # Define the channels and their display aliases to loop over
 # Example for two channels:
@@ -134,6 +139,17 @@ else
             shift # past argument
             shift # past value
             ;;
+            # <<< NEW: Allow overriding sample counts from CLI >>>
+            --num-video-samples)
+            NUM_VIDEO_SAMPLES="$2"
+            echo "Flag found: Setting video samples to $2."
+            shift; shift
+            ;;
+            --num-stats-samples)
+            NUM_STATS_SAMPLES="$2"
+            echo "Flag found: Setting stats samples to $2."
+            shift; shift
+            ;;
         esac
     done
 fi
@@ -141,14 +157,12 @@ fi
 
 # --- 2. SCRIPT LOGIC: DERIVE PATHS ---
 
+# Directory where the output .npz files will be saved.
 # Directory where the output sample subdirectories will be saved.
 EVAL_OUTPUT_DIR="$(dirname "$MODEL_PATH")/eval/pred/"
 
 # Base directory to save the output videos
 VIDEO_OUTPUT_DIR="${EVAL_OUTPUT_DIR}/comparison_videos/"
-
-# NOTE: PREDICTED_NPZ and DIFFERENCE_NPZ are now defined
-# inside the video loop, as they are sample-specific.
 
 
 # --- 3. SCRIPT LOGIC: RUN PREDICTION STEP ---
@@ -159,7 +173,8 @@ if [ "$RUN_PREDICTION" = true ]; then
     echo "Model:    $(basename "$MODEL_PATH")"
     echo "Data:     $(basename "$TEST_DATA_PATH")"
     echo "Solver:   $SOLVER with $ODE_STEPS steps"
-    echo "Samples:  $NUM_SAMPLES (starting from seed $BASE_SEED)"
+    echo "Video Samples: $NUM_VIDEO_SAMPLES"
+    echo "Total Stats Samples: $NUM_STATS_SAMPLES"
     echo "Output:   $EVAL_OUTPUT_DIR"
     echo "------------------------------------------------------------------------------"
 
@@ -180,8 +195,9 @@ if [ "$RUN_PREDICTION" = true ]; then
         --ode-steps $ODE_STEPS \
         --solver "$SOLVER" \
         --seed $BASE_SEED \
-        --num-samples $NUM_SAMPLES \
-        $FORCE_FLAG
+        --num-video-samples $NUM_VIDEO_SAMPLES \
+        --num-stats-samples $NUM_STATS_SAMPLES \
+        $RERUN_FLAG # This will be empty or "--force-rerun"
 
     # Check if prediction generation failed
     if [ $? -ne 0 ]; then
@@ -205,10 +221,10 @@ if [ "$RUN_VIDEO" = true ]; then
 
     # --- MODE 1: Individual 3-Panel Videos (GT, Pred, Diff) for each sample ---
     if [ "$VIDEO_MODE" = "individual" ]; then
-        echo "Generating individual 3-panel video for each of $NUM_SAMPLES sample(s)..."
+        echo "Generating individual 3-panel video for each of $NUM_VIDEO_SAMPLES video sample(s)..."
         
-        # Loop over each generated sample
-        for ((s=0; s < $NUM_SAMPLES; s++)); do
+        # Loop over each generated sample (that has video data)
+        for ((s=0; s < $NUM_VIDEO_SAMPLES; s++)); do
             SAMPLE_STR=$(printf "sample_%02d" $s)
             echo ""
             echo "------------------------------------------------------------------------------"
@@ -280,7 +296,7 @@ if [ "$RUN_VIDEO" = true ]; then
     
     # --- MODE 2: Combined Multi-Panel Video (GT, S0, S1, S2...) ---
     elif [ "$VIDEO_MODE" = "combined" ]; then
-        echo "Generating one combined video for all $NUM_SAMPLES sample(s)..."
+        echo "Generating one combined video for all $NUM_VIDEO_SAMPLES video sample(s)..."
         
         # This mode runs ONCE, but still needs to loop over channels
         for i in "${!channels[@]}"; do

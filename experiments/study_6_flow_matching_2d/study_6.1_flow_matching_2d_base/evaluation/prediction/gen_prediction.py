@@ -17,6 +17,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 from tqdm import tqdm
+import warnings
 
 # Import the Flow Matching model
 from flow_matching_2d_base.model import FlowMatchingUNet
@@ -42,7 +43,8 @@ def parse_args():
     fm_group.add_argument("--ode-steps", type=int, default=10, help="Number of ODE steps per frame generation (default: 10).")
     fm_group.add_argument("--solver", type=str, default="midpoint", choices=["euler", "midpoint"], help="ODE solver method.")
     fm_group.add_argument("--seed", type=int, default=42, help="Base random seed for reproducibility. Samples will use seed, seed+1, ...")
-    fm_group.add_argument("--num-samples", type=int, default=1, help="Number of prediction samples to generate.")
+    fm_group.add_argument("--num-video-samples", type=int, default=1, help="Number of samples to save full timeseries NPZ files for (for video generation).")
+    fm_group.add_argument("--num-stats-samples", type=int, default=1, help="Total number of samples to generate for statistics. Must be >= num-video-samples.")
     fm_group.add_argument("--force-rerun", action='store_true', help="Force regeneration of all samples, even if they exist with matching seeds.")
 
     return parser.parse_args()
@@ -87,6 +89,11 @@ def main():
     args = parse_args()
     device = "cuda" if torch.cuda.is_available() else "cpu"
     logging.info(f"Using device: {device}")
+
+    if args.num_stats_samples < args.num_video_samples:
+        logging.warning(f"num-stats-samples ({args.num_stats_samples}) is less than num-video-samples ({args.num_video_samples}).")
+        logging.warning(f"Setting num-stats-samples = num-video-samples.")
+        args.num_stats_samples = args.num_video_samples
     
     # --- Setup Base Output Path ---
     base_output_dir = Path(args.output_dir)
@@ -145,11 +152,15 @@ def main():
     test_tensor_cpu = torch.from_numpy(test_data_np).float()
     num_timesteps = test_tensor_cpu.shape[0]
     logging.info(f"Test data ready. Shape: {test_tensor_cpu.shape}.")
-
+    
+    # Lists to aggregate stats for all samples
+    all_stats_files = []
+    
     # --- Main Sample Generation Loop ---
-    for i in range(args.num_samples):
+    for i in range(args.num_stats_samples):
         current_seed = args.seed + i
         sample_str = f"sample_{i:02d}"
+        is_full_sample = (i < args.num_video_samples)
         
         # --- Setup Output Paths for this Sample ---
         sample_output_dir = base_output_dir / sample_str
@@ -162,16 +173,22 @@ def main():
             try:
                 stats_data = np.load(stats_path)
                 if 'seed' in stats_data and stats_data['seed'] == current_seed:
-                    logging.info(f"--- Skipping Sample {i+1}/{args.num_samples} ({sample_str}) ---")
+                    logging.info(f"--- Skipping Sample {i+1}/{args.num_stats_samples} ({sample_str}) ---")
                     logging.info(f"Found existing stats file with matching seed {current_seed}. Use --force-rerun to override.")
                     logging.info("="*80 + "\n")
+                    all_stats_files.append(stats_path) # Still need to count this for aggregation
                     continue  # Skip to the next sample
                 else:
                     logging.warning(f"Found existing stats file for {sample_str}, but seed mismatch or 'seed' key missing. Rerunning...")
             except Exception as e:
                 logging.warning(f"Could not load or parse existing stats file {stats_path}. Rerunning... Error: {e}")
 
-        logging.info(f"--- Generating Sample {i+1}/{args.num_samples} ({sample_str}) with seed {current_seed} ---")
+        if is_full_sample:
+            logging.info(f"--- Generating Full Sample {i+1}/{args.num_stats_samples} ({sample_str}) with seed {current_seed} ---")
+            logging.info(f"(Saving full timeseries)")
+        else:
+            logging.info(f"--- Generating Stats-Only Sample {i+1}/{args.num_stats_samples} ({sample_str}) with seed {current_seed} ---")
+            logging.info(f"(Skipping full timeseries save)")
 
         # Set seed for reproducibility for this specific sample
         torch.manual_seed(current_seed)
@@ -230,6 +247,7 @@ def main():
         per_step_channel_error = error_tensor[1:].mean(dim=(1, 2)).numpy()
 
         # --- Save Results ---
+        # ALWAYS save the stats file
         np.savez(stats_path,
             channel_names=np.array(channel_names, dtype='U'),
             r_squared_total=r_squared_total,
@@ -240,8 +258,17 @@ def main():
             ode_settings=np.array([args.solver, str(args.ode_steps)], dtype='U'),
             seed=current_seed
         )
-        np.savez(pred_path, timeseries=predicted_timeseries.numpy(), labels=np.array(channel_names, dtype='U'))
-        np.savez(diff_path, timeseries=difference_timeseries.numpy(), labels=np.array(channel_names, dtype='U'))
+        all_stats_files.append(stats_path)
+
+        # ONLY save the large timeseries files if it's a "full sample"
+        if is_full_sample:
+            np.savez(pred_path, timeseries=predicted_timeseries.numpy(), labels=np.array(channel_names, dtype='U'))
+            np.savez(diff_path, timeseries=difference_timeseries.numpy(), labels=np.array(channel_names, dtype='U'))
+        
+        # Explicitly delete large tensors to free up memory
+        del predicted_timeseries
+        del difference_timeseries
+        del error_tensor
 
         logging.info(f"--- PREDICTION EVALUATION COMPLETE FOR {sample_str} ---")
         logging.info(f"Solver: {args.solver} ({args.ode_steps} steps)")
@@ -252,7 +279,76 @@ def main():
             logging.info(f"Channel '{name}':\t Avg MSE = {avg_mse_per_channel[j]:.6f},\t R² = {r_squared_per_channel[j]:.4f}")
         logging.info("\n" + "="*80 + "\n")
 
-    logging.info("All samples generated.")
+    logging.info(f"All {args.num_stats_samples} samples generated.")
+
+    # --- NEW: Aggregate Probabilistic Statistics ---
+    if not all_stats_files:
+        logging.warning("No stats files found. Skipping probabilistic aggregation.")
+        return
+
+    logging.info(f"Aggregating statistics from {len(all_stats_files)} samples...")
+    
+    all_r2_total = []
+    all_r2_per_channel = []
+    all_mse_total = []
+    all_mse_per_channel = []
+    all_per_step_channel_error = []
+
+    for f_path in all_stats_files:
+        try:
+            stats = np.load(f_path)
+            all_r2_total.append(stats['r_squared_total'])
+            all_r2_per_channel.append(stats['r_squared_per_channel'])
+            all_mse_total.append(stats['avg_rollout_mse_total'])
+            all_mse_per_channel.append(stats['avg_mse_per_channel'])
+            all_per_step_channel_error.append(stats['per_step_channel_error'])
+        except Exception as e:
+            logging.warning(f"Could not load or parse {f_path} for aggregation. Skipping. Error: {e}")
+
+    if not all_r2_total:
+        logging.error("Failed to load any statistics. Aborting aggregation.")
+        return
+
+    # Stack for easy numpy operations
+    all_r2_per_channel_np = np.stack(all_r2_per_channel)
+    all_mse_per_channel_np = np.stack(all_mse_per_channel)
+    all_per_step_channel_error_np = np.stack(all_per_step_channel_error)
+
+    # Calculate mean and std
+    prob_stats = {
+        'num_samples': len(all_r2_total),
+        'mean_r2_total': np.mean(all_r2_total),
+        'std_r2_total': np.std(all_r2_total),
+        'mean_mse_total': np.mean(all_mse_total),
+        'std_mse_total': np.std(all_mse_total),
+        
+        'mean_r2_per_channel': np.mean(all_r2_per_channel_np, axis=0),
+        'std_r2_per_channel': np.std(all_r2_per_channel_np, axis=0),
+        'mean_mse_per_channel': np.mean(all_mse_per_channel_np, axis=0),
+        'std_mse_per_channel': np.std(all_mse_per_channel_np, axis=0),
+        
+        'mean_per_step_channel_error': np.mean(all_per_step_channel_error_np, axis=0),
+        'std_per_step_channel_error': np.std(all_per_step_channel_error_np, axis=0),
+        
+        'channel_names': np.array(channel_names, dtype='U') # From last loaded stats, should be same
+    }
+
+    # Save aggregated stats
+    prob_stats_path = base_output_dir / "probabilistic_stats.npz"
+    np.savez(prob_stats_path, **prob_stats)
+    
+    logging.info("\n" + "="*80)
+    logging.info(f"--- PROBABILISTIC EVALUATION COMPLETE (N={prob_stats['num_samples']}) ---")
+    logging.info(f"Aggregated stats saved to: {prob_stats_path}")
+    logging.info(f"Overall R²:  {prob_stats['mean_r2_total']:.4f} ± {prob_stats['std_r2_total']:.4f}")
+    logging.info(f"Overall MSE: {prob_stats['mean_mse_total']:.6f} ± {prob_stats['std_mse_total']:.6f}")
+    logging.info("--- Per-Channel Mean R² (Mean ± Std) ---")
+    for j, name in enumerate(channel_names):
+        mean_r2 = prob_stats['mean_r2_per_channel'][j]
+        std_r2 = prob_stats['std_r2_per_channel'][j]
+        logging.info(f"Channel '{name}':\t {mean_r2:.4f} ± {std_r2:.4f}")
+    logging.info("="*80 + "\n")
+
 
 if __name__ == "__main__":
     main()
