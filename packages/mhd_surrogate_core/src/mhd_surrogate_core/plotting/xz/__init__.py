@@ -2,7 +2,7 @@
 The 2D (XZ) plotting package for the MHD Surrogate Core project.
 """
 
-from .video import generate_video_from_npz
+from .video import generate_video_from_npz, generate_multi_sample_video
 from .processed import (
     plot_xz_snapshot,
     plot_x_time_evolution,
@@ -24,6 +24,7 @@ from .comparison import generate_comparison_video_from_npz
 __all__ = [
     # Video
     "generate_video_from_npz",
+    "generate_multi_sample_video",
     # Processed (static)
     "plot_xz_snapshot",
     "plot_x_time_evolution",
