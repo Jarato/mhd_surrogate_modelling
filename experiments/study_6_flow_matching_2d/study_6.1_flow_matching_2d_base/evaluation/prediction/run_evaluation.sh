@@ -25,6 +25,9 @@
 #
 # Force re-generation of all samples:
 #   ./run_evaluation.sh --force-rerun
+#
+# Run combined multi-sample video instead of individual videos:
+#   ./run_evaluation.sh --video-mode combined
 # ==============================================================================
 
 # --- ACTION REQUIRED: CONFIGURE YOUR PATHS & PARAMETERS HERE ---
@@ -46,6 +49,8 @@ NUM_SAMPLES=1      # <<< NEW: Number of samples to generate
 FORCE_RERUN=false  # <<< NEW: Set to true to always regenerate samples
 
 # --- Step 2: Video Parameters ---
+VIDEO_MODE="individual" # <<< NEW: 'individual' or 'combined'
+
 # Define the channels and their display aliases to loop over
 # Example for two channels:
 # channels=("vx" "vz")
@@ -116,6 +121,12 @@ else
             echo "Flag found: Will force-rerun all predictions."
             shift
             ;;
+            --video-mode)
+            VIDEO_MODE="$2"
+            echo "Flag found: Setting video mode to $2."
+            shift # past argument
+            shift # past value
+            ;;
         esac
     done
 fi
@@ -182,53 +193,116 @@ fi
 if [ "$RUN_VIDEO" = true ]; then
     echo ""
     echo "=============================================================================="
-    echo "STEP 2: Running comparison video generation for $NUM_SAMPLES sample(s)..."
+    echo "STEP 2: Running comparison video generation (Mode: $VIDEO_MODE)..."
     echo "=============================================================================="
 
-    # Loop over each generated sample
-    for ((s=0; s < $NUM_SAMPLES; s++)); do
-        SAMPLE_STR=$(printf "sample_%02d" $s)
-        echo ""
-        echo "------------------------------------------------------------------------------"
-        echo "--- Generating videos for $SAMPLE_STR ---"
-        echo "------------------------------------------------------------------------------"
+    # --- MODE 1: Individual 3-Panel Videos (GT, Pred, Diff) for each sample ---
+    if [ "$VIDEO_MODE" = "individual" ]; then
+        echo "Generating individual 3-panel video for each of $NUM_SAMPLES sample(s)..."
+        
+        # Loop over each generated sample
+        for ((s=0; s < $NUM_SAMPLES; s++)); do
+            SAMPLE_STR=$(printf "sample_%02d" $s)
+            echo ""
+            echo "------------------------------------------------------------------------------"
+            echo "--- Generating videos for $SAMPLE_STR ---"
+            echo "------------------------------------------------------------------------------"
 
-        # Define paths for this specific sample
-        SAMPLE_DIR="${EVAL_OUTPUT_DIR}/${SAMPLE_STR}/"
-        PREDICTED_NPZ="${SAMPLE_DIR}/predicted_timeseries.npz"
-        DIFFERENCE_NPZ="${SAMPLE_DIR}/difference_timeseries.npz"
+            # Define paths for this specific sample
+            SAMPLE_DIR="${EVAL_OUTPUT_DIR}/${SAMPLE_STR}/"
+            PREDICTED_NPZ="${SAMPLE_DIR}/predicted_timeseries.npz"
+            DIFFERENCE_NPZ="${SAMPLE_DIR}/difference_timeseries.npz"
 
-        # Sanity check: Ensure the required .npz files exist before proceeding
-        if [ ! -f "$PREDICTED_NPZ" ] || [ ! -f "$DIFFERENCE_NPZ" ] || [ ! -f "$TEST_DATA_PATH" ]; then
-            echo "ERROR: Cannot generate videos for $SAMPLE_STR. One or more required files are missing."
-            echo "Check for Ground Truth: $TEST_DATA_PATH"
-            echo "Check for Prediction:   $PREDICTED_NPZ"
-            echo "Check for Difference:   $DIFFERENCE_NPZ"
-            if [ "$RUN_PREDICTION" = false ]; then
-                echo "Hint: You skipped the prediction step. Run without --skip-prediction or --video-only to generate these files."
+            # Sanity check: Ensure the required .npz files exist before proceeding
+            if [ ! -f "$PREDICTED_NPZ" ] || [ ! -f "$DIFFERENCE_NPZ" ] || [ ! -f "$TEST_DATA_PATH" ]; then
+                echo "ERROR: Cannot generate videos for $SAMPLE_STR. One or more required files are missing."
+                echo "Check for Ground Truth: $TEST_DATA_PATH"
+                echo "Check for Prediction:   $PREDICTED_NPZ"
+                echo "Check for Difference:   $DIFFERENCE_NPZ"
+                if [ "$RUN_PREDICTION" = false ]; then
+                    echo "Hint: You skipped the prediction step. Run without --skip-prediction or --video-only to generate these files."
+                fi
+                continue # Skip to the next sample
             fi
-            continue # Skip to the next sample
-        fi
 
-        # Create the output directory for this sample's videos
-        SAMPLE_VIDEO_OUTPUT_DIR="${VIDEO_OUTPUT_DIR}/${SAMPLE_STR}/"
-        mkdir -p "$SAMPLE_VIDEO_OUTPUT_DIR"
-        echo "Video Output: $SAMPLE_VIDEO_OUTPUT_DIR"
+            # Create the output directory for this sample's videos
+            SAMPLE_VIDEO_OUTPUT_DIR="${VIDEO_OUTPUT_DIR}/${SAMPLE_STR}/"
+            mkdir -p "$SAMPLE_VIDEO_OUTPUT_DIR"
+            echo "Video Output: $SAMPLE_VIDEO_OUTPUT_DIR"
 
-        # Loop through each velocity component
+            # Loop through each velocity component
+            for i in "${!channels[@]}"; do
+                channel=${channels[$i]}
+                alias=${aliases[$i]}
+
+                # Construct the output filename dynamically
+                output_filename="comparison_vid_${alias}.mp4"
+                output_path="${SAMPLE_VIDEO_OUTPUT_DIR}/${output_filename}"
+
+                # Construct the full command for the comparison script
+                command="python $VIDEO_SCRIPT_PATH \
+                    --mode individual \
+                    --ground-truth-npz \"$TEST_DATA_PATH\" \
+                    --predicted-npz \"$PREDICTED_NPZ\" \
+                    --difference-npz \"$DIFFERENCE_NPZ\" \
+                    --output-path \"$output_path\" \
+                    --channel \"$channel\" \
+                    --channel-alias \"$alias\" \
+                    --fps $FPS \
+                    --num-workers $NUM_WORKERS \
+                    --base-size $BASE_SIZE \
+                    --min-size $MIN_SIZE \
+                    --cmap \"$COLOR_MAP\" \
+                    --vmins $VMINS \
+                    --vmaxs $VMAXS \
+                    --vcenters $VCENTERS \
+                    --cmap-diff \"$COLOR_MAP_DIFF\" \
+                    --vmins-diff $VMINS_DIFF \
+                    --vmaxs-diff $VMAXS_DIFF \
+                    --vcenters-diff $VCENTERS_DIFF"
+
+                # Print the command to the console and then execute it
+                echo "---"
+                echo "Executing command for channel '$alias' ($channel):"
+                echo "Output: $output_path"
+                echo "---"
+                eval $command
+                echo ""
+            done
+        done # End of sample loop
+    
+    # --- MODE 2: Combined Multi-Panel Video (GT, S0, S1, S2...) ---
+    elif [ "$VIDEO_MODE" = "combined" ]; then
+        echo "Generating one combined video for all $NUM_SAMPLES sample(s)..."
+        
+        # This mode runs ONCE, but still needs to loop over channels
         for i in "${!channels[@]}"; do
             channel=${channels[$i]}
             alias=${aliases[$i]}
 
-            # Construct the output filename dynamically
-            output_filename="comparison_vid_${alias}.mp4"
-            output_path="${SAMPLE_VIDEO_OUTPUT_DIR}/${output_filename}"
+            # Output path for the *combined* video
+            output_filename="combined_vid_${alias}.mp4"
+            output_path="${VIDEO_OUTPUT_DIR}/${output_filename}"
 
-            # Construct the full command for the comparison script
+            # Sanity check: Ensure GT data exists
+            if [ ! -f "$TEST_DATA_PATH" ]; then
+                 echo "ERROR: Cannot generate combined video. Ground Truth file missing: $TEST_DATA_PATH"
+                 exit 1
+            fi
+            # Sanity check: Ensure prediction base dir exists
+            if [ ! -d "$EVAL_OUTPUT_DIR" ]; then
+                echo "ERROR: Cannot generate combined video. Base prediction directory not found: $EVAL_OUTPUT_DIR"
+                exit 1
+            fi
+            
+            # Create the output directory (just the base video dir)
+            mkdir -p "$VIDEO_OUTPUT_DIR"
+
+            # Construct the command for the *combined* mode
             command="python $VIDEO_SCRIPT_PATH \
+                --mode combined \
                 --ground-truth-npz \"$TEST_DATA_PATH\" \
-                --predicted-npz \"$PREDICTED_NPZ\" \
-                --difference-npz \"$DIFFERENCE_NPZ\" \
+                --base-pred-dir \"$EVAL_OUTPUT_DIR\" \
                 --output-path \"$output_path\" \
                 --channel \"$channel\" \
                 --channel-alias \"$alias\" \
@@ -239,22 +313,21 @@ if [ "$RUN_VIDEO" = true ]; then
                 --cmap \"$COLOR_MAP\" \
                 --vmins $VMINS \
                 --vmaxs $VMAXS \
-                --vcenters $VCENTERS \
-                --cmap-diff \"$COLOR_MAP_DIFF\" \
-                --vmins-diff $VMINS_DIFF \
-                --vmaxs-diff $VMAXS_DIFF \
-                --vcenters-diff $VCENTERS_DIFF"
+                --vcenters $VCENTERS"
+            
+            # Note: Diff-related args are omitted as they don't apply here
 
-            # Print the command to the console and then execute it
-            echo "---"
-            echo "Executing command for channel '$alias' ($channel):"
+            echo "------------------------------------------------------------------------------"
+            echo "Executing command for combined video (channel '$alias'):"
             echo "Output: $output_path"
-            echo "---"
+            echo "------------------------------------------------------------------------------"
             eval $command
             echo ""
-        done
-    done # End of sample loop
-
+        done # End of channel loop
+    else
+        echo "ERROR: Unknown VIDEO_MODE: '$VIDEO_MODE'. Use 'individual' or 'combined'."
+    fi
+    
     echo "All comparison video generation tasks are complete."
 
 else
