@@ -43,7 +43,7 @@ def plot_prediction_rollout_error(stats_path: Path | str, show_title: bool = Tru
     ax_total = fig.add_subplot(gs[0, :])
     ax_total.plot(timesteps, total_per_step_error, 'o-', color='black', label='Total Average MSE')
     if show_title:
-        ax_total.set_title('Total Prediction Rollout Error Over Time', fontsize=font_size + 4, weight='bold')
+        ax_total.set_title('Total Prediction Rollout Error Over Time (Single Sample)', fontsize=font_size + 4, weight='bold')
     ax_total.set_ylabel("MSE", fontsize=font_size)
     ax_total.set_yscale('log')
     ax_total.tick_params(axis='both', which='major', labelsize=font_size-2, direction='out', top=True, right=True)
@@ -64,6 +64,95 @@ def plot_prediction_rollout_error(stats_path: Path | str, show_title: bool = Tru
 
     if show_title:
         fig.suptitle('Per-Channel Prediction Rollout Error', fontsize=font_size + 8, y=1.0)
+    plt.tight_layout(rect=[0, 0, 1, 0.97])
+    plt.show()
+
+
+def plot_probabilistic_rollout_error(
+    prob_stats_path: Path | str,
+    std_multiplier: float = 1.0,
+    show_title: bool = True,
+    font_size: int = 12
+):
+    """
+    Loads and plots the mean per-channel and total error from a
+    probabilistic_stats.npz file, showing mean ± std dev.
+    """
+    stats_path = Path(prob_stats_path)
+    if not stats_path.exists():
+        logging.error(f"Probabilistic statistics file not found at: {stats_path}")
+        return
+    
+    logging.info(f"Loading probabilistic rollout error from {stats_path}...")
+    with np.load(stats_path, allow_pickle=True) as data:
+        mean_error = data['mean_per_step_channel_error']
+        std_error = data['std_per_step_channel_error']
+        channel_names = data['channel_names']
+        num_samples = data.get('num_samples', 'N/A')
+        
+    num_timesteps, num_channels = mean_error.shape
+    timesteps = range(1, num_timesteps + 1)
+    
+    # Calculate total mean and a pooled std dev
+    total_mean_error = mean_error.mean(axis=1)
+    # Correct way to find std of the mean of N variables is complex
+    # For visualization, we'll plot mean of means and std of means
+    total_std_error = std_error.mean(axis=1) # This is a simplification but visually useful
+    
+    plt.style.use('seaborn-v0_8-whitegrid')
+    cols = min(4, num_channels)
+    channel_rows = math.ceil(num_channels / cols)
+    total_rows = 1 + channel_rows
+    fig_height = 3.5 * total_rows
+    fig = plt.figure(figsize=(16, fig_height))
+    gs = fig.add_gridspec(total_rows, cols, hspace=0.7, wspace=0.3)
+    
+    # --- Total Error Plot ---
+    ax_total = fig.add_subplot(gs[0, :])
+    ax_total.plot(timesteps, total_mean_error, 'o-', color='black', label='Mean Total MSE')
+    ax_total.fill_between(
+        timesteps,
+        total_mean_error - std_multiplier * total_std_error,
+        total_mean_error + std_multiplier * total_std_error,
+        color='black', alpha=0.2, label=f'Mean ± {std_multiplier}σ (pooled)'
+    )
+    if show_title:
+        title = f'Total Prediction Rollout Error (N={num_samples})'
+        ax_total.set_title(title, fontsize=font_size + 4, weight='bold')
+    ax_total.set_ylabel("MSE", fontsize=font_size)
+    ax_total.set_yscale('log')
+    ax_total.tick_params(axis='both', which='major', labelsize=font_size-2, direction='out', top=True, right=True)
+    ax_total.grid(True, which="both", ls="--")
+    ax_total.legend(fontsize=font_size)
+
+    # --- Per-Channel Plots ---
+    for i in range(num_channels):
+        row, col = (i // cols) + 1, i % cols
+        ax = fig.add_subplot(gs[row, col])
+        
+        mean_channel = mean_error[:, i]
+        std_channel = std_error[:, i]
+        
+        ax.plot(timesteps, mean_channel, 'o-', color='crimson', markersize=3, alpha=0.8, label='Mean MSE')
+        ax.fill_between(
+            timesteps,
+            mean_channel - std_multiplier * std_channel,
+            mean_channel + std_multiplier * std_channel,
+            color='crimson', alpha=0.2, label=f'Mean ± {std_multiplier}σ'
+        )
+        
+        if show_title:
+            ax.set_title(f"Channel: {channel_names[i]}", fontsize=font_size)
+        ax.set_ylabel("MSE", fontsize=font_size)
+        ax.set_xlabel("Timestep", fontsize=font_size)
+        ax.tick_params(axis='both', which='major', labelsize=font_size-2, direction='out', top=True, right=True)
+        ax.grid(True)
+        ax.set_yscale('log')
+        if i == 0:
+            ax.legend(fontsize=font_size - 2)
+
+    if show_title:
+        fig.suptitle('Per-Channel Probabilistic Prediction Rollout Error', fontsize=font_size + 8, y=1.0)
     plt.tight_layout(rect=[0, 0, 1, 0.97])
     plt.show()
 
@@ -93,13 +182,73 @@ def plot_r2_performance(stats_path: Path | str, eval_type: str = "Prediction", s
     ax.invert_yaxis()
     ax.set_xlabel('R-squared (R²) Score', fontsize=font_size)
     if show_title:
-        ax.set_title(f'Per-Channel {eval_type} Performance', fontsize=font_size + 4)
+        ax.set_title(f'Per-Channel {eval_type} Performance (Single Sample)', fontsize=font_size + 4)
     
     ax.axvline(0, color='black', linewidth=0.8, linestyle='--')
     for i, v in enumerate(r_squared_per_channel):
         ax.text(v + 0.01, i, f'{v:.3f}', color='black', va='center', fontsize=font_size - 2)
     
     ax.tick_params(axis='both', which='major', labelsize=font_size-2, direction='out', top=True, right=True)
+    plt.tight_layout()
+    plt.show()
+
+def plot_probabilistic_r2_performance(
+    prob_stats_path: Path | str,
+    std_multiplier: float = 1.0,
+    eval_type: str = "Prediction",
+    show_title: bool = True,
+    font_size: int = 12
+):
+    """
+    Loads and plots the per-channel mean R-squared scores from a
+    probabilistic_stats.npz file, with error bars for std dev.
+    """
+    stats_path = Path(prob_stats_path)
+    if not stats_path.exists():
+        logging.error(f"Probabilistic statistics file not found at: {stats_path}")
+        return
+
+    logging.info(f"Loading probabilistic R² performance from {stats_path}...")
+    with np.load(stats_path, allow_pickle=True) as data:
+        mean_r2_per_channel = data['mean_r2_per_channel']
+        std_r2_per_channel = data['std_r2_per_channel']
+        channel_names = data['channel_names']
+        num_samples = data.get('num_samples', 'N/A')
+        
+        mean_r2_total = data.get('mean_r2_total', np.nan)
+        std_r2_total = data.get('std_r2_total', np.nan)
+
+    plt.style.use('seaborn-v0_8-whitegrid')
+    fig, ax = plt.subplots(figsize=(10, max(4, len(channel_names) * 0.5)))
+    
+    y_pos = np.arange(len(channel_names))
+    colors = ['#2ca02c' if x > 0 else '#d62728' for x in mean_r2_per_channel]
+    
+    # Plot error bars
+    error = std_r2_per_channel * std_multiplier
+    ax.barh(y_pos, mean_r2_per_channel, xerr=error, align='center', color=colors, capsize=5)
+    
+    ax.set_yticks(y_pos, labels=channel_names)
+    ax.invert_yaxis()
+    ax.set_xlabel('R-squared (R²) Score', fontsize=font_size)
+    if show_title:
+        title = f'Per-Channel {eval_type} Performance (N={num_samples})'
+        ax.set_title(title, fontsize=font_size + 4)
+    
+    ax.axvline(0, color='black', linewidth=0.8, linestyle='--')
+    for i, (mean_val, std_val) in enumerate(zip(mean_r2_per_channel, std_r2_per_channel)):
+        text = f'{mean_val:.3f} ± {std_val:.3f}'
+        ax.text(mean_val + 0.01, i, text, color='black', va='center', fontsize=font_size - 2)
+    
+    ax.tick_params(axis='both', which='major', labelsize=font_size-2, direction='out', top=True, right=True)
+    
+    # Add overall R² as text
+    if not np.isnan(mean_r2_total):
+        overall_text = f"Overall R²: {mean_r2_total:.4f} ± {std_r2_total:.4f}"
+        ax.text(0.95, 0.01, overall_text, transform=ax.transAxes,
+                ha='right', va='bottom', fontsize=font_size,
+                bbox=dict(boxstyle='round,pad=0.3', fc='white', alpha=0.7))
+        
     plt.tight_layout()
     plt.show()
 

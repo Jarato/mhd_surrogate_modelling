@@ -12,6 +12,8 @@ from .processed import (
 from .evaluation import (
     plot_r2_performance,
     plot_prediction_rollout_error,
+    plot_probabilistic_r2_performance,  # <-- ADDED
+    plot_probabilistic_rollout_error, # <-- ADDED
     plot_prediction_dashboard,
     plot_latent_rollout_error,
     plot_latent_trajectories,
@@ -33,6 +35,8 @@ __all__ = [
     # Evaluation
     "plot_r2_performance",
     "plot_prediction_rollout_error",
+    "plot_probabilistic_r2_performance",  # <-- ADDED
+    "plot_probabilistic_rollout_error", # <-- ADDED
     "plot_prediction_dashboard",
     "plot_latent_rollout_error",
     "plot_latent_trajectories",
