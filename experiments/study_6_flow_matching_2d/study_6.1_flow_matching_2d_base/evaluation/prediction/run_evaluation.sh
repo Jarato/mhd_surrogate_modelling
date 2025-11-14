@@ -51,7 +51,7 @@ FORCE_RERUN=false  # Set to true to always regenerate samples
 # --- NEW: Sample Configuration ---
 # NUM_VIDEO_SAMPLES: How many full timeseries to save for videos (expensive)
 # NUM_STATS_SAMPLES: Total samples to run for stats (cheap). Must be >= NUM_VIDEO_SAMPLES
-NUM_VIDEO_SAMPLES=0
+NUM_VIDEO_SAMPLES=5
 NUM_STATS_SAMPLES=32
 
 # --- Step 2: Video Parameters ---
@@ -62,8 +62,10 @@ VIDEO_GRID_COLS=2       # Number of columns for 'combined' video
 # Example for two channels:
 # channels=("vx" "vz")
 # aliases=("u" "w")
-channels=("vx")
-aliases=("u")
+# channels=("vx")
+# aliases=("u")
+channels=("vz")
+aliases=("w")
 
 # Video settings
 FPS=4
