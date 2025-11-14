@@ -7,7 +7,7 @@ import multiprocessing
 import logging
 
 # Assuming mhd_surrogate_core is available in your environment
-from mhd_surrogate_core.plotting.xz import generate_comparison_video_from_npz
+from mhd_surrogate_core.plotting.xz import generate_comparison_video_from_npz, generate_multi_sample_video
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
@@ -20,10 +20,14 @@ def main():
 
     # --- I/O Arguments ---
     parser.add_argument("--ground-truth-npz", type=Path, required=True, help="Path to the ground truth timeseries .npz file.")
-    parser.add_argument("--predicted-npz", type=Path, required=True, help="Path to the predicted timeseries .npz file.")
-    parser.add_argument("--difference-npz", type=Path, required=True, help="Path to the difference timeseries .npz file.")
+    parser.add_argument("--predicted-npz", type=Path, required=False, help="Path to the predicted timeseries .npz file (for 'individual' mode).")
+    parser.add_argument("--difference-npz", type=Path, required=False, help="Path to the difference timeseries .npz file (for 'individual' mode).")
     parser.add_argument("--output-path", type=Path, required=True, help="Path to save the output .mp4 video file.")
     
+    # --- Mode Selection ---
+    parser.add_argument("--mode", type=str, default="individual", choices=["individual", "combined"], help="Video generation mode.")
+    parser.add_argument("--base-pred-dir", type=Path, default=None, help="Base directory containing 'sample_XX' subfolders (for 'combined' mode).")
+
     # --- Data Selection ---
     parser.add_argument("--channel", type=str, required=True, help="The channel to plot (e.g., 'vx').")
     parser.add_argument("--time-start", type=int, default=None, help="Optional: Starting time index.")
@@ -68,28 +72,64 @@ def main():
     
     num_workers = multiprocessing.cpu_count() if args.num_workers == -1 else args.num_workers
 
-    generate_comparison_video_from_npz(
-        gt_npz_path=args.ground_truth_npz,
-        pred_npz_path=args.predicted_npz,
-        diff_npz_path=args.difference_npz,
-        output_path=args.output_path,
-        channel=args.channel,
-        time_start=args.time_start,
-        time_end=args.time_end,
-        fps=args.fps,
-        channel_alias=args.channel_alias,
-        vmins_override=vmin_map,
-        vmaxs_override=vmax_map,
-        vcenters=vcenter_map,
-        vmins_diff_override=vmin_diff_map,
-        vmaxs_diff_override=vmax_diff_map,
-        vcenters_diff=vcenter_diff_map,
-        num_workers=num_workers,
-        cmap=args.cmap,
-        cmap_diff=args.cmap_diff,
-        base_size=args.base_size,
-        min_size=args.min_size,
-    )
+    if args.mode == "individual":
+        logging.info("Running in 'individual' mode (3-panel video).")
+        if not args.predicted_npz or not args.difference_npz:
+            parser.error("--predicted-npz and --difference-npz are required for 'individual' mode.")
+        
+        generate_comparison_video_from_npz(
+            gt_npz_path=args.ground_truth_npz,
+            pred_npz_path=args.predicted_npz,
+            diff_npz_path=args.difference_npz,
+            output_path=args.output_path,
+            channel=args.channel,
+            time_start=args.time_start,
+            time_end=args.time_end,
+            fps=args.fps,
+            channel_alias=args.channel_alias,
+            vmins_override=vmin_map,
+            vmaxs_override=vmax_map,
+            vcenters=vcenter_map,
+            vmins_diff_override=vmin_diff_map,
+            vmaxs_diff_override=vmax_diff_map,
+            vcenters_diff=vcenter_diff_map,
+            num_workers=num_workers,
+            cmap=args.cmap,
+            cmap_diff=args.cmap_diff,
+            base_size=args.base_size,
+            min_size=args.min_size,
+        )
+    
+    elif args.mode == "combined":
+        logging.info("Running in 'combined' mode (multi-sample video).")
+        if not args.base_pred_dir:
+            parser.error("--base-pred-dir is required for 'combined' mode.")
+        
+        # Find all sample prediction files
+        pred_npz_paths = sorted(list(args.base_pred_dir.glob("sample_*/predicted_timeseries.npz")))
+        if not pred_npz_paths:
+            logging.error(f"No 'sample_*/predicted_timeseries.npz' files found under {args.base_pred_dir}. Aborting.")
+            return
+
+        logging.info(f"Found {len(pred_npz_paths)} prediction samples.")
+
+        generate_multi_sample_video(
+            gt_npz_path=args.ground_truth_npz,
+            pred_npz_paths=pred_npz_paths,
+            output_path=args.output_path,
+            channel=args.channel,
+            time_start=args.time_start,
+            time_end=args.time_end,
+            fps=args.fps,
+            channel_alias=args.channel_alias,
+            vmins_override=vmin_map,
+            vmaxs_override=vmax_map,
+            vcenters=vcenter_map,
+            num_workers=num_workers,
+            cmap=args.cmap,
+            base_size=args.base_size,
+            min_size=args.min_size,
+        )
 
 if __name__ == "__main__":
     main()
