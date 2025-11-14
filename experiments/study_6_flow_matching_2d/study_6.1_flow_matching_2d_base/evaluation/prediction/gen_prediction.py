@@ -43,6 +43,7 @@ def parse_args():
     fm_group.add_argument("--solver", type=str, default="midpoint", choices=["euler", "midpoint"], help="ODE solver method.")
     fm_group.add_argument("--seed", type=int, default=42, help="Base random seed for reproducibility. Samples will use seed, seed+1, ...")
     fm_group.add_argument("--num-samples", type=int, default=1, help="Number of prediction samples to generate.")
+    fm_group.add_argument("--force-rerun", action='store_true', help="Force regeneration of all samples, even if they exist with matching seeds.")
 
     return parser.parse_args()
 
@@ -149,19 +150,34 @@ def main():
     for i in range(args.num_samples):
         current_seed = args.seed + i
         sample_str = f"sample_{i:02d}"
+        
+        # --- Setup Output Paths for this Sample ---
+        sample_output_dir = base_output_dir / sample_str
+        stats_path = sample_output_dir / "prediction_stats.npz"
+        pred_path = sample_output_dir / "predicted_timeseries.npz"
+        diff_path = sample_output_dir / "difference_timeseries.npz"
+
+        # --- Check if sample should be skipped ---
+        if not args.force_rerun and stats_path.is_file():
+            try:
+                stats_data = np.load(stats_path)
+                if 'seed' in stats_data and stats_data['seed'] == current_seed:
+                    logging.info(f"--- Skipping Sample {i+1}/{args.num_samples} ({sample_str}) ---")
+                    logging.info(f"Found existing stats file with matching seed {current_seed}. Use --force-rerun to override.")
+                    logging.info("="*80 + "\n")
+                    continue  # Skip to the next sample
+                else:
+                    logging.warning(f"Found existing stats file for {sample_str}, but seed mismatch or 'seed' key missing. Rerunning...")
+            except Exception as e:
+                logging.warning(f"Could not load or parse existing stats file {stats_path}. Rerunning... Error: {e}")
+
         logging.info(f"--- Generating Sample {i+1}/{args.num_samples} ({sample_str}) with seed {current_seed} ---")
 
         # Set seed for reproducibility for this specific sample
         torch.manual_seed(current_seed)
         np.random.seed(current_seed)
         
-        # --- Setup Output Paths for this Sample ---
-        sample_output_dir = base_output_dir / sample_str
         sample_output_dir.mkdir(parents=True, exist_ok=True)
-        stats_path = sample_output_dir / "prediction_stats.npz"
-        pred_path = sample_output_dir / "predicted_timeseries.npz"
-        diff_path = sample_output_dir / "difference_timeseries.npz"
-
         logging.info(f"Starting {args.solver} rollout ({args.ode_steps} steps/frame)...")
 
         # --- Autoregressive Rollout Loop ---

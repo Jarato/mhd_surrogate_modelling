@@ -22,6 +22,9 @@
 #
 # Run all, but skip video:
 #   ./run_evaluation.sh --skip-video
+#
+# Force re-generation of all samples:
+#   ./run_evaluation.sh --force-rerun
 # ==============================================================================
 
 # --- ACTION REQUIRED: CONFIGURE YOUR PATHS & PARAMETERS HERE ---
@@ -40,6 +43,7 @@ ODE_STEPS=16        # Higher = more accurate but slower (try 10, 20, 50)
 SOLVER="midpoint"  # 'euler' or 'midpoint' (midpoint is generally better)
 BASE_SEED=42       # Base seed. Samples will use BASE_SEED, BASE_SEED+1, ...
 NUM_SAMPLES=1      # <<< NEW: Number of samples to generate
+FORCE_RERUN=false  # <<< NEW: Set to true to always regenerate samples
 
 # --- Step 2: Video Parameters ---
 # Define the channels and their display aliases to loop over
@@ -107,6 +111,11 @@ else
             echo "Flag found: Will skip video generation."
             shift
             ;;
+            --force-rerun)
+            FORCE_RERUN=true
+            echo "Flag found: Will force-rerun all predictions."
+            shift
+            ;;
         esac
     done
 fi
@@ -139,6 +148,12 @@ if [ "$RUN_PREDICTION" = true ]; then
     # Ensure output directory exists
     mkdir -p "$EVAL_OUTPUT_DIR"
 
+    # --- NEW: Construct force flag ---
+    FORCE_FLAG=""
+    if [ "$FORCE_RERUN" = true ]; then
+        FORCE_FLAG="--force-rerun"
+    fi
+
     python "$PRED_SCRIPT_PATH" \
         --model-path "$MODEL_PATH" \
         --test-data-path "$TEST_DATA_PATH" \
@@ -147,7 +162,8 @@ if [ "$RUN_PREDICTION" = true ]; then
         --ode-steps $ODE_STEPS \
         --solver "$SOLVER" \
         --seed $BASE_SEED \
-        --num-samples $NUM_SAMPLES
+        --num-samples $NUM_SAMPLES \
+        $FORCE_FLAG
 
     # Check if prediction generation failed
     if [ $? -ne 0 ]; then
