@@ -40,6 +40,10 @@ from .video import (
     generate_slice_video_from_npz,
 )
 
+from .video_3d import (
+    generate_3d_video,
+)
+
 __all__ = [
     # Evaluation functions
     "plot_snapshot_comparison",
@@ -68,5 +72,5 @@ __all__ = [
     # Video generation
     "generate_slice_video",
     "generate_slice_video_from_npz",
+    "generate_3d_video",
 ]
-
