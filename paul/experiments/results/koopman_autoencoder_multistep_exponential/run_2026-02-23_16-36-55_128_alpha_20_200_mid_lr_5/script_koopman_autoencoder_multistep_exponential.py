@@ -1,3 +1,11 @@
+
+####################################################################################################
+#	THIS SCRIPT HAS BEEN EXECUTED ALREADY
+#	THIS IS A COPY OF THE ORIGINAL SCRIPT
+#	THIS SCRIPT IS NOT MEANT TO BE EXECUTED AGAIN
+#	IT EXISTS ONLY FOR THE PURPOSE OF GIVING CONTEXT TO THE DATA IN THIS FOLDER
+####################################################################################################
+
 import os
 import datetime
 import traceback
