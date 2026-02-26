@@ -27,7 +27,7 @@ def calculate_dynamic_weight_single(x_t, x_t_reconstructed, alpha = 10):
         dyn_weight_example = torch.exp(-alpha*recon_mse_example_x_t)
     return dyn_weight_example
 
-def train_model(kae_model, data_loader, num_epochs, alpha):
+def train_model(kae_model, data_loader, num_epochs, alpha, lambda_contrast):
     kae_model.train()
     num_train_examples = len(data_loader.dataset)
 
@@ -35,6 +35,7 @@ def train_model(kae_model, data_loader, num_epochs, alpha):
     train_history["loss_reconstruction"] = np.zeros((num_epochs))
     train_history["loss_prediction"] = np.zeros((num_epochs))
     train_history["loss_linearity"] = np.zeros((num_epochs))
+    train_history["loss_contrast"] = np.zeros((num_epochs))
     train_history["lin_dyn_weight"] = np.zeros((num_epochs))
     train_history["eigenvalues"] = np.zeros((num_epochs, kae_model.latent_dimension), dtype=np.complex64)
 
@@ -45,6 +46,7 @@ def train_model(kae_model, data_loader, num_epochs, alpha):
         reconstruction_loss_epoch = 0.0
         prediction_loss_epoch = 0.0
         linearity_loss_epoch = 0.0
+        contrast_loss_epoch = 0.0
         lin_dyn_weight_epoch = 0.0
 
         for x_t, x_t_plus_1 in data_loader:
@@ -76,12 +78,19 @@ def train_model(kae_model, data_loader, num_epochs, alpha):
             error_linearity = (pz_t_plus_1 - z_t_plus_1)**2
             loss_linearity = torch.mean(torch.mean(error_linearity,dim=[1]) * lin_dyn_weight)
 
+            ### EIGENVALUE CONTRASTIVE LOSS ###
+            K = model.linear_dynamics.weight
+            eigenvalues = torch.linalg.eigvals(K)
+            difference_matrix = torch.exp(-lambda_contrast*torch.abs(eigenvalues.unsqueeze(0) - eigenvalues.unsqueeze(1)))
+            loss_contrast = torch.mean(torch.triu(difference_matrix, diagonal=1))
+
             ### TOTAL LOSS ###
-            loss_total = loss_reconstruction + loss_prediction + loss_linearity
+            loss_total = loss_reconstruction + loss_prediction + loss_linearity + loss_contrast
 
             loss_total.backward()
             optimizer.step()
 
+            contrast_loss_epoch += loss_contrast
             reconstruction_loss_epoch += loss_reconstruction.item() * batch_size
             prediction_loss_epoch += loss_prediction.item() * batch_size
             linearity_loss_epoch += loss_linearity.item() * batch_size
@@ -89,12 +98,14 @@ def train_model(kae_model, data_loader, num_epochs, alpha):
         reconstruction_loss_mean = reconstruction_loss_epoch / num_train_examples
         prediction_loss_mean = prediction_loss_epoch / num_train_examples
         linearity_loss_mean = linearity_loss_epoch / num_train_examples
+        contrast_loss_mean = contrast_loss_epoch / num_train_examples
 
-        total_loss_mean = reconstruction_loss_mean+prediction_loss_mean+linearity_loss_mean
+        total_loss_mean = reconstruction_loss_mean + prediction_loss_mean + linearity_loss_mean + contrast_loss_mean
 
-        train_history["loss_reconstruction"][epoch] = reconstruction_loss_epoch / num_train_examples
-        train_history["loss_prediction"][epoch] = prediction_loss_epoch / num_train_examples
-        train_history["loss_linearity"][epoch] = linearity_loss_epoch / num_train_examples
+        train_history["loss_reconstruction"][epoch] = reconstruction_loss_mean
+        train_history["loss_prediction"][epoch] = prediction_loss_mean
+        train_history["loss_linearity"][epoch] = linearity_loss_mean
+        train_history["loss_contrast"][epoch] = contrast_loss_mean
         train_history["lin_dyn_weight"][epoch] = lin_dyn_weight_epoch / num_train_examples
 
         # eigenvalues
@@ -106,13 +117,17 @@ def train_model(kae_model, data_loader, num_epochs, alpha):
 
         max_abs_eigenvalue = np.max(np.abs(eigvals))
         mask = np.abs((np.abs(eigvals) - 1.0)) < steady_tolerance
-        epoch_progress.set_description(f"Loss(total): {total_loss_mean:.4f}, Loss(recon): {reconstruction_loss_mean:.4f}, Loss(pred): {prediction_loss_mean:.4f}, Loss(lin): {linearity_loss_mean:.6f}, MaxAbsEigenV: {max_abs_eigenvalue:.4f}, SteadyModes: {sum(mask)}")
+        epoch_progress.set_description(f"L(total): {total_loss_mean:.4f}, L(recon): {reconstruction_loss_mean:.4f}, L(pred): {prediction_loss_mean:.4f}, L(lin): {linearity_loss_mean:.6f}, L(contr): {contrast_loss_mean:.4f}, MaxAbsEigV: {max_abs_eigenvalue:.4f}, SteadyModes: {sum(mask)}")
         #print(f"Epoch {epoch+1}/{EPOCHS}\tLoss(total): {total_loss_mean:.4f}\tLoss(recon): {reconstruction_loss_mean:.4f}\tLoss(pred): {prediction_loss_mean:.4f}\tLoss(lin): {linearity_loss_mean:.6f}\tMaxAbsEigenV: {max_abs_eigenvalue:.4f}\tSteadyModes: {sum(mask)}")
     
     return model, train_history
     
+LATENT_DIMENSION = 64
 ALPHA = 20
-RUN_NAME = "_64_alpha_20_200_mid_lr"
+LAMBDA_CONTRAST = 100
+EPOCHS = 100
+LR = 5e-4
+RUN_NAME = f"_L{LATENT_DIMENSION}_a{ALPHA}_lcon{LAMBDA_CONTRAST}_{EPOCHS}_lr_{LR}"
 
 if __name__ == '__main__':
     # making a new folder to save the script and the results 
@@ -138,32 +153,24 @@ if __name__ == '__main__':
             datafile = np.load(os.path.join(script_dir, "data", "T1492_x1151_y1_z127_c2.npz"))
             data = datafile['timeseries']
 
-            #temp_mean_data = np.mean(data, axis=0)
-            #mean_velocity = np.mean(data, axis=(0,1,2))
-            #data_centered = data - temp_mean_data#mean_velocity[None,None,None,:]
-
-            #print(mean_velocity)
-
-            #mean_removed_data = data - np.mean(data, axis=0)
             dataset = TOffsetDataset(data, t_offset=1)
-
-            #dataset = TOffsetDataset(data, t_offset=1)
             loader = DataLoader(dataset, batch_size=12, shuffle=True, num_workers=2, pin_memory=True, pin_memory_device=DEVICE)
 
-            LATENT_DIMENSION = 64
+
             model = ConvAutoencoder(latent_dim=LATENT_DIMENSION, use_bias=True).to(DEVICE)
 
-            optimizer = torch.optim.Adam(model.parameters(), lr=2e-4)
+
+            optimizer = torch.optim.Adam(model.parameters(), lr=LR)
             mse = nn.MSELoss()
 
-            EPOCHS = 200
+            trained_model, train_history = train_model(model, loader, EPOCHS, ALPHA, LAMBDA_CONTRAST)
 
-            trained_model, train_history = train_model(model, loader, EPOCHS, ALPHA)
 
             torch.save(trained_model.state_dict(), os.path.join(folder_name, "model.pt"))
             
-            losses_history = np.stack([train_history["loss_reconstruction"], train_history["loss_prediction"], train_history["loss_linearity"], train_history["lin_dyn_weight"]], axis=1)
-            pd.DataFrame(losses_history, columns=["loss_reconstruction", "loss_prediction", "loss_linearity", "lin_dyn_weight"]).to_csv(os.path.join(folder_name,"losses_history.csv"), index = False)
+            train_history_keys = ["loss_reconstruction", "loss_prediction", "loss_linearity", "loss_contrast", "lin_dyn_weight"]
+            losses_history = np.stack([train_history[key] for key in train_history_keys], axis=1)
+            pd.DataFrame(losses_history, columns=train_history_keys).to_csv(os.path.join(folder_name,"losses_history.csv"), index = False)
 
             pd.DataFrame(train_history["eigenvalues"]).to_csv(os.path.join(folder_name,"eigenvalues_history.csv"), index = False)
 
