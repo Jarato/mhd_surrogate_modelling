@@ -1,3 +1,11 @@
+
+####################################################################################################
+#	THIS SCRIPT HAS BEEN EXECUTED ALREADY
+#	THIS IS A COPY OF THE ORIGINAL SCRIPT
+#	THIS SCRIPT IS NOT MEANT TO BE EXECUTED AGAIN
+#	IT EXISTS ONLY FOR THE PURPOSE OF GIVING CONTEXT TO THE DATA IN THIS FOLDER
+####################################################################################################
+
 import os
 import datetime
 import traceback
@@ -90,7 +98,7 @@ def train_model(kae_model, data_loader, num_epochs, alpha, lambda_contrast):
             optimizer.step()
 
             with torch.no_grad():
-                contrast_loss_epoch += loss_contrast.item() * batch_size
+                contrast_loss_epoch += loss_contrast
                 reconstruction_loss_epoch += loss_reconstruction.item() * batch_size
                 prediction_loss_epoch += loss_prediction.item() * batch_size
                 linearity_loss_epoch += loss_linearity.item() * batch_size
@@ -118,7 +126,7 @@ def train_model(kae_model, data_loader, num_epochs, alpha, lambda_contrast):
 
         max_abs_eigenvalue = np.max(np.abs(eigvals))
         mask = np.abs((np.abs(eigvals) - 1.0)) < steady_tolerance
-        epoch_progress.set_description(f"L(total): {total_loss_mean:.4f}, L(recon): {reconstruction_loss_mean:.4f}, L(pred): {prediction_loss_mean:.4f}, L(lin): {linearity_loss_mean:.6f}, logL(contr): {np.log(contrast_loss_mean):.4f}, MaxAbsEigV: {max_abs_eigenvalue:.3f}, StableModes: {sum(mask)}")
+        epoch_progress.set_description(f"L(total): {total_loss_mean:.4f}, L(recon): {reconstruction_loss_mean:.4f}, L(pred): {prediction_loss_mean:.4f}, L(lin): {linearity_loss_mean:.6f}, L(contr): {contrast_loss_mean:.4f}, MaxAbsEigV: {max_abs_eigenvalue:.4f}, SteadyModes: {sum(mask)}")
         #print(f"Epoch {epoch+1}/{EPOCHS}\tLoss(total): {total_loss_mean:.4f}\tLoss(recon): {reconstruction_loss_mean:.4f}\tLoss(pred): {prediction_loss_mean:.4f}\tLoss(lin): {linearity_loss_mean:.6f}\tMaxAbsEigenV: {max_abs_eigenvalue:.4f}\tSteadyModes: {sum(mask)}")
     
     return model, train_history
@@ -126,8 +134,8 @@ def train_model(kae_model, data_loader, num_epochs, alpha, lambda_contrast):
 LATENT_DIMENSION = 128
 ALPHA = 20
 LAMBDA_CONTRAST = 100
-EPOCHS = 300
-LR = 1e-4
+EPOCHS = 200
+LR = 2e-4
 RUN_NAME = f"_L{LATENT_DIMENSION}_a{ALPHA}_lcon{LAMBDA_CONTRAST}_{EPOCHS}_lr_{LR}"
 
 if __name__ == '__main__':
@@ -155,7 +163,7 @@ if __name__ == '__main__':
             data = datafile['timeseries']
 
             dataset = TOffsetDataset(data, t_offset=1)
-            loader = DataLoader(dataset, batch_size=64, shuffle=True, num_workers=2, pin_memory=True)
+            loader = DataLoader(dataset, batch_size=128, shuffle=True, num_workers=2, pin_memory=True)
 
 
             model = ConvAutoencoder(latent_dim=LATENT_DIMENSION, use_bias=True).to(DEVICE)

@@ -1,0 +1,11 @@
+Traceback (most recent call last):
+  File "p:\Uni\PhD\repos\mhd_surrogate_modelling\paul\experiments\koopman_autoencoder_exponential_contrast.py", line 167, in <module>
+    trained_model, train_history = train_model(model, loader, EPOCHS, ALPHA, LAMBDA_CONTRAST)
+                                   ~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "p:\Uni\PhD\repos\mhd_surrogate_modelling\paul\experiments\koopman_autoencoder_exponential_contrast.py", line 121, in train_model
+    epoch_progress.set_description(f"L(total): {total_loss_mean:.4f}, L(recon): {reconstruction_loss_mean:.4f}, L(pred): {prediction_loss_mean:.4f}, L(lin): {linearity_loss_mean:.6f}, logL(contr): {np.log(contrast_loss_mean):.4f}, MaxAbsEigV: {max_abs_eigenvalue:.3f}, StableModes: {sum(mask)}")
+                                                                                                                                                                                                      ~~~~~~^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Paul\miniconda3\Lib\site-packages\torch\_tensor.py", line 1253, in __array__
+    return self.numpy()
+           ~~~~~~~~~~^^
+TypeError: can't convert cuda:0 device type tensor to numpy. Use Tensor.cpu() to copy the tensor to host memory first.

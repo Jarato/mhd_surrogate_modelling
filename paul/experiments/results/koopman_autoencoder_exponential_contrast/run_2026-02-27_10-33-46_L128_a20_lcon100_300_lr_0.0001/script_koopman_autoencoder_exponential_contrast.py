@@ -1,3 +1,11 @@
+
+####################################################################################################
+#	THIS SCRIPT HAS BEEN EXECUTED ALREADY
+#	THIS IS A COPY OF THE ORIGINAL SCRIPT
+#	THIS SCRIPT IS NOT MEANT TO BE EXECUTED AGAIN
+#	IT EXISTS ONLY FOR THE PURPOSE OF GIVING CONTEXT TO THE DATA IN THIS FOLDER
+####################################################################################################
+
 import os
 import datetime
 import traceback
@@ -90,7 +98,7 @@ def train_model(kae_model, data_loader, num_epochs, alpha, lambda_contrast):
             optimizer.step()
 
             with torch.no_grad():
-                contrast_loss_epoch += loss_contrast.item() * batch_size
+                contrast_loss_epoch += loss_contrast.item()
                 reconstruction_loss_epoch += loss_reconstruction.item() * batch_size
                 prediction_loss_epoch += loss_prediction.item() * batch_size
                 linearity_loss_epoch += loss_linearity.item() * batch_size

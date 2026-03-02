@@ -110,16 +110,17 @@ def train_model(kae_model, data_loader, num_epochs, n_steps, alpha):
 
         max_abs_eigenvalue = np.max(np.abs(eigvals))
         mask = np.abs((np.abs(eigvals) - 1.0)) < steady_tolerance
-        epoch_progress.set_description(f"Loss(total): {total_loss_mean:.4f}, Loss(recon): {reconstruction_loss_mean:.4f}, Loss(pred): {prediction_loss_mean:.4f}, Loss(lin): {linearity_loss_mean:.6f}, MaxAbsEigenV: {max_abs_eigenvalue:.4f}, SteadyModes: {sum(mask)}")
+        epoch_progress.set_description(f"L(total): {total_loss_mean:.4f}, L(recon): {reconstruction_loss_mean:.4f}, L(pred): {prediction_loss_mean:.4f}, L(lin): {linearity_loss_mean:.6f}, MaxAbsEigV: {max_abs_eigenvalue:.4f}, StableModes: {sum(mask)}")
         #print(f"Epoch {epoch+1}/{EPOCHS}\tLoss(total): {total_loss_mean:.4f}\tLoss(recon): {reconstruction_loss_mean:.4f}\tLoss(pred): {prediction_loss_mean:.4f}\tLoss(lin): {linearity_loss_mean:.6f}\tMaxAbsEigenV: {max_abs_eigenvalue:.4f}\tSteadyModes: {sum(mask)}")
     
     return model, train_history
     
 LATENT_DIMENSION = 128
 ALPHA = 20
-EPOCHS = 200
+EPOCHS = 300
+LR = 3e-4
 NUM_STEPS = 5
-RUN_NAME = f"_{LATENT_DIMENSION}_alpha_{ALPHA}_{EPOCHS}_mid_lr_{NUM_STEPS}"
+RUN_NAME = f"_L{LATENT_DIMENSION}_a{ALPHA}_e{EPOCHS}_lr{LR}_st{NUM_STEPS}_norm"
 
 if __name__ == '__main__':
     # making a new folder to save the script and the results 
@@ -147,11 +148,11 @@ if __name__ == '__main__':
 
             dataset = MultiStepDataset(data, num_steps=NUM_STEPS)
 
-            loader = DataLoader(dataset, batch_size=8, shuffle=True, num_workers=2, pin_memory=True)
+            loader = DataLoader(dataset, batch_size=16, shuffle=True, num_workers=4, pin_memory=True)
             
-            model = ConvAutoencoder(latent_dim=LATENT_DIMENSION).to(DEVICE)
+            model = ConvAutoencoderNorm(latent_dim=LATENT_DIMENSION).to(DEVICE)
 
-            optimizer = torch.optim.Adam(model.parameters(), lr=2e-4)
+            optimizer = torch.optim.Adam(model.parameters(), lr=LR)
             mse = nn.MSELoss()
 
             trained_model, train_history = train_model(model, loader, EPOCHS, NUM_STEPS, ALPHA)
