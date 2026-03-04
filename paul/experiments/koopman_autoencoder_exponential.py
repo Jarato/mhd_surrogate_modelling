@@ -111,8 +111,11 @@ def train_model(kae_model, data_loader, num_epochs, alpha):
     
     return model, train_history
     
+LATENT_DIMENSION = 128
 ALPHA = 20
-RUN_NAME = "_64_alpha_20_200_mid_lr"
+EPOCHS = 100
+LR = 5e-4
+RUN_NAME = f"_L{LATENT_DIMENSION}_a{ALPHA}_e{EPOCHS}_lr{LR}_schur"
 
 if __name__ == '__main__':
     # making a new folder to save the script and the results 
@@ -138,32 +141,22 @@ if __name__ == '__main__':
             datafile = np.load(os.path.join(script_dir, "data", "T1492_x1151_y1_z127_c2.npz"))
             data = datafile['timeseries']
 
-            #temp_mean_data = np.mean(data, axis=0)
-            #mean_velocity = np.mean(data, axis=(0,1,2))
-            #data_centered = data - temp_mean_data#mean_velocity[None,None,None,:]
-
-            #print(mean_velocity)
-
-            #mean_removed_data = data - np.mean(data, axis=0)
             dataset = TOffsetDataset(data, t_offset=1)
 
-            #dataset = TOffsetDataset(data, t_offset=1)
             loader = DataLoader(dataset, batch_size=12, shuffle=True, num_workers=2, pin_memory=True, pin_memory_device=DEVICE)
 
-            LATENT_DIMENSION = 64
-            model = ConvAutoencoder(latent_dim=LATENT_DIMENSION, use_bias=True).to(DEVICE)
+            model = ConvAutoencoderSchur(latent_dim=LATENT_DIMENSION, use_bias=True).to(DEVICE)
 
-            optimizer = torch.optim.Adam(model.parameters(), lr=2e-4)
+            optimizer = torch.optim.Adam(model.parameters(), lr=LR)
             mse = nn.MSELoss()
-
-            EPOCHS = 200
 
             trained_model, train_history = train_model(model, loader, EPOCHS, ALPHA)
 
             torch.save(trained_model.state_dict(), os.path.join(folder_name, "model.pt"))
             
-            losses_history = np.stack([train_history["loss_reconstruction"], train_history["loss_prediction"], train_history["loss_linearity"], train_history["lin_dyn_weight"]], axis=1)
-            pd.DataFrame(losses_history, columns=["loss_reconstruction", "loss_prediction", "loss_linearity", "lin_dyn_weight"]).to_csv(os.path.join(folder_name,"losses_history.csv"), index = False)
+            train_history_keys = ["loss_reconstruction", "loss_prediction", "loss_linearity", "lin_dyn_weight"]
+            losses_history = np.stack([train_history[key] for key in train_history_keys], axis=1)
+            pd.DataFrame(losses_history, columns=train_history_keys).to_csv(os.path.join(folder_name,"losses_history.csv"), index = False)
 
             pd.DataFrame(train_history["eigenvalues"]).to_csv(os.path.join(folder_name,"eigenvalues_history.csv"), index = False)
 

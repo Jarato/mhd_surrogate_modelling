@@ -27,7 +27,7 @@ def calculate_dynamic_weight_single(x_t, x_t_reconstructed, alpha = 10):
         dyn_weight_example = torch.exp(-alpha*recon_mse_example_x_t)
     return dyn_weight_example
 
-def train_model(kae_model, data_loader, num_epochs, alpha):
+def train_model(kae_model, data_loader, num_epochs, alpha, eig_threshold):
     kae_model.train()
     num_train_examples = len(data_loader.dataset)
 
@@ -79,8 +79,8 @@ def train_model(kae_model, data_loader, num_epochs, alpha):
             loss_linearity = torch.mean(torch.mean(error_linearity,dim=[1]) * lin_dyn_weight)
 
             K = model.linear_dynamics.weight
-            eigenvalues = torch.linalg.eigvals(K)
-            loss_eig = torch.mean(torch.relu(torch.abs(eigenvalues) - 1.0))
+            abs_eigenvalues = torch.abs(torch.linalg.eigvals(K))
+            loss_eig = torch.mean(torch.abs(abs_eigenvalues[abs_eigenvalues > eig_threshold] - 1.0))
 
             ### TOTAL LOSS ###
             loss_total = loss_reconstruction + loss_prediction + loss_linearity + loss_eig
@@ -124,7 +124,8 @@ LATENT_DIMENSION = 128
 ALPHA = 20
 EPOCHS = 100
 LR = 5e-4
-RUN_NAME = f"_{LATENT_DIMENSION}_alpha_{ALPHA}_{EPOCHS}_lr_{LR}"
+EIG_THRESHOLD = 1.0
+RUN_NAME = f"_L{LATENT_DIMENSION}_a{ALPHA}_e{EPOCHS}_eig{EIG_THRESHOLD}_lr{LR}"
 
 if __name__ == '__main__':
     # making a new folder to save the script and the results 
@@ -161,17 +162,18 @@ if __name__ == '__main__':
             #dataset = TOffsetDataset(data, t_offset=1)
             loader = DataLoader(dataset, batch_size=12, shuffle=True, num_workers=2, pin_memory=True, pin_memory_device=DEVICE)
 
-            model = ConvAutoencoder(latent_dim=LATENT_DIMENSION).to(DEVICE)
+            model = ConvAutoencoderSchur(latent_dim=LATENT_DIMENSION).to(DEVICE)
 
             optimizer = torch.optim.Adam(model.parameters(), lr=LR)
             mse = nn.MSELoss()
 
-            trained_model, train_history = train_model(model, loader, EPOCHS, ALPHA)
+            trained_model, train_history = train_model(model, loader, EPOCHS, ALPHA, EIG_THRESHOLD)
 
             torch.save(trained_model.state_dict(), os.path.join(folder_name, "model.pt"))
             
-            losses_history = np.stack([history[key] for key in train_history], axis=1)
-            pd.DataFrame(losses_history, columns=[key for key in train_history]).to_csv(os.path.join(folder_name,"losses_history.csv"), index = False)
+            train_history_keys = ["loss_reconstruction", "loss_prediction", "loss_linearity", "loss_eigvalue", "lin_dyn_weight"]
+            losses_history = np.stack([train_history[key] for key in train_history_keys], axis=1)
+            pd.DataFrame(losses_history, columns=train_history_keys).to_csv(os.path.join(folder_name,"losses_history.csv"), index = False)
 
             pd.DataFrame(train_history["eigenvalues"]).to_csv(os.path.join(folder_name,"eigenvalues_history.csv"), index = False)
 
