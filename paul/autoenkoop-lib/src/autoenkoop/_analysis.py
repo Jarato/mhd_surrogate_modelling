@@ -52,3 +52,17 @@ def predict_trajectory_reduced(x0, model, reduced_eigvalues, reduced_eigvectors,
             z_t_predicted = koopman_evolve(c0, t, reduced_eigvalues, reduced_eigvectors)
             steady_state_prediction.append(model.decoder(z_t_predicted).squeeze(0).numpy())
     return steady_state_prediction
+
+def filter_pos_imag(values, vectors, energies):
+    mode_mask = values.imag >= 0
+    mode_vectors = vectors[:, mode_mask]
+    mode_values = values[mode_mask]
+    mode_energies = energies[mode_mask]
+    return mode_values, mode_vectors, mode_energies
+
+def calculate_eigenmode_structures(eigenvectors, model, device = "cpu"):
+    modes = []
+    with torch.no_grad():
+        for vec in eigenvectors.T:
+            modes.append(model.decoder(torch.FloatTensor(vec.real).unsqueeze(0).to(device)).squeeze(0).cpu().numpy())
+    return modes

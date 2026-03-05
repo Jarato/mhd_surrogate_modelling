@@ -83,3 +83,37 @@ def animate_trajectory(trajectory, file_name, norm_x, norm_z):
     # Save as GIF (requires Pillow)
     writer = PillowWriter(fps=20)
     ani.save(file_name+".gif", writer=writer)
+
+
+def plot_evolution(value_evolution, evolution_label, title="Training loss evolution", xlabel="# epochs", ylabel="loss"):
+    """
+    Plots the evolution of a value over time.
+
+    Parameters
+    ----------
+    value_evolution : list[torch.Tensor] or torch.Tensor\\
+        The evolution of the value as a list of numpy arrays or a PyTorch tensor of shape (num_epochs,).
+    evolution_label : list[str]] or str\\
+        The label or labels to use for the value evolution on the plot. If `value_evolution` is a list, `evolution_label` should be a list of labels of the same length.
+    title : str, optional\\
+        The title of the plot, by default "Training loss evolution".
+    xlabel : str, optional\\
+        The label of the x-axis, by default "# epochs".
+    ylabel : str, optional\\
+        The label of the y-axis, by default "loss".
+
+    Raises
+    ------
+    ValueError\\
+        If the length of `value_evolution` and `evolution_label` do not match when `value_evolution` is a list.
+    """
+    fig, ax = plt.subplots()
+    if isinstance(evolution_label, list):
+        if len(value_evolution) != len(evolution_label):
+            raise ValueError("The number of value evolutions and labels must match.")
+        for i, evo in enumerate(value_evolution):  
+            ax.semilogy(evo, label=evolution_label[i])
+    else:
+        ax.semilogy(value_evolution, label=evolution_label)
+    ax.set(title=title, xlabel=xlabel, ylabel=ylabel)
+    ax.legend()
