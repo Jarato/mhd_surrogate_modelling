@@ -216,6 +216,7 @@ class ConvAutoencoderKoop(nn.Module):
             nn.Flatten(),
             nn.Linear(self.flattened_dim, self.intermediate_dimension, bias=use_bias),
             nn.GELU(),
+            nn.BatchNorm1d(self.intermediate_dimension),
             nn.Linear(self.intermediate_dimension, self.latent_dimension, bias=use_bias),
         )
 
@@ -225,9 +226,11 @@ class ConvAutoencoderKoop(nn.Module):
         self.decoder = nn.Sequential(
             nn.Linear(self.latent_dimension, self.intermediate_dimension, bias=use_bias),
             nn.GELU(),
+            nn.BatchNorm1d(self.intermediate_dimension),
             nn.Linear(self.intermediate_dimension, self.flattened_dim, bias=use_bias),
             nn.GELU(), # REMOVE FOR OLD MODELS before 25.02.2026, 14:00
             nn.Unflatten(1, self.pre_2d_shape),
+            nn.BatchNorm2d(128),
             nn.ConvTranspose2d(128, 64, kernel_size=3, stride=2, padding=1, output_padding=1, bias=use_bias),
             nn.GELU(),
             nn.BatchNorm2d(64),
