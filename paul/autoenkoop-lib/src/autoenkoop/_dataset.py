@@ -1,6 +1,18 @@
 import torch
 import numpy as np
 
+class SimpleDataset(torch.utils.data.Dataset):
+    def __init__(self, data):
+        # data: numpy array of shape (t, x, z, v)
+        self.X = torch.tensor(data, dtype=torch.float32).permute(0,3,1,2)
+        # Now shape: (t, v=2, x=1151, z=127)
+
+    def __len__(self):
+        return self.X.shape[0]
+
+    def __getitem__(self, idx):
+        return self.X[idx]
+
 class TOffsetDataset(torch.utils.data.Dataset):
     def __init__(self, data, t_offset = 1):
         # data: numpy array of shape (t, x, z, v)
