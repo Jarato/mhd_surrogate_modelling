@@ -32,7 +32,7 @@ def calculate_linear_weights(model, loader):#, t_steps, latent_dim):
     Z0_all = Z_all[:,:-1]
     Z1_all = Z_all[:,1:]
 
-    dmd = pydmd.DMD(-1, forward_backward=True)
+    dmd = pydmd.DMD(-1, forward_backward=False)
     dmd.fit(Z_all)
 
     #Z0_all = np.vstack(Z0).T
@@ -45,7 +45,7 @@ def calculate_linear_weights(model, loader):#, t_steps, latent_dim):
     optimal_residual = Z1_all - K_star @ Z0_all
     model_residual = Z1_all - K @ Z0_all
 
-    num_data = Z0_all.shape[1]
+    num_data = Z0_all.shape[1] * Z0_all.shape[0]
 
     true_latent_linearity_error = np.linalg.norm(optimal_residual)**2 / num_data
     total_linearity_error = np.linalg.norm(model_residual)**2 / num_data
@@ -110,13 +110,14 @@ def train_model(model, data_loader, lifting_data_loader, num_epochs):
             ### LINEARITY LOSS ###
             loss_linearity = mse(pz_t_plus_1, z_t_plus_1)
 
-            #with torch.no_grad():
-            #    mean_weight = (loss_reconstruction.item() + loss_linearity.item()) / 2
-            #    reconstruction_weight = mean_weight / loss_reconstruction.item()
-            #    linearity_weight = mean_weight / loss_linearity.item()
-
+            if epoch >= 50:
+                with torch.no_grad():
+                    reconstruction_weight = 0.9*loss_linearity.item() / loss_reconstruction.item()
+                loss_total = reconstruction_weight*loss_reconstruction + loss_linearity
+            else:
+                loss_total = loss_reconstruction
             ### TOTAL LOSS ###
-            loss_total = loss_reconstruction + loss_linearity# + loss_prediction 
+            # + loss_prediction 
 
             loss_total.backward()
             optimizer.step()
@@ -137,7 +138,7 @@ def train_model(model, data_loader, lifting_data_loader, num_epochs):
 
         # eigenvalues
         with torch.no_grad():
-            K = model.linear_dynamics.weight.detach().item()
+            K = model.linear_dynamics.weight.detach().cpu().numpy()
             train_history["K"][epoch] = K
         #print(K)
         #eigvals, eigvecs = np.linalg.eig(K)
@@ -151,11 +152,11 @@ def train_model(model, data_loader, lifting_data_loader, num_epochs):
     
     return model, train_history
     
-LATENT_DIMENSION = 1
-EPOCHS = 50
-LR = 1e-3
+LATENT_DIMENSION = 32
+EPOCHS = 300
+LR = 2e-4
 
-RUN_NAME = f"_L{LATENT_DIMENSION}_e{EPOCHS}_lr{LR}_fbK_0Dec"
+RUN_NAME = f"_L{LATENT_DIMENSION}_e{EPOCHS}_lr{LR}_K0Dec_equalW"
 
 if __name__ == '__main__':
     # making a new folder to save the script and the results 
@@ -181,12 +182,14 @@ if __name__ == '__main__':
         try:
             datafile = np.load(os.path.join(script_dir, "data", "T1492_x1151_y1_z127_c2.npz"))
             data = datafile['timeseries']
+            data_centered = data - np.mean(data, axis=0)
+            train_data = data_centered[:int(data_centered.shape[0]*0.7)]
 
-            dataset = TOffsetDataset(data, t_offset=1)
-            lifting_dataset = SimpleDataset(data)
+            dataset = TOffsetDataset(train_data, t_offset=1)
+            lifting_dataset = SimpleDataset(train_data)
 
-            loader = DataLoader(dataset, batch_size=12, shuffle=True, num_workers=2, pin_memory=True)
-            lifting_loader = DataLoader(lifting_dataset, batch_size=12, shuffle=False, num_workers=2, pin_memory=True)
+            loader = DataLoader(dataset, batch_size=16, shuffle=True, num_workers=2, pin_memory=True)
+            lifting_loader = DataLoader(lifting_dataset, batch_size=16, shuffle=False, num_workers=2, pin_memory=True)
 
             model = ConvAutoencoderZeroDecoder(latent_dim=LATENT_DIMENSION).to(DEVICE)
 

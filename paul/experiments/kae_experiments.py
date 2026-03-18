@@ -17,43 +17,63 @@ np.random.seed(SEED)
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
-def calculate_linear_weights(model, loader):#, t_steps, latent_dim):
+def calculate_linear_weights(model, lift_loader, loader):#, t_steps, latent_dim):
     Z = []#np.zeros((t_steps, latent_dim))
     latent_dim = model.latent_dimension
     with torch.no_grad():
-        for i, x_t in enumerate(loader):
+        for x_t in lift_loader:
             x_t = x_t.to(DEVICE)
             #encoded current state
             z_t = model.encoder(x_t)
+            
             Z.append(z_t.cpu().numpy())
+
+    #num_train_examples = len(loader.dataset)
+    #linearity_loss_epoch = 0.0
+    #with torch.no_grad():
+    #    for x_t, x_tp1 in loader:
+    #        x_t = x_t.to(DEVICE)
+    #        x_tp1 = x_tp1.to(DEVICE)
+    #        batch_size = x_t.size(0)
+    #        #encoded current state
+    #        z_t = model.encoder(x_t)
+    #        z_tp1 = model.encoder(x_tp1)
+    #        pz_tp1 = model.linear_dynamics(z_t)
+    #        
+    #        linearity_loss_epoch += mse(z_tp1, pz_tp1).item() * batch_size
+    #
+    #linearity_loss_mean = linearity_loss_epoch / num_train_examples
 
     Z_all = np.vstack(Z).T
 
     Z0_all = Z_all[:,:-1]
     Z1_all = Z_all[:,1:]
 
-    dmd = pydmd.DMD(-1, forward_backward=True)
+    dmd = pydmd.DMD(-1, forward_backward=False)
     dmd.fit(Z_all)
 
     #Z0_all = np.vstack(Z0).T
     #Z1_all = np.vstack(Z1).T
     #K_star = Z1_all @ np.linalg.pinv(Z0_all)
-    K_star = dmd.modes @ np.diag(dmd.eigs) @ np.linalg.pinv(dmd.modes)
+    K_star = (dmd.modes @ np.diag(dmd.eigs) @ np.linalg.pinv(dmd.modes)).real
     with torch.no_grad():
         K = model.linear_dynamics.weight.detach().cpu().numpy()
     
     optimal_residual = Z1_all - K_star @ Z0_all
     model_residual = Z1_all - K @ Z0_all
 
-    num_data = Z0_all.shape[1]
+    num_data = Z0_all.shape[1] * latent_dim
+    
 
     true_latent_linearity_error = np.linalg.norm(optimal_residual)**2 / num_data
     total_linearity_error = np.linalg.norm(model_residual)**2 / num_data
-    linearity_estimation_error = total_linearity_error - true_latent_linearity_error
-    estimation_error_portion = linearity_estimation_error/total_linearity_error
-    print()
-    print(f"total_linearity_error: {total_linearity_error:.6f}\ttrue_latent_linearity_error: {true_latent_linearity_error:.6f}\tlinearity_estimation_error: {linearity_estimation_error:.6f} ({estimation_error_portion*100:.1f}% of total)")
-    return K_star, Z_all
+    #print()
+    #print(model_residual.shape)
+    #print(num_data)
+    #print(total_linearity_error)
+    #print(linearity_loss_mean)
+    #print(linearity_loss_mean/total_linearity_error)
+    return K_star, Z_all, total_linearity_error, true_latent_linearity_error
 
 def train_model(model, data_loader, lifting_data_loader, num_epochs):
     model.train()
@@ -63,24 +83,21 @@ def train_model(model, data_loader, lifting_data_loader, num_epochs):
     train_history["loss_reconstruction"] = np.zeros((num_epochs))
     #train_history["loss_prediction"] = np.zeros((num_epochs))
     train_history["loss_linearity"] = np.zeros((num_epochs))
+    train_history["lr"] = np.zeros((num_epochs))
     train_history["lifted_states"] = np.zeros((num_epochs, len(lifting_data_loader.dataset), model.latent_dimension))
     train_history["K"] = np.zeros((num_epochs, model.latent_dimension, model.latent_dimension))
-    #train_history["eigenvalues"] = np.zeros((num_epochs, kae_model.latent_dimension), dtype=np.complex64)
 
-    #steady_tolerance = 0.1
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, factor=0.9, patience=10, cooldown=5)
+    
     epoch_progress = tqdm(range(num_epochs))
 
     for epoch in epoch_progress:
         reconstruction_loss_epoch = 0.0
-        #prediction_loss_epoch = 0.0
         linearity_loss_epoch = 0.0
 
-        lin_weights, Z = calculate_linear_weights(model, lifting_data_loader)
+        lin_weights, Z, total_linearity_error, true_latent_linearity_error = calculate_linear_weights(model, lifting_data_loader, data_loader)
         lin_weights = torch.tensor(lin_weights, device=DEVICE, requires_grad=True)
         train_history["lifted_states"][epoch] = Z.T
-        #print()
-        #print(lin_weights.shape)
-        #print()
 
         for x_t, x_t_plus_1 in data_loader:
             x_t, x_t_plus_1 = x_t.to(DEVICE), x_t_plus_1.to(DEVICE)
@@ -96,9 +113,8 @@ def train_model(model, data_loader, lifting_data_loader, num_epochs):
             reconstructed_x_t = model.decoder(z_t)
             reconstructed_x_t_plus_1 = model.decoder(z_t_plus_1)
             #linear projected encoded next state
-            pz_t_plus_1 = torch.nn.functional.linear(z_t, lin_weights)# model.linear_dynamics(z_t)#
+            pz_t_plus_1 = torch.nn.functional.linear(z_t, lin_weights)# #model.linear_dynamics(z_t)#
             #projected decoded next state
-            #reconstructed_px_t_plus_1 = model.decoder(pz_t_plus_1)
 
             ### RECONSTRUCTION LOSS ###
             loss_reconstruction = 0.5*(mse(x_t, reconstructed_x_t) + mse(x_t_plus_1, reconstructed_x_t_plus_1))
@@ -107,41 +123,17 @@ def train_model(model, data_loader, lifting_data_loader, num_epochs):
             #loss_prediction = mse(reconstructed_px_t_plus_1, x_t_plus_1)
 
             ### LINEARITY LOSS ###
-            loss_linearity = 1000*mse(pz_t_plus_1, z_t_plus_1)
-
-            grads_L_recon = torch.autograd.grad(loss_reconstruction, model.parameters(), retain_graph=True, allow_unused=True)
-            grads_L_lin = torch.autograd.grad(loss_linearity, model.parameters(), retain_graph=True, allow_unused=True)
-
-            dot_product = 0
-            #g_recon_norm = 0
-            g_lin_enc_norm = 0
-
-            with torch.no_grad():
-                for g1, g2 in zip(grads_L_recon, grads_L_lin):
-                #print(type(g1), type(g2))
-                    if g1 is not None and g2 is not None:
-                        dot_product += torch.dot(g1.view(-1), g2.view(-1))
-                        #g_recon_norm += torch.dot(g1.view(-1), g1.view(-1))
-                        g_lin_enc_norm += torch.dot(g2.view(-1), g2.view(-1))
-
-            gradients_conflict = dot_product < 0
-            g2_weight = dot_product / g_lin_enc_norm
-            for p, g1, g2 in zip(model.parameters(), grads_L_recon, grads_L_lin):#, grads_L_pred):
-            #print(p.shape, type(g1), type(g2))
-                if g1 is not None and g2 is not None:
-                    if gradients_conflict:
-                        final_grad = g1 + (1 - g2_weight)*g2 # g1 + (1 - w)*g2
-                    else:
-                        final_grad = g1 + g2
-                elif g1 is not None:
-                    final_grad = g1
-                else:
-                    final_grad = g2
+            loss_linearity = mse(pz_t_plus_1, z_t_plus_1)
 
             ### TOTAL LOSS ###
-            loss_total = loss_reconstruction + loss_linearity# + loss_prediction 
-
-            #loss_total.backward()
+            if epoch >= RECON_EPOCH_THRESHOLD:
+                #with torch.no_grad():
+                #    reconstruction_weight = 0.9*loss_linearity.item() / loss_reconstruction.item()
+                loss_total = loss_reconstruction + LAMBDA_LIN*loss_linearity
+            else:
+                loss_total = loss_reconstruction
+            
+            loss_total.backward()
             optimizer.step()
 
             reconstruction_loss_epoch += loss_reconstruction.item() * batch_size
@@ -152,15 +144,19 @@ def train_model(model, data_loader, lifting_data_loader, num_epochs):
         #prediction_loss_mean = prediction_loss_epoch / num_train_examples
         linearity_loss_mean = linearity_loss_epoch / num_train_examples
 
-        total_loss_mean = reconstruction_loss_mean + linearity_loss_mean# + prediction_loss_mean
+        total_loss_mean = reconstruction_loss_mean + LAMBDA_LIN*linearity_loss_mean# + prediction_loss_mean
+
+        if epoch >= RECON_EPOCH_THRESHOLD:
+            scheduler.step(total_loss_mean)
 
         train_history["loss_reconstruction"][epoch] = reconstruction_loss_epoch / num_train_examples
         #train_history["loss_prediction"][epoch] = prediction_loss_epoch / num_train_examples
         train_history["loss_linearity"][epoch] = linearity_loss_epoch / num_train_examples
+        train_history["lr"][epoch] = scheduler.get_last_lr()[0]
 
         # eigenvalues
         with torch.no_grad():
-            K = model.linear_dynamics.weight.detach().item()
+            K = model.linear_dynamics.weight.detach().cpu().numpy()
             train_history["K"][epoch] = K
         #print(K)
         #eigvals, eigvecs = np.linalg.eig(K)
@@ -169,16 +165,21 @@ def train_model(model, data_loader, lifting_data_loader, num_epochs):
 
         #max_abs_eigenvalue = np.max(np.abs(eigvals))
         #mask = np.abs((np.abs(eigvals) - 1.0)) < steady_tolerance
-        epoch_progress.set_description(f"Loss(total): {total_loss_mean:.4f}, Loss(recon): {reconstruction_loss_mean:.4f}, Loss(lin): {linearity_loss_mean:.6f}, K: {K:.4f}, K_star: {lin_weights.detach().item():.4f}")
+        linearity_estimation_error = total_linearity_error - true_latent_linearity_error
+        estimation_error_portion = linearity_estimation_error/total_linearity_error
+        #print(f"true_lin: {true_latent_linearity_error:.4f}\tlin_estimate: {linearity_estimation_error:.4f} ({estimation_error_portion*100:.1f}%)")
+        epoch_progress.set_description("L(total): "+"{:.1e}".format(total_loss_mean)+", L(recon): "+"{:.1e}".format(reconstruction_loss_mean)+", L(lin): "+"{:.1e}".format(linearity_loss_mean)+", true_lin: "+"{:.1e}".format(true_latent_linearity_error)+", lin_est: "+"{:.1e}".format(linearity_estimation_error)+f"({estimation_error_portion*100:.0f}%), lr: " + "{:.1e}".format(scheduler.get_last_lr()[0]))
         #print(f"Epoch {epoch+1}/{EPOCHS}\tLoss(total): {total_loss_mean:.4f}\tLoss(recon): {reconstruction_loss_mean:.4f}\tLoss(pred): {prediction_loss_mean:.4f}\tLoss(lin): {linearity_loss_mean:.6f}\tMaxAbsEigenV: {max_abs_eigenvalue:.4f}\tSteadyModes: {sum(mask)}")
     
     return model, train_history
     
-LATENT_DIMENSION = 1
-EPOCHS = 50
+LATENT_DIMENSION = 32
+EPOCHS = 300
+RECON_EPOCH_THRESHOLD = 5
 LR = 1e-3
+LAMBDA_LIN = 1
 
-RUN_NAME = f"_L{LATENT_DIMENSION}_e{EPOCHS}_lr{LR}"
+RUN_NAME = f"_L{LATENT_DIMENSION}_e{EPOCHS}_lamlin{LAMBDA_LIN}_dmd"
 
 if __name__ == '__main__':
     # making a new folder to save the script and the results 
@@ -204,24 +205,28 @@ if __name__ == '__main__':
         try:
             datafile = np.load(os.path.join(script_dir, "data", "T1492_x1151_y1_z127_c2.npz"))
             data = datafile['timeseries']
+            data_centered = data - np.mean(data, axis=0)
+            train_data = data_centered[:int(data_centered.shape[0]*0.7)]
 
-            dataset = TOffsetDataset(data, t_offset=1)
-            lifting_dataset = SimpleDataset(data)
+            dataset = TOffsetDataset(train_data, t_offset=1)
+            lifting_dataset = SimpleDataset(train_data)
 
-            loader = DataLoader(dataset, batch_size=12, shuffle=True, num_workers=2, pin_memory=True)
-            lifting_loader = DataLoader(lifting_dataset, batch_size=12, shuffle=False, num_workers=2, pin_memory=True)
+            loader = DataLoader(dataset, batch_size=16, shuffle=True, num_workers=2, pin_memory=True)
+            lifting_loader = DataLoader(lifting_dataset, batch_size=16, shuffle=False, num_workers=2, pin_memory=True)
 
-            model = ConvAutoencoderNorm(latent_dim=LATENT_DIMENSION).to(DEVICE)
+            model = ConvAutoencoderZeroDecoder(latent_dim=LATENT_DIMENSION).to(DEVICE)
 
             optimizer = torch.optim.Adam(model.parameters(), lr=LR)
+            
             mse = nn.MSELoss()
 
             trained_model, train_history = train_model(model, loader, lifting_loader, EPOCHS)
 
             torch.save(trained_model.state_dict(), os.path.join(folder_name, "model.pt"))
             
-            losses_history = np.stack([train_history["loss_reconstruction"], train_history["loss_linearity"]], axis=1)
-            pd.DataFrame(losses_history, columns=["loss_reconstruction", "loss_linearity"]).to_csv(os.path.join(folder_name,"losses_history.csv"), index = False)
+            history_keys = ["loss_reconstruction", "loss_linearity", "lr"]
+            losses_history = np.stack([train_history[key] for key in history_keys], axis=1)
+            pd.DataFrame(losses_history, columns=history_keys).to_csv(os.path.join(folder_name,"losses_history.csv"), index = False)
 
             np.save(os.path.join(folder_name,"lifted_state_history"), train_history["lifted_states"])
             np.save(os.path.join(folder_name,"K"), train_history["K"])
