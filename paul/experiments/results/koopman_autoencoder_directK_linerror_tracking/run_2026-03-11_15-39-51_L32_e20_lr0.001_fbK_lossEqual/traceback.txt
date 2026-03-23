@@ -1,8 +1,0 @@
-Traceback (most recent call last):
-  File "c:\Users\paulf\projekte\MHD\mhd_surrogate_modelling\paul\experiments\koopman_autoencoder_directK_linerror_tracking.py", line 196, in <module>
-    trained_model, train_history = train_model(model, loader, lifting_loader, EPOCHS)
-                                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "c:\Users\paulf\projekte\MHD\mhd_surrogate_modelling\paul\experiments\koopman_autoencoder_directK_linerror_tracking.py", line 100, in train_model
-    pz_t_plus_1 = torch.nn.functional.linear(z_t, lin_weights)# model.linear_dynamics(z_t)#
-                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-RuntimeError: expected mat1 and mat2 to have the same dtype, but got: float != struct c10::complex<float>

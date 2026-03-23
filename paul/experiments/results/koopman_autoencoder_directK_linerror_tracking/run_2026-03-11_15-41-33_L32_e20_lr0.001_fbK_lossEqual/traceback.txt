@@ -1,8 +1,0 @@
-Traceback (most recent call last):
-  File "c:\Users\paulf\projekte\MHD\mhd_surrogate_modelling\paul\experiments\koopman_autoencoder_directK_linerror_tracking.py", line 196, in <module>
-    trained_model, train_history = train_model(model, loader, lifting_loader, EPOCHS)
-                                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "c:\Users\paulf\projekte\MHD\mhd_surrogate_modelling\paul\experiments\koopman_autoencoder_directK_linerror_tracking.py", line 140, in train_model
-    K = model.linear_dynamics.weight.detach().item()
-        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-RuntimeError: a Tensor with 1024 elements cannot be converted to Scalar

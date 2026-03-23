@@ -78,10 +78,10 @@ def calculate_linear_weights(model, lift_loader, loader):#, t_steps, latent_dim)
 def train_model(model, data_loader, lifting_data_loader, num_epochs):
     model.train()
     num_train_examples = len(data_loader.dataset)
-    
+    mse = nn.MSELoss()
+
     train_history = {}
     train_history["loss_reconstruction"] = np.zeros((num_epochs))
-    #train_history["loss_prediction"] = np.zeros((num_epochs))
     train_history["loss_linearity"] = np.zeros((num_epochs))
     train_history["lr"] = np.zeros((num_epochs))
     train_history["lifted_states"] = np.zeros((num_epochs, len(lifting_data_loader.dataset), model.latent_dimension))
@@ -119,9 +119,6 @@ def train_model(model, data_loader, lifting_data_loader, num_epochs):
             ### RECONSTRUCTION LOSS ###
             loss_reconstruction = 0.5*(mse(x_t, reconstructed_x_t) + mse(x_t_plus_1, reconstructed_x_t_plus_1))
 
-            ### PREDICTION LOSS ###
-            #loss_prediction = mse(reconstructed_px_t_plus_1, x_t_plus_1)
-
             ### LINEARITY LOSS ###
             loss_linearity = mse(pz_t_plus_1, z_t_plus_1)
 
@@ -158,19 +155,13 @@ def train_model(model, data_loader, lifting_data_loader, num_epochs):
         with torch.no_grad():
             K = model.linear_dynamics.weight.detach().cpu().numpy()
             train_history["K"][epoch] = K
-        #print(K)
-        #eigvals, eigvecs = np.linalg.eig(K)
 
-        #train_history["eigenvalues"][epoch] = eigvals
 
-        #max_abs_eigenvalue = np.max(np.abs(eigvals))
-        #mask = np.abs((np.abs(eigvals) - 1.0)) < steady_tolerance
         linearity_estimation_error = total_linearity_error - true_latent_linearity_error
         estimation_error_portion = linearity_estimation_error/total_linearity_error
-        #print(f"true_lin: {true_latent_linearity_error:.4f}\tlin_estimate: {linearity_estimation_error:.4f} ({estimation_error_portion*100:.1f}%)")
+
+
         epoch_progress.set_description("L(total): "+"{:.1e}".format(total_loss_mean)+", L(recon): "+"{:.1e}".format(reconstruction_loss_mean)+", L(lin): "+"{:.1e}".format(linearity_loss_mean)+", true_lin: "+"{:.1e}".format(true_latent_linearity_error)+", lin_est: "+"{:.1e}".format(linearity_estimation_error)+f"({estimation_error_portion*100:.0f}%), lr: " + "{:.1e}".format(scheduler.get_last_lr()[0]))
-        #print(f"Epoch {epoch+1}/{EPOCHS}\tLoss(total): {total_loss_mean:.4f}\tLoss(recon): {reconstruction_loss_mean:.4f}\tLoss(pred): {prediction_loss_mean:.4f}\tLoss(lin): {linearity_loss_mean:.6f}\tMaxAbsEigenV: {max_abs_eigenvalue:.4f}\tSteadyModes: {sum(mask)}")
-    
     return model, train_history
     
 LATENT_DIMENSION = 32
@@ -203,22 +194,20 @@ if __name__ == '__main__':
 
     with open(os.path.join(folder_name, "traceback.txt"), "w+") as tb_file:
         try:
-            datafile = np.load(os.path.join(script_dir, "data", "T1492_x1151_y1_z127_c2.npz"))
-            data = datafile['timeseries']
-            data_centered = data - np.mean(data, axis=0)
-            train_data = data_centered[:int(data_centered.shape[0]*0.7)]
+            data_path = os.path.join(script_dir, "data", "T1492_x1151_y1_z127_c2.npz")
+            center_dataset = True
+            train_test_split = 0.7
+            train_data, _, _ = load_and_prepare_data(data_path, center_dataset, train_test_split)
 
             dataset = TOffsetDataset(train_data, t_offset=1)
-            lifting_dataset = SimpleDataset(train_data)
-
             loader = DataLoader(dataset, batch_size=16, shuffle=True, num_workers=2, pin_memory=True)
+
+            lifting_dataset = SimpleDataset(train_data)
             lifting_loader = DataLoader(lifting_dataset, batch_size=16, shuffle=False, num_workers=2, pin_memory=True)
 
             model = ConvAutoencoderZeroDecoder(latent_dim=LATENT_DIMENSION).to(DEVICE)
 
             optimizer = torch.optim.Adam(model.parameters(), lr=LR)
-            
-            mse = nn.MSELoss()
 
             trained_model, train_history = train_model(model, loader, lifting_loader, EPOCHS)
 
