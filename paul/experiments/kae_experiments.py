@@ -113,7 +113,10 @@ def train_model(model, data_loader, lifting_data_loader, num_epochs):
             reconstructed_x_t = model.decoder(z_t)
             reconstructed_x_t_plus_1 = model.decoder(z_t_plus_1)
             #linear projected encoded next state
-            pz_t_plus_1 = torch.nn.functional.linear(z_t, lin_weights)# #model.linear_dynamics(z_t)#
+            if model_type == "dmd":
+                pz_t_plus_1 = torch.nn.functional.linear(z_t, lin_weights)
+            else:
+                pz_t_plus_1 = model.linear_dynamics(z_t)
             #projected decoded next state
 
             ### RECONSTRUCTION LOSS ###
@@ -164,13 +167,15 @@ def train_model(model, data_loader, lifting_data_loader, num_epochs):
         epoch_progress.set_description("L(total): "+"{:.1e}".format(total_loss_mean)+", L(recon): "+"{:.1e}".format(reconstruction_loss_mean)+", L(lin): "+"{:.1e}".format(linearity_loss_mean)+", true_lin: "+"{:.1e}".format(true_latent_linearity_error)+", lin_est: "+"{:.1e}".format(linearity_estimation_error)+f"({estimation_error_portion*100:.0f}%), lr: " + "{:.1e}".format(scheduler.get_last_lr()[0]))
     return model, train_history
     
-LATENT_DIMENSION = 32
+LATENT_DIMENSION = 128
 EPOCHS = 300
-RECON_EPOCH_THRESHOLD = 5
-LR = 1e-3
+RECON_EPOCH_THRESHOLD = 0
+LR = 2e-4
 LAMBDA_LIN = 1
 
-RUN_NAME = f"_L{LATENT_DIMENSION}_e{EPOCHS}_lamlin{LAMBDA_LIN}_dmd"
+model_type = "dmd"#["train", "dmd", "lrgroup"]
+
+RUN_NAME = f"_L{LATENT_DIMENSION}_e{EPOCHS}_lr2e-4_lamlin{LAMBDA_LIN}_{model_type}"
 
 if __name__ == '__main__':
     # making a new folder to save the script and the results 
@@ -200,14 +205,23 @@ if __name__ == '__main__':
             train_data, _, _ = load_and_prepare_data(data_path, center_dataset, train_test_split)
 
             dataset = TOffsetDataset(train_data, t_offset=1)
-            loader = DataLoader(dataset, batch_size=16, shuffle=True, num_workers=2, pin_memory=True)
+            loader = DataLoader(dataset, batch_size=64, shuffle=True, num_workers=2, pin_memory=True)
 
             lifting_dataset = SimpleDataset(train_data)
-            lifting_loader = DataLoader(lifting_dataset, batch_size=16, shuffle=False, num_workers=2, pin_memory=True)
+            lifting_loader = DataLoader(lifting_dataset, batch_size=64, shuffle=False, num_workers=2, pin_memory=True)
 
             model = ConvAutoencoderZeroDecoder(latent_dim=LATENT_DIMENSION).to(DEVICE)
 
-            optimizer = torch.optim.Adam(model.parameters(), lr=LR)
+            if model_type == "lrgroup":
+                coder_params = [p for name, p in model.named_parameters() if 'coder' in name]
+                koopman_params = [p for name, p in model.named_parameters() if 'linear' in name]
+            
+                optimizer = torch.optim.Adam([
+                    {'params': koopman_params, 'lr': LR*2},
+                    {'params': coder_params}
+                ], lr=LR)
+            else:
+                optimizer = torch.optim.Adam(model.parameters(), lr=LR)
 
             trained_model, train_history = train_model(model, loader, lifting_loader, EPOCHS)
 

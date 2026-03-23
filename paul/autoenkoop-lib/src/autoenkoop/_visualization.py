@@ -18,11 +18,11 @@ def plot_eigenvalue_spectrum(eigenvalues, eigenvectors, energies):
 
 
 def plot_vx_vz(vx, vz, norm_x, norm_z):
-    plt.figure(figsize=(10,8))
+    plt.figure(figsize=(10,6))
 
     # --- vx ---
     plt.subplot(2,1,1)
-    plt.imshow(vx.T, origin='lower', aspect='auto', cmap='viridis', norm=norm_x)
+    plt.imshow(vx.T, origin='lower', aspect='auto', cmap='bwr', norm=norm_x)
     plt.colorbar(label='vx')
     plt.title(f"vx")
     plt.xlabel("x-coordinate")
@@ -30,7 +30,7 @@ def plot_vx_vz(vx, vz, norm_x, norm_z):
 
     # --- vz ---
     plt.subplot(2,1,2)
-    plt.imshow(vz.T, origin='lower', aspect='auto', cmap='plasma', norm=norm_z)
+    plt.imshow(vz.T, origin='lower', aspect='auto', cmap='PiYG', norm=norm_z)
     plt.colorbar(label='vz')
     plt.title(f"vz")
     plt.xlabel("x-coordinate")
@@ -42,19 +42,19 @@ def plot_vx_vz(vx, vz, norm_x, norm_z):
 
 def animate_trajectory(trajectory, file_name, norm_x, norm_z):
     n_timesteps = len(trajectory)
-    fig, axes = plt.subplots(2, 1, figsize=(10, 8))
+    fig, axes = plt.subplots(2, 1, figsize=(10, 6))
 
     # Initialize first frame
     vx = trajectory[0][0,:]
     vz = trajectory[0][1,:]
 
-    im_vx = axes[0].imshow(vx.T, origin='lower', aspect='auto', cmap='viridis', norm=norm_x)
+    im_vx = axes[0].imshow(vx.T, origin='lower', aspect='auto', cmap='bwr', norm=norm_x)
     axes[0].set_title("vx at time frame 0")
     axes[0].set_xlabel("x-coordinate")
     axes[0].set_ylabel("z-coordinate")
     fig.colorbar(im_vx, ax=axes[0], label="vx")
 
-    im_vz = axes[1].imshow(vz.T, origin='lower', aspect='auto', cmap='plasma', norm=norm_z)
+    im_vz = axes[1].imshow(vz.T, origin='lower', aspect='auto', cmap='PiYG', norm=norm_z)
     axes[1].set_title("vz")
     axes[1].set_xlabel("x-coordinate")
     axes[1].set_ylabel("z-coordinate")

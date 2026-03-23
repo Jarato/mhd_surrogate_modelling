@@ -50,7 +50,7 @@ def get_min_max(data):
     return (vx_min, vx_max), (vz_min, vz_max)
 
 def center_dataset(data, temp_mean = None):
-    if given_temp_mean is None:
+    if temp_mean is None:
         temp_mean = np.mean(data, axis=0)
     data_centered = data - temp_mean
     return data_centered, temp_mean
