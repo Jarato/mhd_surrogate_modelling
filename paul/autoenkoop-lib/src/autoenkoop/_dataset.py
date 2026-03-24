@@ -19,7 +19,7 @@ class TOffsetDataset(torch.utils.data.Dataset):
         self.X_0 = torch.tensor(data[:-t_offset], dtype=torch.float32).permute(0,3,1,2)
         self.X_t = torch.tensor(data[t_offset:], dtype=torch.float32).permute(0,3,1,2)
         # Now shape: (t, v=2, x=1151, z=127)
-
+        
     def __len__(self):
         return self.X_0.shape[0]
 

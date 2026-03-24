@@ -1,13 +1,14 @@
+import torch
 import os
 import datetime
 import traceback
-from autoenkoop import *
-import torch
 from torch.utils.data import DataLoader
 import numpy as np
 from tqdm import tqdm
 import pandas as pd
 import pydmd
+
+from autoenkoop import *
 
 SEED = 1337
 
@@ -57,7 +58,7 @@ def calculate_linear_weights(model, lift_loader, loader):#, t_steps, latent_dim)
     #K_star = Z1_all @ np.linalg.pinv(Z0_all)
     K_star = (dmd.modes @ np.diag(dmd.eigs) @ np.linalg.pinv(dmd.modes)).real
     with torch.no_grad():
-        K = model.linear_dynamics.weight.detach().cpu().numpy()
+        K = model.linear_dynamics.weight.cpu().detach().numpy()
     
     optimal_residual = Z1_all - K_star @ Z0_all
     model_residual = Z1_all - K @ Z0_all
@@ -87,9 +88,9 @@ def train_model(model, data_loader, lifting_data_loader, num_epochs):
     train_history["lifted_states"] = np.zeros((num_epochs, len(lifting_data_loader.dataset), model.latent_dimension))
     train_history["K"] = np.zeros((num_epochs, model.latent_dimension, model.latent_dimension))
 
-    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, factor=0.9, patience=10, cooldown=5)
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, factor=0.5, patience=10, cooldown=5)
     
-    epoch_progress = tqdm(range(num_epochs))
+    epoch_progress = tqdm(range(num_epochs), dynamic_ncols=True)
 
     for epoch in epoch_progress:
         reconstruction_loss_epoch = 0.0
@@ -100,7 +101,8 @@ def train_model(model, data_loader, lifting_data_loader, num_epochs):
         train_history["lifted_states"][epoch] = Z.T
 
         for x_t, x_t_plus_1 in data_loader:
-            x_t, x_t_plus_1 = x_t.to(DEVICE), x_t_plus_1.to(DEVICE)
+            x_t, x_t_plus_1 = x_t.to(DEVICE, non_blocking=True), x_t_plus_1.to(DEVICE, non_blocking=True)
+            torch.cuda.synchronize()
             batch_size = x_t.size(0)
 
             optimizer.zero_grad()
@@ -156,7 +158,7 @@ def train_model(model, data_loader, lifting_data_loader, num_epochs):
 
         # eigenvalues
         with torch.no_grad():
-            K = model.linear_dynamics.weight.detach().cpu().numpy()
+            K = model.linear_dynamics.weight.cpu().detach().numpy()
             train_history["K"][epoch] = K
 
 
@@ -167,15 +169,15 @@ def train_model(model, data_loader, lifting_data_loader, num_epochs):
         epoch_progress.set_description("L(total): "+"{:.1e}".format(total_loss_mean)+", L(recon): "+"{:.1e}".format(reconstruction_loss_mean)+", L(lin): "+"{:.1e}".format(linearity_loss_mean)+", true_lin: "+"{:.1e}".format(true_latent_linearity_error)+", lin_est: "+"{:.1e}".format(linearity_estimation_error)+f"({estimation_error_portion*100:.0f}%), lr: " + "{:.1e}".format(scheduler.get_last_lr()[0]))
     return model, train_history
     
-LATENT_DIMENSION = 128
+LATENT_DIMENSION = 32
 EPOCHS = 300
 RECON_EPOCH_THRESHOLD = 0
-LR = 2e-4
-LAMBDA_LIN = 1
+LR = 4e-4
+LAMBDA_LIN = 100
 
 model_type = "dmd"#["train", "dmd", "lrgroup"]
 
-RUN_NAME = f"_L{LATENT_DIMENSION}_e{EPOCHS}_lr2e-4_lamlin{LAMBDA_LIN}_{model_type}"
+RUN_NAME = f"_L{LATENT_DIMENSION}_e{EPOCHS}_lr4e-4_lamlin{LAMBDA_LIN}_{model_type}"
 
 if __name__ == '__main__':
     # making a new folder to save the script and the results 
@@ -205,10 +207,10 @@ if __name__ == '__main__':
             train_data, _, _ = load_and_prepare_data(data_path, center_dataset, train_test_split)
 
             dataset = TOffsetDataset(train_data, t_offset=1)
-            loader = DataLoader(dataset, batch_size=64, shuffle=True, num_workers=2, pin_memory=True)
+            loader = DataLoader(dataset, batch_size=64, shuffle=True, num_workers=4, pin_memory=True, persistent_workers=True)
 
             lifting_dataset = SimpleDataset(train_data)
-            lifting_loader = DataLoader(lifting_dataset, batch_size=64, shuffle=False, num_workers=2, pin_memory=True)
+            lifting_loader = DataLoader(lifting_dataset, batch_size=64, shuffle=False, num_workers=4, pin_memory=True, persistent_workers=True)
 
             model = ConvAutoencoderZeroDecoder(latent_dim=LATENT_DIMENSION).to(DEVICE)
 
