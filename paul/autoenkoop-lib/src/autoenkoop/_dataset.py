@@ -64,6 +64,7 @@ def train_test_split(data, cutoff = 0.7):
 def load_and_prepare_data(path, centered=True, test_cutoff = 0.7):
     datafile = np.load(path)
     data = datafile['timeseries']
+    print(data.shape)
     train_data, test_data = train_test_split(data, test_cutoff)
     if centered:
         train_data, temporal_mean = center_dataset(train_data)

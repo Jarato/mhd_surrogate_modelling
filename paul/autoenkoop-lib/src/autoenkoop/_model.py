@@ -161,6 +161,7 @@ class ConvAutoencoder(nn.Module):
             nn.GELU(),
             nn.BatchNorm1d(self.intermediate_dimension) if norm_type=="batch" else nn.LayerNorm(self.intermediate_dimension),
             nn.Linear(self.intermediate_dimension, self.latent_dimension, bias=bias_terms),
+            nn.LayerNorm(self.latent_dimension),
         )
 
         # Decoder
