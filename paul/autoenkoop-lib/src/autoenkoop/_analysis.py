@@ -66,3 +66,45 @@ def calculate_eigenmode_structures(eigenvectors, model, device = "cpu"):
         for vec in eigenvectors.T:
             modes.append(model.decoder(torch.FloatTensor(vec.real).unsqueeze(0).to(device)).squeeze(0).cpu().numpy())
     return modes
+
+def get_multi_step_predictor(K, threshold=0.01):
+    """
+    Returns a function that predicts all steps from 1 to m simultaneously.
+    """
+    # 1. Eigendecomposition
+    L, V = torch.linalg.eig(K)
+    
+    # 2. Filter non-decaying modes
+    mask = torch.abs(L) > (1.0 - threshold)
+    L_r = L[mask]    # Shape: (r,)
+    V_r = V[:, mask] # Shape: (N, r)
+    
+    # 3. Left eigenvectors for projection
+    V_inv_r = torch.linalg.pinv(V_r) # Shape: (r, N)
+
+    def predict_m_steps(z_t, m):
+        """
+        z_t: initial lifted state (N,)
+        m: number of future steps to predict
+        Returns: tensor of shape (m, N) containing all predictions
+        """
+        # Step A: Initial projection to get mode weights (b_0)
+        # Shape: (r,)
+        b_0 = torch.mv(V_inv_r, z_t.to(V_inv_r.dtype))
+        
+        # Step B: Create a range of time steps [1, 2, ..., m]
+        steps = torch.arange(0, m + 1, device=K.device).reshape(-1, 1) # Shape: (m, 1)
+        
+        # Step C: Compute (L_r)^steps using broadcasting
+        # L_r is (r,), steps is (m, 1) -> result is (m, r)
+        # This gives us the weights for every mode at every time step
+        L_pow = torch.pow(L_r, steps) 
+        b_future = L_pow * b_0 # Element-wise broadcasting: (m, r)
+        
+        # Step D: Map all weights back to the lifted state space
+        # (m, r) @ (r, N) -> (m, N)
+        z_future = torch.matmul(b_future, V_r.T)
+        
+        return z_future.real
+        
+    return predict_m_steps, L_r

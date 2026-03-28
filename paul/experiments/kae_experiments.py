@@ -59,7 +59,10 @@ def calculate_linear_weights(model, lift_loader, loader):#, t_steps, latent_dim)
 
     K_star = (dmd.modes @ np.diag(dmd.eigs) @ np.linalg.pinv(dmd.modes)).real
     with torch.no_grad():
-        K = model.linear_dynamics.weight.cpu().detach().numpy()
+        if model_type == "dmd":
+            K = K_star
+        else:
+            K = model.linear_dynamics.weight.cpu().detach().numpy()
 
     optimal_residual = Z1_all - K_star @ Z0_all
     model_residual = Z1_all - K @ Z0_all
@@ -158,32 +161,36 @@ def train_model(model, data_loader, lifting_data_loader, num_epochs):
         # eigenvalues
         with torch.no_grad():
             if model_type == "dmd":
-                K = lin_weights
+                K = lin_weights.cpu().numpy()
             else:
                 K = model.linear_dynamics.weight.cpu().detach().numpy()
             train_history["K"][epoch] = K
 
-        epoch_progress.set_description("L(total): "+"{:.1e}".format(total_loss_mean)+", L(recon): "+"{:.1e}".format(reconstruction_loss_mean)+", L(lin): "+"{:.1e}".format(linearity_loss_mean)+", true_lin: "+"{:.1e}".format(true_latent_linearity_error)+", lin_est: "+"{:.1e}".format(linearity_estimation_error)+f"({estimation_error_portion*100:.0f}%), lr: " + "{:.1e}".format(scheduler.get_last_lr()[0]))
+        epoch_progress.set_description("L(total): "+"{:.1e}".format(total_loss_mean)+", L(recon): "+"{:.1e}".format(reconstruction_loss_mean)+", L(lin): "+"{:.1e}".format(linearity_loss_mean)+", true_lin: "+"{:.1e}".format(irreducible_linearity_error)+", lin_est: "+"{:.1e}".format(linearity_estimation_error)+f"({estimation_error_portion*100:.0f}%), lr: " + "{:.1e}".format(scheduler.get_last_lr()[0]))
     return model, train_history
     
-LATENT_DIMENSION = 32 #[512, 128, 32]
+    
+LATENT_DIMENSION = 16 #[512, 128, 32]
 EPOCHS = 300
-#RECON_EPOCH_THRESHOLD = 5
-LR = 2e-4
+RECON_EPOCH_THRESHOLD = 10
+LR = 1e-4
 LAMBDA_LIN = 1 # [1, 10]
-USEBIAS = True
+USEBIAS = False
 NORMTYPE = "batch" #["batch", "layer"]
-model_type = "train" #["train", "dmd", "lrgroup"]
+NORMLATENT = True
+model_type = "dmd" #["train", "dmd"]
+
 
 use_bias_label = "bias" if USEBIAS else "nobias"
-RUN_NAME = f"_L{LATENT_DIMENSION}_{use_bias_label}_norm{NORMTYPE}_lamlin{LAMBDA_LIN}_{model_type}"
+norm_latent_label = "norm" if NORMLATENT else "nonorm"
+RUN_NAME = f"_L{LATENT_DIMENSION}_{model_type}_{NORMTYPE}_{norm_latent_label}_{use_bias_label}_wlin{LAMBDA_LIN}"
 
 if __name__ == '__main__':
     # making a new folder to save the script and the results 
     script_name = os.path.basename(__file__)[:-3] # remove the ".py"
     script_dir = os.path.dirname(os.path.abspath(__file__))
-    timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    folder_name = os.path.join(script_dir, "results", f"{script_name}", f"run_{timestamp}"+RUN_NAME)
+    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    folder_name = os.path.join(script_dir, "results", f"{script_name}", f"{timestamp}"+RUN_NAME)
     os.makedirs(folder_name, exist_ok=True)
 
 
@@ -211,7 +218,7 @@ if __name__ == '__main__':
             lifting_dataset = SimpleDataset(train_data)
             lifting_loader = DataLoader(lifting_dataset, batch_size=64, shuffle=False, num_workers=4, pin_memory=True, persistent_workers=True)
 
-            model = ConvAutoencoder(latent_dim=LATENT_DIMENSION, bias_terms=USEBIAS, norm_type=NORMTYPE).to(DEVICE)
+            model = ConvAutoencoder(latent_dim=LATENT_DIMENSION, bias_terms=USEBIAS, norm_type=NORMTYPE, norm_latent=NORMLATENT).to(DEVICE)
 
             if model_type == "lrgroup":
                 coder_params = [p for name, p in model.named_parameters() if 'coder' in name]
@@ -219,7 +226,7 @@ if __name__ == '__main__':
             
                 optimizer = torch.optim.Adam([
                     {'params': coder_params, 'lr': LR},
-                    {'params': koopman_params, 'lr': LR*2}
+                    {'params': koopman_params, 'lr': LR*0.5}
                 ])
             else:
                 optimizer = torch.optim.Adam(model.parameters(), lr=LR)

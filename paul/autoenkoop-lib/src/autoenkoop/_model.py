@@ -135,7 +135,7 @@ class ConvAutoencoderZeroDecoder(nn.Module):
         return x_t_plus_1
 
 class ConvAutoencoder(nn.Module):
-    def __init__(self, latent_dim, intermediate_dim = 1024, bias_terms=True, norm_type="batch"): # "layer"
+    def __init__(self, latent_dim, intermediate_dim = 1024, bias_terms=True, norm_type="batch", norm_latent=True): # "layer"
         super().__init__()
 
         self.latent_dimension = latent_dim
@@ -143,49 +143,55 @@ class ConvAutoencoder(nn.Module):
         self.flattened_dim = 73728
         self.pre_2d_shape = (128, 72, 8)
         # Encoder
+        
+        if norm_latent:
+            last_encoder_entry = nn.BatchNorm1d(self.latent_dimension, affine=bias_terms) if norm_type=="batch" else nn.RMSNorm(self.latent_dimension, elementwise_affine=bias_terms)
+        else:
+            last_encoder_entry = nn.Identity()
+        
         self.encoder = nn.Sequential(
             nn.Conv2d(2, 16, kernel_size=3, stride=2, padding=1, bias=bias_terms),
             nn.GELU(),
-            nn.BatchNorm2d(16) if norm_type=="batch" else nn.GroupNorm(1, 16),
+            nn.BatchNorm2d(16, affine=bias_terms) if norm_type=="batch" else nn.GroupNorm(1, 16, affine=bias_terms),
             nn.Conv2d(16, 32, kernel_size=3, stride=2, padding=1, bias=bias_terms),
             nn.GELU(),
-            nn.BatchNorm2d(32) if norm_type=="batch" else nn.GroupNorm(1, 32),
+            nn.BatchNorm2d(32, affine=bias_terms) if norm_type=="batch" else nn.GroupNorm(1, 32, affine=bias_terms),
             nn.Conv2d(32, 64, kernel_size=3, stride=2, padding=1, bias=bias_terms),
             nn.GELU(),
-            nn.BatchNorm2d(64) if norm_type=="batch" else nn.GroupNorm(1, 64),
+            nn.BatchNorm2d(64, affine=bias_terms) if norm_type=="batch" else nn.GroupNorm(1, 64, affine=bias_terms),
             nn.Conv2d(64, 128, kernel_size=3, stride=2, padding=1, bias=bias_terms),
             nn.GELU(),
-            nn.BatchNorm2d(128) if norm_type=="batch" else nn.GroupNorm(1, 128),
+            nn.BatchNorm2d(128, affine=bias_terms) if norm_type=="batch" else nn.GroupNorm(1, 128, affine=bias_terms),
             nn.Flatten(),
             nn.Linear(self.flattened_dim, self.intermediate_dimension, bias=bias_terms),
             nn.GELU(),
-            nn.BatchNorm1d(self.intermediate_dimension) if norm_type=="batch" else nn.LayerNorm(self.intermediate_dimension),
+            nn.BatchNorm1d(self.intermediate_dimension, affine=bias_terms) if norm_type=="batch" else nn.LayerNorm(self.intermediate_dimension, elementwise_affine=bias_terms),
             nn.Linear(self.intermediate_dimension, self.latent_dimension, bias=bias_terms),
-            nn.LayerNorm(self.latent_dimension),
+            last_encoder_entry#nn.BatchNorm1d(self.latent_dimension, affine=bias_terms) if norm_type=="batch" else nn.RMSNorm(self.latent_dimension, elementwise_affine=bias_terms)
         )
 
         # Decoder
         self.decoder = nn.Sequential(
             nn.Linear(self.latent_dimension, self.intermediate_dimension, bias=bias_terms),
             nn.GELU(),
-            nn.BatchNorm1d(self.intermediate_dimension) if norm_type=="batch" else nn.LayerNorm(self.intermediate_dimension),
+            nn.BatchNorm1d(self.intermediate_dimension, affine=bias_terms) if norm_type=="batch" else nn.LayerNorm(self.intermediate_dimension, elementwise_affine=bias_terms),
             nn.Linear(self.intermediate_dimension, self.flattened_dim, bias=bias_terms),
             nn.GELU(),
             nn.Unflatten(1, self.pre_2d_shape),
-            nn.BatchNorm2d(128) if norm_type=="batch" else nn.GroupNorm(1, 128),
+            nn.BatchNorm2d(128, affine=bias_terms) if norm_type=="batch" else nn.GroupNorm(1, 128, affine=bias_terms),
             nn.ConvTranspose2d(128, 64, kernel_size=3, stride=2, padding=1, output_padding=1, bias=bias_terms),
             nn.GELU(),
-            nn.BatchNorm2d(64) if norm_type=="batch" else nn.GroupNorm(1, 64),
+            nn.BatchNorm2d(64, affine=bias_terms) if norm_type=="batch" else nn.GroupNorm(1, 64, affine=bias_terms),
             nn.ConvTranspose2d(64, 32, kernel_size=3, stride=2, padding=1, output_padding=1, bias=bias_terms),
             nn.GELU(),
-            nn.BatchNorm2d(32) if norm_type=="batch" else nn.GroupNorm(1, 32),
+            nn.BatchNorm2d(32, affine=bias_terms) if norm_type=="batch" else nn.GroupNorm(1, 32, affine=bias_terms),
             nn.ConvTranspose2d(32, 16, kernel_size=3, stride=2, padding=1, output_padding=1, bias=bias_terms),
             nn.GELU(),
-            nn.BatchNorm2d(16) if norm_type=="batch" else nn.GroupNorm(1, 16),
+            nn.BatchNorm2d(16, affine=bias_terms) if norm_type=="batch" else nn.GroupNorm(1, 16, affine=bias_terms),
             nn.ConvTranspose2d(16, 2, kernel_size=3, stride=2, padding=1, output_padding=0, bias=bias_terms)
         )
 
-        self.linear_dynamics = nn.Linear(self.latent_dimension, self.latent_dimension, bias=bias_terms)
+        self.linear_dynamics = nn.Linear(self.latent_dimension, self.latent_dimension, bias=False)
 
 
     def forward(self, x_t):
