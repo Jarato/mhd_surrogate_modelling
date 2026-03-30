@@ -90,7 +90,7 @@ def train_model(model, data_loader, lifting_data_loader, num_epochs):
     train_history["lr"] = np.zeros((num_epochs))
     train_history["K"] = np.zeros((num_epochs, model.latent_dimension, model.latent_dimension))
 
-    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, factor=0.5, patience=10, cooldown=5)
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, factor=0.8, patience=10, cooldown=5)
     
     epoch_progress = tqdm(range(num_epochs), dynamic_ncols=True)
 
@@ -116,20 +116,17 @@ def train_model(model, data_loader, lifting_data_loader, num_epochs):
             reconstructed_x_t = model.decoder(z_t)
             reconstructed_x_t_plus_1 = model.decoder(z_t_plus_1)
             #linear projected encoded next state
-            #pz_t_plus_s = z_t
             if model_type == "dmd":
-                pz_t_plus_s = torch.nn.functional.linear(z_t, lin_weights)
-                #pz_t_plus_1 = torch.nn.functional.linear(z_t, lin_weights)
+                pz_t_plus_1 = torch.nn.functional.linear(z_t, lin_weights)
             else:
-                pz_t_plus_s = model.linear_dynamics(z_t)
-                #pz_t_plus_1 = model.linear_dynamics(z_t)
+                pz_t_plus_1 = model.linear_dynamics(z_t)
             #projected decoded next state
 
             ### RECONSTRUCTION LOSS ###
             loss_reconstruction = 0.5*(mse(x_t, reconstructed_x_t) + mse(x_t_plus_1, reconstructed_x_t_plus_1))
 
             ### LINEARITY LOSS ###
-            loss_linearity = relmse(pz_t_plus_s, z_t_plus_1)#mse(pz_t_plus_1, z_t_plus_1) #relmse(pz_t_plus_1, z_t_plus_1)
+            loss_linearity = relmse(pz_t_plus_1, z_t_plus_1)#mse(pz_t_plus_1, z_t_plus_1) #relmse(pz_t_plus_1, z_t_plus_1)
 
             ### TOTAL LOSS ###
             if epoch >= RECON_EPOCH_THRESHOLD:
@@ -170,7 +167,7 @@ def train_model(model, data_loader, lifting_data_loader, num_epochs):
                 K = model.linear_dynamics.weight.cpu().detach().numpy()
             train_history["K"][epoch] = K
 
-        epoch_progress.set_description("L(total): "+"{:.1e}".format(total_loss_mean)+", L(recon): "+"{:.2e}".format(reconstruction_loss_mean)+", L(lin): "+"{:.1e}".format(linearity_loss_mean)+", true_lin: "+"{:.1e}".format(irreducible_linearity_error)+", lin_est: "+"{:.1e}".format(linearity_estimation_error)+f"({estimation_error_portion*100:.0f}%), lr: " + "{:.1e}".format(scheduler.get_last_lr()[0]))
+        epoch_progress.set_description("L(total): "+"{:.1e}".format(total_loss_mean)+", L(recon): "+"{:.1e}".format(reconstruction_loss_mean)+", L(lin): "+"{:.1e}".format(linearity_loss_mean)+", true_lin: "+"{:.1e}".format(irreducible_linearity_error)+", lin_est: "+"{:.1e}".format(linearity_estimation_error)+f"({estimation_error_portion*100:.0f}%), lr: " + "{:.1e}".format(scheduler.get_last_lr()[0]))
     return model, train_history
     
     
@@ -180,15 +177,15 @@ RECON_EPOCH_THRESHOLD = 10
 LR = 1e-4
 LAMBDA_LIN = 1 # [1, 10]
 USEBIAS = False
-WEIGHTSTD = False
-NUM_STEPS = 1
-NORMTYPE = "batch" #["batch", "layer", "standard", "norm"]
+WEIGHTSTD = True
+NUM_STEPS = 5
+NORMTYPE = "none" #["batch", "layer"]
 NORMLATENT = "none" #["layer", "batch", "none"]
 model_type = "dmd" #["train", "dmd"]
 
 use_bias_label = "bias" if USEBIAS else "nobias"
 weightstd_label = "weightstd" if WEIGHTSTD else "none"
-RUN_NAME = f"_L{LATENT_DIMENSION}_{model_type}_{weightstd_label}_{NORMTYPE}_{NORMLATENT}_{use_bias_label}_wlin{LAMBDA_LIN}_{NUM_STEPS}"
+RUN_NAME = f"_L{LATENT_DIMENSION}_{model_type}_{weightstd_label}_{NORMTYPE}_{NORMLATENT}_{use_bias_label}_wlin{LAMBDA_LIN}"
 
 if __name__ == '__main__':
     # making a new folder to save the script and the results 
@@ -217,8 +214,8 @@ if __name__ == '__main__':
             train_test_split = 0.7
             train_data, _, _ = load_and_prepare_data(data_path, center_dataset, train_test_split)
 
-            dataset = TOffsetDataset(train_data, t_offset=NUM_STEPS)
-            loader = DataLoader(dataset, batch_size=64, shuffle=True, num_workers=4, pin_memory=True, persistent_workers=True)
+            dataset = TOffsetDataset(train_data, t_offset=1)
+            loader = DataLoader(dataset, batch_size=64, shuffle=False, num_workers=4, pin_memory=True, persistent_workers=True)
 
             lifting_dataset = SimpleDataset(train_data)
             lifting_loader = DataLoader(lifting_dataset, batch_size=64, shuffle=False, num_workers=4, pin_memory=True, persistent_workers=True)
