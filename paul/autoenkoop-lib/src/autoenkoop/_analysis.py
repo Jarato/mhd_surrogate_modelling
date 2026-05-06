@@ -67,13 +67,19 @@ def calculate_eigenmode_structures(eigenvectors, model, device = "cpu"):
             modes.append(model.decoder(torch.FloatTensor(vec.real).unsqueeze(0).to(device)).squeeze(0).cpu().numpy())
     return modes
 
-def get_multi_step_predictor(K, threshold=0.01):
+def get_multi_step_predictor_K(K, threshold=1.0):
     """
     Returns a function that predicts all steps from 1 to m simultaneously.
     """
     # 1. Eigendecomposition
     L, V = torch.linalg.eig(K)
     
+    return get_multi_step_predictor_VL(L, V, K.device, threshold)
+
+def get_multi_step_predictor_VL(L, V, device, threshold=1.0):
+    """
+    Returns a function that predicts all steps from 1 to m simultaneously.
+    """
     # 2. Filter non-decaying modes
     mask = torch.abs(L) > (1.0 - threshold)
     L_r = L[mask]    # Shape: (r,)
@@ -93,7 +99,7 @@ def get_multi_step_predictor(K, threshold=0.01):
         b_0 = torch.mv(V_inv_r, z_t.to(V_inv_r.dtype))
         
         # Step B: Create a range of time steps [1, 2, ..., m]
-        steps = torch.arange(0, m + 1, device=K.device).reshape(-1, 1) # Shape: (m, 1)
+        steps = torch.arange(0, m + 1, device=device).reshape(-1, 1) # Shape: (m, 1)
         
         # Step C: Compute (L_r)^steps using broadcasting
         # L_r is (r,), steps is (m, 1) -> result is (m, r)

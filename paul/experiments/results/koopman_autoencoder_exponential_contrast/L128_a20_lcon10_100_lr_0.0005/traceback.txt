@@ -1,5 +1,0 @@
-Traceback (most recent call last):
-  File "c:\Users\paulf\projekte\MHD\mhd_surrogate_modelling\paul\experiments\koopman_autoencoder_exponential_contrast.py", line 171, in <module>
-    losses_history = np.stack([history[key] for key in train_history], axis=1)
-                               ^^^^^^^
-NameError: name 'history' is not defined

@@ -1,0 +1,11 @@
+The code base splits the functionality into three separate parts:
+1) Experiment
+The experiment part covers all runs of scientific experiments and stores the raw data, e.g. training losses, weights of trained model. 
+Here, we also store the scripts that ran the experiment.
+
+2) Analysis
+The analysis part only takes the raw data and trained models from the experiments and produces analysis data, e.g. prediction performance on test sets.
+
+3) Visualization
+The visualization only takes the analysis data, never the raw data
+

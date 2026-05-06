@@ -1,6 +1,11 @@
 *.pt
 *.npz
 *.gif
+*.npy
+*.png
+*.csv
+traceback.txt
+paul/experiments/results
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

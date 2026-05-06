@@ -4,7 +4,7 @@ import numpy as np
 from matplotlib.animation import FuncAnimation, PillowWriter
 
 
-def plot_eigenvalue_spectrum(eigenvalues, eigenvectors, energies):
+def plot_eigenvalue_spectrum(eigenvalues, energies):
     plt.figure(figsize=(11,9))
     plt.axis([-1.1, 1.1, -1.1, 1.1])
     sc = plt.scatter(np.real(eigenvalues), np.imag(eigenvalues), c=energies, cmap='plasma', s=50)
@@ -37,27 +37,25 @@ def plot_vx_vz(vx, vz, norm_x, norm_z):
     plt.ylabel("z-coordinate")
 
     plt.tight_layout()
-    plt.show()
-
 
 def animate_trajectory(trajectory, file_name, norm_x, norm_z):
     n_timesteps = len(trajectory)
     fig, axes = plt.subplots(2, 1, figsize=(10, 6))
-
+    plt.axes.Axes.set_aspect("equal")
     # Initialize first frame
     vx = trajectory[0][0,:]
     vz = trajectory[0][1,:]
-
+    plt.title(r"$t = 0$")
     im_vx = axes[0].imshow(vx.T, origin='lower', aspect='auto', cmap='bwr', norm=norm_x)
-    axes[0].set_title("vx at time frame 0")
-    axes[0].set_xlabel("x-coordinate")
-    axes[0].set_ylabel("z-coordinate")
+    axes[0].set_title(r"$v_x$")
+    axes[0].set_xlabel("x-index")
+    axes[0].set_ylabel("z-index")
     fig.colorbar(im_vx, ax=axes[0], label="vx")
 
     im_vz = axes[1].imshow(vz.T, origin='lower', aspect='auto', cmap='PiYG', norm=norm_z)
-    axes[1].set_title("vz")
-    axes[1].set_xlabel("x-coordinate")
-    axes[1].set_ylabel("z-coordinate")
+    axes[1].set_title(r"$v_z$")
+    axes[1].set_xlabel("x-index")
+    axes[1].set_ylabel("z-index")
     fig.colorbar(im_vz, ax=axes[1], label="vz")
 
     plt.tight_layout()
